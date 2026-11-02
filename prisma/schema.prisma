@@ -1,0 +1,188 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ========================
+// CUSTOMER & DEVICE ASSETS
+// ========================
+
+model Customer {
+  id          String    @id @default(uuid())
+  fullName    String
+  phoneNumber String    @unique
+  email       String?
+  address     String?
+  notes       String?
+
+  devices     Device[]
+  tickets     Ticket[]
+  invoices    Invoice[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([phoneNumber])
+  @@index([fullName])
+}
+
+model Device {
+  id           String    @id @default(uuid())
+  customerId   String
+  type         String    @default("SMARTPHONE") // SMARTPHONE, LAPTOP, CONSOLE, TABLET, OTHER
+  make         String    // e.g. "Apple", "Dell", "Sony"
+  model        String    // e.g. "iPhone 15 Pro", "XPS 15 9520"
+  serialNumber String?   // IMEI or Serial
+  passcode     String?   // intake PIN/unlock pattern
+  color        String?
+  condition    String?   // Pre-repair cosmetic assessment JSON
+
+  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  tickets      Ticket[]
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([customerId])
+  @@index([serialNumber])
+}
+
+// ========================
+// TICKET & STATE MACHINE
+// ========================
+
+model Ticket {
+  id               String       @id @default(uuid())
+  ticketNumber     String       @unique // Sequential: 1, 2, 3...
+  customerId       String
+  deviceId         String
+
+  status           String       @default("PENDING") // PENDING, IN_PROGRESS, WAITING_ON_PARTS, COMPLETED, CANCELLED
+  priority         String       @default("STANDARD") // LOW, STANDARD, URGENT
+
+  faultDescription String
+  technicianNote   String?
+  benchNumber      String       @default("Bench #04")
+  assignedTech     String       @default("Alex Mercer")
+
+  priceInCents     Int          // Integer cents (e.g. 8499 = $84.99)
+  discountInCents  Int          @default(0)
+  dueDate          DateTime
+  completedAt      DateTime?
+  warrantyExpiresAt DateTime?
+
+  // Relations
+  customer         Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  device           Device       @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  partsUsed        TicketPart[]
+  history          TicketStatusHistory[]
+  invoice          Invoice?
+
+  // Optimistic locking & soft delete
+  version          Int          @default(1)
+  deletedAt        DateTime?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+
+  @@index([status])
+  @@index([dueDate])
+  @@index([customerId])
+  @@index([deviceId])
+}
+
+model TicketStatusHistory {
+  id         String   @id @default(uuid())
+  ticketId   String
+  fromStatus String
+  toStatus   String
+  changedBy  String   @default("Alex Mercer")
+  note       String?
+  createdAt  DateTime @default(now())
+
+  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+
+  @@index([ticketId])
+}
+
+// ========================
+// INVENTORY & PARTS
+// ========================
+
+model InventoryPart {
+  id             String       @id @default(uuid())
+  sku            String       @unique
+  name           String
+  category       String       // SCREEN, BATTERY, CHARGING_PORT, FAN, LOGIC_BOARD, GENERAL
+  costInCents    Int
+  retailInCents  Int
+  stockQuantity  Int          @default(0)
+  reorderPoint   Int          @default(2)
+  supplier       String?
+
+  ticketUsages   TicketPart[]
+
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+}
+
+model TicketPart {
+  id              String        @id @default(uuid())
+  ticketId        String
+  partId          String?
+  customName      String?       // For custom labor or ad-hoc items
+  quantity        Int           @default(1)
+  unitCostInCents Int
+  unitSellInCents Int
+
+  ticket          Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  part            InventoryPart? @relation(fields: [partId], references: [id], onDelete: SetNull)
+
+  createdAt       DateTime      @default(now())
+
+  @@index([ticketId])
+  @@index([partId])
+}
+
+// ========================
+// INVOICE & PAYMENTS
+// ========================
+
+model Invoice {
+  id                String    @id @default(uuid())
+  invoiceNumber     String    @unique
+  ticketId          String    @unique
+  customerId        String
+
+  subtotalInCents   Int
+  taxInCents        Int
+  totalInCents      Int
+  amountPaidInCents Int       @default(0)
+  status            String    @default("UNPAID") // UNPAID, PARTIALLY_PAID, PAID
+
+  ticket            Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  customer          Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  payments          Payment[]
+
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@index([customerId])
+}
+
+model Payment {
+  id             String   @id @default(uuid())
+  invoiceId      String
+  amountInCents  Int
+  method         String   // CASH, CREDIT_CARD, DEBIT, STRIPE
+  transactionRef String?
+  notes          String?
+
+  invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  createdAt      DateTime @default(now())
+
+  @@index([invoiceId])
+}
