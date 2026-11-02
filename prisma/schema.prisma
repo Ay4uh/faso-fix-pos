@@ -1,188 +1,147 @@
 datasource db {
   provider = "sqlite"
-  url      = "file:./dev.db"
+  url      = env("DATABASE_URL")
 }
 
 generator client {
   provider = "prisma-client-js"
 }
 
-// ========================
-// CUSTOMER & DEVICE ASSETS
-// ========================
+// Single-row shop configuration (id is always 1).
+model Setting {
+  id               Int      @id @default(1)
+  shopName         String   @default("My Repair Shop")
+  address          String   @default("")
+  phone            String   @default("")
+  email            String   @default("")
+  taxLabel         String   @default("HST")
+  taxRateBps       Int      @default(1300) // basis points: 1300 = 13.00%
+  warrantyDays     Int      @default(90)
+  technicians      String   @default("") // newline separated
+  benches          String   @default("") // newline separated
+  receiptFooter    String   @default("Please back up your data. Devices left unclaimed for 30 days may incur storage fees.")
+  nextTicketNumber Int      @default(1) // sequential work order counter
+  updatedAt        DateTime @updatedAt
+}
 
 model Customer {
-  id          String    @id @default(uuid())
+  id          String   @id @default(uuid())
   fullName    String
-  phoneNumber String    @unique
+  phone       String // as entered, for display
+  phoneDigits String   @unique // digits only, used for de-duplication
   email       String?
   address     String?
   notes       String?
-
   devices     Device[]
   tickets     Ticket[]
-  invoices    Invoice[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-
-  @@index([phoneNumber])
   @@index([fullName])
 }
 
 model Device {
-  id           String    @id @default(uuid())
+  id           String   @id @default(uuid())
   customerId   String
-  type         String    @default("SMARTPHONE") // SMARTPHONE, LAPTOP, CONSOLE, TABLET, OTHER
-  make         String    // e.g. "Apple", "Dell", "Sony"
-  model        String    // e.g. "iPhone 15 Pro", "XPS 15 9520"
-  serialNumber String?   // IMEI or Serial
-  passcode     String?   // intake PIN/unlock pattern
-  color        String?
-  condition    String?   // Pre-repair cosmetic assessment JSON
-
-  customer     Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  name         String // e.g. "Apple iPhone 15 Pro"
+  serialNumber String?
+  passcode     String?
+  pattern      String? // unlock pattern as dot order, e.g. "1-2-5-8"
+  condition    String? // intake cosmetic notes, comma separated
+  customer     Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
   tickets      Ticket[]
-
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
   @@index([customerId])
   @@index([serialNumber])
 }
 
-// ========================
-// TICKET & STATE MACHINE
-// ========================
-
 model Ticket {
-  id               String       @id @default(uuid())
-  ticketNumber     String       @unique // Sequential: 1, 2, 3...
+  id               String        @id @default(uuid())
+  ticketNumber     Int           @unique
   customerId       String
   deviceId         String
-
-  status           String       @default("PENDING") // PENDING, IN_PROGRESS, WAITING_ON_PARTS, COMPLETED, CANCELLED
-  priority         String       @default("STANDARD") // LOW, STANDARD, URGENT
-
+  status           String        @default("PENDING") // PENDING | IN_PROGRESS | WAITING_ON_PARTS | COMPLETED
+  priority         String        @default("STANDARD") // LOW | STANDARD | URGENT
   faultDescription String
-  technicianNote   String?
-  benchNumber      String       @default("Bench #04")
-  assignedTech     String       @default("Alex Mercer")
-
-  priceInCents     Int          // Integer cents (e.g. 8499 = $84.99)
-  discountInCents  Int          @default(0)
+  laborCents       Int           @default(0) // service / labor charge quoted at intake
+  discountCents    Int           @default(0)
+  taxRateBps       Int // tax rate snapshot taken when the ticket was created
+  technician       String?
+  bench            String?
+  storageBin       String?
+  diagnostics      String        @default("{}") // JSON map of QA check -> PASS | FAIL
   dueDate          DateTime
   completedAt      DateTime?
-  warrantyExpiresAt DateTime?
-
-  // Relations
-  customer         Customer     @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  device           Device       @relation(fields: [deviceId], references: [id], onDelete: Restrict)
-  partsUsed        TicketPart[]
-  history          TicketStatusHistory[]
-  invoice          Invoice?
-
-  // Optimistic locking & soft delete
-  version          Int          @default(1)
   deletedAt        DateTime?
-  createdAt        DateTime     @default(now())
-  updatedAt        DateTime     @updatedAt
+  customer         Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  device           Device        @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  items            TicketItem[]
+  payments         Payment[]
+  events           TicketEvent[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
 
   @@index([status])
   @@index([dueDate])
   @@index([customerId])
-  @@index([deviceId])
 }
 
-model TicketStatusHistory {
-  id         String   @id @default(uuid())
-  ticketId   String
-  fromStatus String
-  toStatus   String
-  changedBy  String   @default("Alex Mercer")
-  note       String?
-  createdAt  DateTime @default(now())
-
-  ticket     Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+// Parts and extra labor lines attached to a ticket. Description and prices are
+// snapshotted so later inventory edits never change a past work order.
+model TicketItem {
+  id             String         @id @default(uuid())
+  ticketId       String
+  partId         String?
+  description    String
+  quantity       Int            @default(1)
+  unitPriceCents Int
+  unitCostCents  Int            @default(0)
+  ticket         Ticket         @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  part           InventoryPart? @relation(fields: [partId], references: [id], onDelete: SetNull)
+  createdAt      DateTime       @default(now())
 
   @@index([ticketId])
-}
-
-// ========================
-// INVENTORY & PARTS
-// ========================
-
-model InventoryPart {
-  id             String       @id @default(uuid())
-  sku            String       @unique
-  name           String
-  category       String       // SCREEN, BATTERY, CHARGING_PORT, FAN, LOGIC_BOARD, GENERAL
-  costInCents    Int
-  retailInCents  Int
-  stockQuantity  Int          @default(0)
-  reorderPoint   Int          @default(2)
-  supplier       String?
-
-  ticketUsages   TicketPart[]
-
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-}
-
-model TicketPart {
-  id              String        @id @default(uuid())
-  ticketId        String
-  partId          String?
-  customName      String?       // For custom labor or ad-hoc items
-  quantity        Int           @default(1)
-  unitCostInCents Int
-  unitSellInCents Int
-
-  ticket          Ticket        @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  part            InventoryPart? @relation(fields: [partId], references: [id], onDelete: SetNull)
-
-  createdAt       DateTime      @default(now())
-
-  @@index([ticketId])
-  @@index([partId])
-}
-
-// ========================
-// INVOICE & PAYMENTS
-// ========================
-
-model Invoice {
-  id                String    @id @default(uuid())
-  invoiceNumber     String    @unique
-  ticketId          String    @unique
-  customerId        String
-
-  subtotalInCents   Int
-  taxInCents        Int
-  totalInCents      Int
-  amountPaidInCents Int       @default(0)
-  status            String    @default("UNPAID") // UNPAID, PARTIALLY_PAID, PAID
-
-  ticket            Ticket    @relation(fields: [ticketId], references: [id], onDelete: Cascade)
-  customer          Customer  @relation(fields: [customerId], references: [id], onDelete: Restrict)
-  payments          Payment[]
-
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
-
-  @@index([customerId])
 }
 
 model Payment {
-  id             String   @id @default(uuid())
-  invoiceId      String
-  amountInCents  Int
-  method         String   // CASH, CREDIT_CARD, DEBIT, STRIPE
-  transactionRef String?
-  notes          String?
+  id          String   @id @default(uuid())
+  ticketId    String
+  amountCents Int
+  method      String // CASH | CARD | DEBIT | E_TRANSFER | OTHER
+  note        String?
+  ticket      Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  createdAt   DateTime @default(now())
 
-  invoice        Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-  createdAt      DateTime @default(now())
+  @@index([ticketId])
+  @@index([createdAt])
+}
 
-  @@index([invoiceId])
+// Append-only activity log: status changes, notes, payments, parts.
+model TicketEvent {
+  id        String   @id @default(uuid())
+  ticketId  String
+  kind      String // STATUS | CUSTOMER_NOTE | INTERNAL_NOTE | PAYMENT | ITEM | MESSAGE | SYSTEM
+  message   String
+  author    String?
+  ticket    Ticket   @relation(fields: [ticketId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([ticketId])
+}
+
+model InventoryPart {
+  id           String       @id @default(uuid())
+  sku          String       @unique
+  name         String
+  category     String       @default("GENERAL")
+  costCents    Int          @default(0)
+  priceCents   Int          @default(0)
+  stock        Int          @default(0)
+  reorderPoint Int          @default(2)
+  supplier     String?
+  items        TicketItem[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
 }

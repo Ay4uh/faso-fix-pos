@@ -272,18 +272,18 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     </div>
                     <div className="text-[11px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
                       <Phone className="w-2.5 h-2.5 text-slate-400" />
-                      {t.customer.phoneNumber}
+                      {t.customer.phone}
                     </div>
                   </td>
 
                   {/* Device Info */}
                   <td className="py-2.5 px-4">
                     <div className="font-bold text-slate-900 leading-tight">
-                      {t.deviceMakeModel}
+                      {t.device?.name || 'Device'}
                     </div>
-                    {t.serialNumber && (
+                    {t.device?.serialNumber && (
                       <div className="text-[10px] text-slate-400 font-mono mt-0.5">
-                        {t.serialNumber}
+                        {t.device.serialNumber}
                       </div>
                     )}
                   </td>
@@ -300,7 +300,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
 
                   {/* Price */}
                   <td className="py-2.5 px-4 font-bold text-slate-900 font-mono whitespace-nowrap">
-                    ${t.price.toFixed(2)}
+                    ${((t.totals ? t.totals.totalCents : t.laborCents) / 100).toFixed(2)}
                   </td>
 
                   {/* Status Badge */}

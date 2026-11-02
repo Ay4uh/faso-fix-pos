@@ -6,22 +6,20 @@ import {
   Printer,
   CreditCard,
   Plus,
-  ShoppingBag,
-  FileText,
   Clock,
   CheckCircle2,
-  AlertCircle,
   Package,
-  Wrench,
   Smartphone,
   Send,
   MessageSquare,
   Lock,
   Layers,
   Save,
-  Check,
   ShieldCheck,
   Tag,
+  Trash2,
+  DollarSign,
+  Check,
 } from 'lucide-react';
 import { Barcode } from './Barcode';
 import { posAudio } from '../utils/audio';
@@ -30,8 +28,8 @@ interface InventoryItem {
   id: string;
   sku: string;
   name: string;
-  retailInCents: number;
-  stockQuantity: number;
+  priceCents: number;
+  stock: number;
 }
 
 interface WorkOrderScreenProps {
@@ -49,47 +47,52 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   onRefresh,
   onPrint,
 }) => {
-  const [activeTab, setActiveTab] = useState<'customerNotes' | 'internalNotes' | 'history' | 'inbox' | 'diagnostics'>('customerNotes');
-  
-  // Note inputs
+  const [activeTab, setActiveTab] = useState<
+    'customerNotes' | 'internalNotes' | 'history' | 'payments' | 'inbox' | 'diagnostics'
+  >('customerNotes');
+
+  // Notes
   const [newNote, setNewNote] = useState('');
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
 
-  // SMS input
-  const [smsText, setSmsText] = useState(`Hi ${ticket.customer.fullName}, ApexFix update: Your ${ticket.deviceMakeModel} work order #${ticket.ticketNumber} is currently ${ticket.status}.`);
+  // SMS
+  const [smsText, setSmsText] = useState(
+    `Hi ${ticket.customer.fullName}, ApexFix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) status is: ${ticket.status.toLowerCase().replace('_', ' ')}.`
+  );
   const [isSendingSms, setIsSendingSms] = useState(false);
   const [smsSuccess, setSmsSuccess] = useState(false);
 
-  // Passcode & Pattern lock state
+  // Security
   const [passcode, setPasscode] = useState(ticket.device?.passcode || '');
   const [patternDots, setPatternDots] = useState<number[]>([1, 2, 5, 8]);
   const [isSavingSecurity, setIsSavingSecurity] = useState(false);
   const [securitySaved, setSecuritySaved] = useState(false);
 
-  // Payment modal state
+  // Payments
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState('CREDIT_CARD');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'DEBIT' | 'E_TRANSFER' | 'OTHER'>('CARD');
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
 
-  // Add Item / Part modal state
+  // Line Item / Part Attachment
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
   const [availableParts, setAvailableParts] = useState<InventoryItem[]>([]);
   const [selectedPartId, setSelectedPartId] = useState<string>('');
   const [customItemDesc, setCustomItemDesc] = useState('');
   const [customItemPrice, setCustomItemPrice] = useState('');
+  const [itemQuantity, setItemQuantity] = useState(1);
   const [isAttachingPart, setIsAttachingPart] = useState(false);
+  const [addItemError, setAddItemError] = useState<string | null>(null);
 
-  // Load available inventory parts
-  useEffect(() => {
-    fetch('/api/inventory')
-      .then((res) => res.json())
-      .then((data) => setAvailableParts(data.data || []))
-      .catch(() => {});
-  }, []);
+  // Discount modal
+  const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
+  const [discountInput, setDiscountInput] = useState(
+    ((ticket.totals ? ticket.totals.discountCents : ticket.discountCents) / 100).toFixed(2)
+  );
+  const [isSavingDiscount, setIsSavingDiscount] = useState(false);
 
-  // Diagnostics checklist
-  const [diagnostics, setDiagnostics] = useState({
+  // Diagnostics
+  const defaultDiagnostics = {
     powerOn: true,
     displayTouch: true,
     cameraFront: true,
@@ -98,20 +101,56 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     speakers: true,
     microphones: true,
     wifiBluetooth: true,
+    biometrics: true,
+    batteryHealth: true,
+  };
+  const [diagnostics, setDiagnostics] = useState<Record<string, boolean>>(() => {
+    if (ticket.diagnostics) {
+      const parsed: Record<string, boolean> = {};
+      for (const [k, v] of Object.entries(ticket.diagnostics)) {
+        parsed[k] = v === 'PASS';
+      }
+      return { ...defaultDiagnostics, ...parsed };
+    }
+    return defaultDiagnostics;
   });
 
-  // Financial calculations
-  const invoice = (ticket as any).invoice;
-  const subtotal = ticket.price;
-  const discount = 15.0; // standard shop promo discount
-  const taxableSubtotal = Math.max(0, subtotal - discount);
-  const gst = taxableSubtotal * 0.08;
-  const pst = taxableSubtotal * 0.05;
-  const total = taxableSubtotal + gst + pst;
-  const paid = invoice ? invoice.amountPaidInCents / 100 : (ticket.status === 'COMPLETED' ? total : 0);
-  const balanceOwing = Math.max(0, total - paid);
+  // Load Inventory
+  useEffect(() => {
+    fetch('/api/inventory')
+      .then((res) => res.json())
+      .then((data) => {
+        const raw = data.data || [];
+        setAvailableParts(
+          raw.map((p: any) => ({
+            id: p.id,
+            sku: p.sku,
+            name: p.name,
+            priceCents: p.priceCents ?? p.retailInCents ?? 0,
+            stock: p.stock ?? p.stockQuantity ?? 0,
+          }))
+        );
+      })
+      .catch(() => {});
+  }, []);
 
-  // Pattern toggle
+  // Totals from ticket or fallback
+  const totals = ticket.totals || {
+    subtotalCents: ticket.laborCents,
+    laborCents: ticket.laborCents,
+    itemsCents: 0,
+    discountCents: ticket.discountCents,
+    taxRateBps: ticket.taxRateBps,
+    taxCents: 0,
+    totalCents: ticket.laborCents,
+    paidCents: 0,
+    balanceCents: ticket.laborCents,
+    paymentStatus: 'UNPAID',
+  };
+
+  const balanceOwing = totals.balanceCents / 100;
+  const isPaidInFull = totals.balanceCents === 0;
+
   const togglePatternDot = (dotIndex: number) => {
     setPatternDots((prev) =>
       prev.includes(dotIndex) ? prev.filter((d) => d !== dotIndex) : [...prev, dotIndex]
@@ -124,7 +163,12 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       await fetch(`/api/tickets/${ticket.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ passcode }),
+        body: JSON.stringify({
+          device: {
+            passcode,
+            pattern: patternDots.join(','),
+          },
+        }),
       });
       setSecuritySaved(true);
       setTimeout(() => setSecuritySaved(false), 2000);
@@ -146,8 +190,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          note: newNote.trim(),
-          type: activeTab === 'customerNotes' ? 'CUSTOMER' : 'INTERNAL',
+          kind: activeTab === 'customerNotes' ? 'CUSTOMER_NOTE' : 'INTERNAL_NOTE',
+          message: newNote.trim(),
         }),
       });
       setNewNote('');
@@ -170,7 +214,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message: smsText.trim(),
-          customerPhone: ticket.customer.phoneNumber,
+          customerPhone: ticket.customer.phone,
         }),
       });
       if (!res.ok) throw new Error('SMS failed');
@@ -196,50 +240,72 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          amount: amt,
+          amountCents: Math.round(amt * 100),
           method: paymentMethod,
         }),
       });
-      if (!res.ok) throw new Error('Payment error');
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || 'Payment error');
+      }
       posAudio.playCashChime();
       setIsPaymentModalOpen(false);
       setPaymentAmount('');
       onRefresh();
-    } catch {
-      alert('Payment could not be recorded');
+    } catch (err: any) {
+      alert(err.message || 'Payment could not be recorded');
     } finally {
       setIsRecordingPayment(false);
     }
   };
 
-  const handleAttachPart = async (e: React.FormEvent) => {
+  const handleVoidPayment = async (paymentId: string) => {
+    if (!window.confirm('Void this payment? This will update the work order balance.')) return;
+    try {
+      const res = await fetch(`/api/tickets/${ticket.id}/payments/${paymentId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || 'Could not void payment');
+      }
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Could not void payment');
+    }
+  };
+
+  const handleAttachItem = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsAttachingPart(true);
+    setAddItemError(null);
 
     try {
       if (selectedPartId) {
         const part = availableParts.find((p) => p.id === selectedPartId);
         if (!part) return;
-        await fetch(`/api/tickets/${ticket.id}/parts`, {
+        const res = await fetch(`/api/tickets/${ticket.id}/items`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             partId: part.id,
-            customName: part.name,
-            price: part.retailInCents / 100,
-            quantity: 1,
+            quantity: itemQuantity,
           }),
         });
-      } else if (customItemDesc.trim() && parseFloat(customItemPrice) > 0) {
-        await fetch(`/api/tickets/${ticket.id}/parts`, {
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to attach part');
+      } else if (customItemDesc.trim() && parseFloat(customItemPrice) >= 0) {
+        const res = await fetch(`/api/tickets/${ticket.id}/items`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            customName: customItemDesc.trim(),
-            price: parseFloat(customItemPrice),
-            quantity: 1,
+            description: customItemDesc.trim(),
+            unitPriceCents: Math.round(parseFloat(customItemPrice) * 100),
+            quantity: itemQuantity,
           }),
         });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error || 'Failed to add custom item');
       }
 
       posAudio.playSuccessChime();
@@ -247,62 +313,128 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       setSelectedPartId('');
       setCustomItemDesc('');
       setCustomItemPrice('');
+      setItemQuantity(1);
       onRefresh();
-    } catch {
-      alert('Failed to attach component to ticket');
+    } catch (err: any) {
+      setAddItemError(err.message || 'Failed to attach item');
     } finally {
       setIsAttachingPart(false);
     }
   };
 
+  const handleRemoveItem = async (itemId: string, desc: string) => {
+    if (!window.confirm(`Remove "${desc}"? If it was an inventory part, it will be returned to stock.`)) return;
+    try {
+      const res = await fetch(`/api/tickets/${ticket.id}/items/${itemId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || 'Could not remove item');
+      }
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Could not remove item');
+    }
+  };
+
+  const handleSaveDiscount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setIsSavingDiscount(true);
+    try {
+      const res = await fetch(`/api/tickets/${ticket.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          discountCents: Math.round((parseFloat(discountInput) || 0) * 100),
+        }),
+      });
+      if (!res.ok) {
+        const json = await res.json();
+        throw new Error(json.error || 'Could not update discount');
+      }
+      setIsDiscountModalOpen(false);
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Could not update discount');
+    } finally {
+      setIsSavingDiscount(false);
+    }
+  };
+
+  const handleToggleDiagnostic = async (key: string) => {
+    const updated = { ...diagnostics, [key]: !diagnostics[key] };
+    setDiagnostics(updated);
+    const diagPayload: Record<string, 'PASS' | 'FAIL'> = {};
+    for (const [k, v] of Object.entries(updated)) {
+      diagPayload[k] = v ? 'PASS' : 'FAIL';
+    }
+    await fetch(`/api/tickets/${ticket.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ diagnostics: diagPayload }),
+    });
+  };
+
   const getStatusBadge = () => {
+    if (ticket.status === 'COMPLETED' && isPaidInFull) {
+      return (
+        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-600 text-white shadow-xs">
+          <CheckCircle2 className="w-3.5 h-3.5" />
+          DONE &amp; PAID
+        </span>
+      );
+    }
     switch (ticket.status) {
       case 'COMPLETED':
         return (
-          <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-emerald-600 text-white uppercase tracking-wider flex items-center gap-1">
-            <CheckCircle2 className="w-3 h-3" /> DONE & PAID
-          </span>
-        );
-      case 'WAITING_ON_PARTS':
-        return (
-          <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-amber-500 text-white uppercase tracking-wider flex items-center gap-1">
-            <Package className="w-3 h-3" /> PARTS ORDERED
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+            COMPLETED
           </span>
         );
       case 'IN_PROGRESS':
         return (
-          <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-blue-600 text-white uppercase tracking-wider flex items-center gap-1">
-            <Clock className="w-3 h-3" /> IN BENCH REPAIR
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+            <Clock className="w-3.5 h-3.5 text-blue-600" />
+            IN PROGRESS
+          </span>
+        );
+      case 'WAITING_ON_PARTS':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+            <Package className="w-3.5 h-3.5 text-amber-600" />
+            WAITING ON PARTS
           </span>
         );
       case 'PENDING':
       default:
         return (
-          <span className="px-2.5 py-0.5 rounded text-[11px] font-bold bg-slate-700 text-white uppercase tracking-wider">
-            INTAKE PENDING
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
+            PENDING
           </span>
         );
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto font-sans">
-      <div className="bg-[#f8fafc] w-full max-w-7xl rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[96vh] animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+      <div className="bg-slate-100 rounded-2xl w-full max-w-7xl h-[94vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* ========================================================
-            TOP HEADER (Service WO #, Barcode, Actions)
+            TOP BAR (Matches Cellphone Certified exact header style)
            ======================================================== */}
-        <header className="bg-white border-b border-slate-200 px-5 py-3 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <header className="bg-white border-b border-slate-200 px-5 py-3 flex items-center justify-between shrink-0 shadow-xs">
           <div className="flex items-center gap-3">
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-              title="Return to Dashboard"
+              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors"
+              title="Close Work Order"
             >
               <X className="w-5 h-5" />
             </button>
 
             <div className="flex items-center gap-2">
-              <span className="text-xs font-bold text-slate-400 tracking-wider uppercase">SERVICE</span>
+              <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">SERVICE</span>
               <h1 className="text-base font-extrabold text-slate-900 font-mono flex items-center gap-2">
                 WO # {ticket.ticketNumber}
               </h1>
@@ -327,11 +459,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             </select>
           </div>
 
-          {/* Action CTAs & Barcode */}
-          <div className="flex items-center gap-3">
-            {/* Header Barcode */}
-            <div className="hidden sm:block">
-              <Barcode value={`WO-${ticket.ticketNumber.padStart(4, '0')}`} width={120} height={32} />
+          {/* Action CTAs */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="hidden lg:block">
+              <Barcode value={`WO-${String(ticket.ticketNumber).padStart(4, '0')}`} width={110} height={28} />
             </div>
 
             <button
@@ -339,12 +470,12 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
             >
               <Plus className="w-3.5 h-3.5" />
-              <span>Attach Inventory Part</span>
+              <span>Attach Part / Labor</span>
             </button>
 
             <button
               onClick={() => {
-                setPaymentAmount(balanceOwing.toFixed(2));
+                setPaymentAmount(balanceOwing > 0 ? balanceOwing.toFixed(2) : '');
                 setIsPaymentModalOpen(true);
               }}
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
@@ -355,18 +486,18 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
             <button
               onClick={() => onPrint(ticket)}
-              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-              title="Print Work Order"
+              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+              title="Print Work Order Receipt"
             >
               <Printer className="w-4 h-4" />
             </button>
 
             <button
               onClick={() => onPrint(ticket)}
-              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors"
-              title="Print Thermal Tag"
+              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
+              title="Print Thermal Bench Sticker"
             >
-              <FileText className="w-4 h-4" />
+              <Tag className="w-4 h-4" />
             </button>
           </div>
         </header>
@@ -376,26 +507,26 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
            ======================================================== */}
         <div className="flex-1 overflow-y-auto flex flex-col lg:flex-row">
           {/* LEFT PANEL */}
-          <div className="w-full lg:w-80 bg-white border-r border-slate-200 p-5 space-y-5 shrink-0">
+          <div className="w-full lg:w-80 bg-white border-r border-slate-200 p-5 space-y-5 shrink-0 overflow-y-auto">
             {/* Customer Profile Box */}
             <div className="space-y-3">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-sm shadow-sm">
-                    {ticket.customer.fullName.charAt(0)}
+                    {ticket.customer.fullName.charAt(0).toUpperCase()}
                   </div>
                   <div>
                     <h3 className="font-bold text-sm text-slate-900 leading-tight">
                       {ticket.customer.fullName}
                     </h3>
                     <span className="text-[10px] text-slate-400 font-mono">
-                      Client ID: {ticket.customer.id.slice(0, 8)}
+                      Client #{ticket.customer.id.slice(0, 8)}
                     </span>
                   </div>
                 </div>
 
                 <a
-                  href={`tel:${ticket.customer.phoneNumber}`}
+                  href={`tel:${ticket.customer.phone}`}
                   className="w-8 h-8 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-xs cursor-pointer transition-colors"
                   title="Call Customer"
                 >
@@ -406,7 +537,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               <div className="text-xs text-slate-600 space-y-1 font-mono pt-1 border-t border-slate-100">
                 <div className="flex justify-between items-center">
                   <span className="text-slate-400 font-sans">Mobile:</span>
-                  <span className="font-bold text-slate-800">{ticket.customer.phoneNumber}</span>
+                  <span className="font-bold text-slate-800">{ticket.customer.phone}</span>
                 </div>
                 {ticket.customer.email && (
                   <div className="flex justify-between items-center text-[11px]">
@@ -426,10 +557,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             {/* Timelines Box */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 space-y-2 text-xs">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                Timelines & SLA
+                Timelines &amp; SLA
               </span>
               <div className="flex justify-between items-center">
-                <span className="text-slate-500">Intake Time:</span>
+                <span className="text-slate-500">Intake Date:</span>
                 <span className="font-mono text-slate-800 font-semibold">
                   {new Date(ticket.createdAt).toLocaleDateString()}
                 </span>
@@ -440,42 +571,53 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   {new Date(ticket.dueDate).toLocaleDateString()}
                 </span>
               </div>
+              <div className="flex justify-between items-center">
+                <span className="text-slate-500">Priority:</span>
+                <span className="font-bold text-[10px] px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
+                  {ticket.priority}
+                </span>
+              </div>
             </div>
 
             {/* Pricing Financial Ledger Box */}
             <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2 text-xs font-mono">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider font-sans block mb-1">
-                Pricing & Invoicing
-              </span>
+              <div className="flex items-center justify-between font-sans mb-1">
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                  Pricing &amp; Ledger
+                </span>
+                <button
+                  onClick={() => setIsDiscountModalOpen(true)}
+                  className="text-[10px] text-indigo-600 hover:underline font-semibold cursor-pointer"
+                >
+                  Adjust Discount
+                </button>
+              </div>
 
               <div className="flex justify-between text-slate-600">
-                <span>Subtotal (Parts & Labor)</span>
-                <span>${subtotal.toFixed(2)}</span>
+                <span>Subtotal</span>
+                <span>${(totals.subtotalCents / 100).toFixed(2)}</span>
               </div>
 
-              <div className="flex justify-between text-red-600 font-semibold">
-                <span>Discounts</span>
-                <span>-${discount.toFixed(2)}</span>
-              </div>
+              {totals.discountCents > 0 && (
+                <div className="flex justify-between text-red-600 font-semibold">
+                  <span>Discounts</span>
+                  <span>-${(totals.discountCents / 100).toFixed(2)}</span>
+                </div>
+              )}
 
-              <div className="flex justify-between text-emerald-700">
-                <span>GST (8%)</span>
-                <span>+${gst.toFixed(2)}</span>
-              </div>
-
-              <div className="flex justify-between text-emerald-700">
-                <span>PST (5%)</span>
-                <span>+${pst.toFixed(2)}</span>
+              <div className="flex justify-between text-slate-500">
+                <span>Tax ({((totals.taxRateBps || 1300) / 100).toFixed(1)}%)</span>
+                <span>+${(totals.taxCents / 100).toFixed(2)}</span>
               </div>
 
               <div className="pt-2 border-t border-slate-200 flex justify-between font-bold text-sm text-indigo-900">
                 <span>Total</span>
-                <span>${total.toFixed(2)}</span>
+                <span>${(totals.totalCents / 100).toFixed(2)}</span>
               </div>
 
               <div className="flex justify-between font-bold text-slate-800">
                 <span>Paid</span>
-                <span>${paid.toFixed(2)}</span>
+                <span>${(totals.paidCents / 100).toFixed(2)}</span>
               </div>
 
               <div className="flex justify-between font-extrabold text-sm pt-1 border-t border-dashed border-slate-200 text-slate-900">
@@ -491,7 +633,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     setPaymentAmount(balanceOwing.toFixed(2));
                     setIsPaymentModalOpen(true);
                   }}
-                  className="w-full mt-2 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-sans text-xs font-semibold cursor-pointer"
+                  className="w-full mt-2 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded font-sans text-xs font-semibold cursor-pointer transition-colors"
                 >
                   Collect ${balanceOwing.toFixed(2)}
                 </button>
@@ -499,35 +641,39 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             </div>
 
             {/* Store Location */}
-            <div className="text-xs text-slate-500 space-y-1">
+            <div className="text-xs text-slate-500 space-y-1 pt-1">
               <div className="flex justify-between">
-                <span>Device Store Location:</span>
-                <span className="font-semibold text-slate-800">{ticket.benchNumber || 'Bench #04'}</span>
+                <span>Workstation:</span>
+                <span className="font-semibold text-slate-800">{ticket.bench || 'Bench #04'}</span>
+              </div>
+              <div className="flex justify-between">
+                <span>Technician:</span>
+                <span className="font-semibold text-slate-800">{ticket.technician || 'Alex Mercer'}</span>
               </div>
               <div className="flex justify-between">
                 <span>Storage Bin:</span>
-                <span className="font-mono text-slate-800 font-semibold">Shelf B-12</span>
+                <span className="font-mono text-slate-800 font-semibold">{ticket.storageBin || 'Bin A-04'}</span>
               </div>
             </div>
           </div>
 
           {/* RIGHT PANEL */}
-          <div className="flex-1 p-5 space-y-6 overflow-y-auto">
-            {/* Device Specification Box */}
+          <div className="flex-1 p-5 space-y-5 overflow-y-auto">
+            {/* Device Overview Card (Matches UI from Screenshot) */}
             <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
               <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
                     <Smartphone className="w-3.5 h-3.5" />
-                    Unit Specification
+                    Device Unit
                   </span>
                   <span className="font-bold text-sm text-slate-900">
-                    {ticket.deviceMakeModel}
+                    {ticket.device?.name || 'Device'}
                   </span>
                 </div>
 
                 <div className="text-xs font-mono text-slate-500">
-                  IMEI/Serial: <span className="font-bold text-slate-800">{ticket.serialNumber || 'N/A'}</span>
+                  IMEI/Serial: <span className="font-bold text-slate-800">{ticket.device?.serialNumber || 'N/A'}</span>
                 </div>
               </div>
 
@@ -580,7 +726,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       })}
                     </div>
                     <span className="text-[10px] text-slate-400 mt-1">
-                      {securitySaved ? '✅ Passcode Saved!' : 'Interactive Pattern Lock'}
+                      {securitySaved ? '✅ Saved!' : 'Interactive Pattern Lock'}
                     </span>
                   </div>
                 </div>
@@ -592,7 +738,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     <p className="font-semibold text-slate-800 mt-0.5 leading-snug">{ticket.faultDescription}</p>
                   </div>
                   <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-400 block">Intake Conditions</label>
+                    <label className="text-[10px] uppercase font-bold text-slate-400 block">Intake Physical Condition</label>
                     <p className="text-slate-700 text-[11px] mt-0.5">{ticket.device?.condition || 'No cosmetic defects logged'}</p>
                   </div>
                 </div>
@@ -620,12 +766,12 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               </div>
             </div>
 
-            {/* TABS */}
+            {/* TABBED INTERACTION SECTION */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
               <div className="flex items-center gap-1 border-b border-slate-200 px-4 bg-slate-50/75 overflow-x-auto">
                 <button
                   onClick={() => setActiveTab('customerNotes')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 ${
+                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
                     activeTab === 'customerNotes'
                       ? 'border-indigo-600 text-indigo-700 bg-white'
                       : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -635,7 +781,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 </button>
                 <button
                   onClick={() => setActiveTab('internalNotes')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 ${
+                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
                     activeTab === 'internalNotes'
                       ? 'border-indigo-600 text-indigo-700 bg-white'
                       : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -645,27 +791,37 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 </button>
                 <button
                   onClick={() => setActiveTab('history')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 ${
+                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
                     activeTab === 'history'
                       ? 'border-indigo-600 text-indigo-700 bg-white'
                       : 'border-transparent text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  HANDLING HISTORY ({ticket.history?.length || 1})
+                  HANDLING HISTORY ({ticket.events?.length || 0})
+                </button>
+                <button
+                  onClick={() => setActiveTab('payments')}
+                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
+                    activeTab === 'payments'
+                      ? 'border-indigo-600 text-indigo-700 bg-white'
+                      : 'border-transparent text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  PAYMENTS LEDGER ({ticket.payments?.length || 0})
                 </button>
                 <button
                   onClick={() => setActiveTab('inbox')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 ${
+                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
                     activeTab === 'inbox'
                       ? 'border-indigo-600 text-indigo-700 bg-white'
                       : 'border-transparent text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  UNIFIED SMS INBOX
+                  COMMUNICATIONS (SMS)
                 </button>
                 <button
                   onClick={() => setActiveTab('diagnostics')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 ${
+                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
                     activeTab === 'diagnostics'
                       ? 'border-indigo-600 text-indigo-700 bg-white'
                       : 'border-transparent text-slate-600 hover:text-slate-900'
@@ -696,58 +852,136 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       </button>
                     </form>
 
+                    {/* Filtered Notes */}
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
-                          <th className="py-2 px-3">Technician</th>
                           <th className="py-2 px-3">Date / Time</th>
-                          <th className="py-2 px-3">Note Description</th>
-                          <th className="py-2 px-3 text-right">Channel</th>
+                          <th className="py-2 px-3">Author</th>
+                          <th className="py-2 px-3">Note Content</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {ticket.history?.map((h) => (
-                          <tr key={h.id} className="hover:bg-slate-50">
-                            <td className="py-2 px-3 font-semibold text-slate-900">{h.changedBy}</td>
-                            <td className="py-2 px-3 font-mono text-slate-500">
-                              {new Date(h.createdAt).toLocaleDateString()} {new Date(h.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </td>
-                            <td className="py-2 px-3 text-slate-700">{h.note || 'Status update logged.'}</td>
-                            <td className="py-2 px-3 text-right">
-                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-600">
-                                {h.toStatus}
-                              </span>
+                        {ticket.events
+                          ?.filter((ev) =>
+                            activeTab === 'customerNotes'
+                              ? ev.kind === 'CUSTOMER_NOTE' || ev.kind === 'MESSAGE'
+                              : ev.kind === 'INTERNAL_NOTE'
+                          )
+                          .map((ev) => (
+                            <tr key={ev.id} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">
+                                {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="py-2 px-3 font-semibold text-slate-900">{ev.author || 'Technician'}</td>
+                              <td className="py-2 px-3 text-slate-700">{ev.message}</td>
+                            </tr>
+                          ))}
+                        {(!ticket.events ||
+                          ticket.events.filter((ev) =>
+                            activeTab === 'customerNotes'
+                              ? ev.kind === 'CUSTOMER_NOTE' || ev.kind === 'MESSAGE'
+                              : ev.kind === 'INTERNAL_NOTE'
+                          ).length === 0) && (
+                          <tr>
+                            <td colSpan={3} className="py-6 text-center text-slate-400 italic">
+                              No {activeTab === 'customerNotes' ? 'customer' : 'internal'} notes logged yet.
                             </td>
                           </tr>
-                        ))}
+                        )}
                       </tbody>
                     </table>
                   </div>
                 )}
 
                 {activeTab === 'history' && (
-                  <div className="space-y-3">
-                    <div className="space-y-2">
-                      {ticket.history?.map((item, idx) => (
-                        <div key={item.id} className="flex items-start gap-3 p-3 bg-slate-50 border border-slate-200 rounded-lg">
-                          <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">
-                            {idx + 1}
-                          </div>
-                          <div className="flex-1">
-                            <div className="flex items-center justify-between">
-                              <span className="font-bold text-slate-900">
-                                {item.fromStatus} &rarr; <span className="text-indigo-600">{item.toStatus}</span>
-                              </span>
-                              <span className="font-mono text-slate-400 text-[11px]">
-                                {new Date(item.createdAt).toLocaleString()}
-                              </span>
-                            </div>
-                            <p className="text-slate-600 text-[11px] mt-0.5">{item.note}</p>
-                            <span className="text-[10px] text-slate-400 mt-1 block">Logged by {item.changedBy}</span>
-                          </div>
+                  <div className="space-y-2 max-h-72 overflow-y-auto">
+                    {ticket.events?.map((ev, idx) => (
+                      <div key={ev.id} className="flex items-start gap-3 p-2.5 bg-slate-50 border border-slate-200 rounded-lg">
+                        <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5">
+                          {idx + 1}
                         </div>
-                      ))}
+                        <div className="flex-1">
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-900 text-xs">
+                              {ev.kind.replace('_', ' ')}
+                            </span>
+                            <span className="font-mono text-slate-400 text-[10px]">
+                              {new Date(ev.createdAt).toLocaleString()}
+                            </span>
+                          </div>
+                          <p className="text-slate-700 text-xs mt-0.5">{ev.message}</p>
+                          {ev.author && (
+                            <span className="text-[10px] text-slate-400 mt-0.5 block">By {ev.author}</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                    {(!ticket.events || ticket.events.length === 0) && (
+                      <p className="text-center py-6 text-slate-400 italic">No history events logged yet.</p>
+                    )}
+                  </div>
+                )}
+
+                {activeTab === 'payments' && (
+                  <div className="space-y-4">
+                    <div className="flex justify-between items-center">
+                      <span className="font-semibold text-slate-700">Recorded Tender Receipts</span>
+                      <button
+                        onClick={() => {
+                          setPaymentAmount(balanceOwing > 0 ? balanceOwing.toFixed(2) : '');
+                          setIsPaymentModalOpen(true);
+                        }}
+                        className="px-3 py-1 bg-emerald-600 text-white rounded text-xs font-semibold cursor-pointer"
+                      >
+                        + Add Payment
+                      </button>
                     </div>
+
+                    <table className="w-full text-left border-collapse">
+                      <thead>
+                        <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
+                          <th className="py-2 px-3">Date / Time</th>
+                          <th className="py-2 px-3">Amount</th>
+                          <th className="py-2 px-3">Payment Method</th>
+                          <th className="py-2 px-3">Note</th>
+                          <th className="py-2 px-3 text-right">Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {ticket.payments?.map((pmt) => (
+                          <tr key={pmt.id} className="hover:bg-slate-50">
+                            <td className="py-2 px-3 font-mono text-slate-500">
+                              {new Date(pmt.createdAt).toLocaleString()}
+                            </td>
+                            <td className="py-2 px-3 font-mono font-bold text-emerald-700">
+                              ${(pmt.amountCents / 100).toFixed(2)}
+                            </td>
+                            <td className="py-2 px-3">
+                              <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-100 text-slate-700">
+                                {pmt.method}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-slate-600">{pmt.note || 'Tender collected'}</td>
+                            <td className="py-2 px-3 text-right">
+                              <button
+                                onClick={() => handleVoidPayment(pmt.id)}
+                                className="text-red-500 hover:text-red-700 text-xs font-semibold cursor-pointer"
+                              >
+                                Void
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                        {(!ticket.payments || ticket.payments.length === 0) && (
+                          <tr>
+                            <td colSpan={5} className="py-6 text-center text-slate-400 italic">
+                              No payments recorded yet. Click &ldquo;Take Payment&rdquo; to intake a deposit or balance.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
                   </div>
                 )}
 
@@ -757,10 +991,12 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       <div className="flex items-center justify-between mb-2">
                         <span className="font-bold text-slate-800 flex items-center gap-1.5">
                           <MessageSquare className="w-4 h-4 text-indigo-600" />
-                          Live Mobile Thread with {ticket.customer.fullName} ({ticket.customer.phoneNumber})
+                          Live Mobile SMS Gateway: {ticket.customer.phone}
                         </span>
                         {smsSuccess && (
-                          <span className="text-emerald-600 font-bold text-[11px]">SMS Delivered</span>
+                          <span className="text-emerald-600 font-bold text-[11px] flex items-center gap-1">
+                            <Check className="w-3.5 h-3.5" /> SMS Dispatched
+                          </span>
                         )}
                       </div>
 
@@ -787,15 +1023,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 )}
 
                 {activeTab === 'diagnostics' && (
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
                     {Object.entries(diagnostics).map(([key, value]) => (
                       <button
                         key={key}
                         type="button"
-                        onClick={() =>
-                          setDiagnostics((prev) => ({ ...prev, [key]: !prev[key as keyof typeof prev] }))
-                        }
-                        className={`p-3 rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
+                        onClick={() => handleToggleDiagnostic(key)}
+                        className={`p-2.5 rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
                           value
                             ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
                             : 'bg-red-50 border-red-200 text-red-900'
@@ -812,12 +1046,12 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               </div>
             </div>
 
-            {/* BOTTOM ITEMS & PARTS GRID */}
+            {/* BOTTOM ITEMS & PARTS GRID (Matches Cellphone Certified exact layout) */}
             <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
               <div className="flex items-center justify-between">
                 <h4 className="font-bold text-xs uppercase tracking-wider text-slate-700 flex items-center gap-1.5">
                   <Layers className="w-4 h-4 text-indigo-600" />
-                  Work Order Line Items (Parts & Labor)
+                  Work Order Line Items (Parts &amp; Labor)
                 </h4>
                 <div className="flex items-center gap-2">
                   <button
@@ -837,62 +1071,67 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       <th className="py-2 px-3">System ID / SKU</th>
                       <th className="py-2 px-3">Description</th>
                       <th className="py-2 px-3">Status</th>
-                      <th className="py-2 px-3">Grade</th>
                       <th className="py-2 px-3">Qty</th>
                       <th className="py-2 px-3">Unit Price</th>
-                      <th className="py-2 px-3">Discount</th>
                       <th className="py-2 px-3 text-right">SubTotal</th>
+                      <th className="py-2 px-3 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {/* Primary Intake Item */}
+                    {/* Primary Quoted Labor Item */}
                     <tr className="hover:bg-slate-50">
                       <td className="py-2.5 px-3 font-mono font-bold text-indigo-600">
-                        WO-{ticket.ticketNumber.padStart(4, '0')}
+                        WO-{String(ticket.ticketNumber).padStart(4, '0')}
                       </td>
                       <td className="py-2.5 px-3 font-semibold text-slate-900">
-                        {ticket.deviceMakeModel} Initial Diagnostic & Bench Triage
+                        {ticket.device?.name || 'Device'} Diagnostic &amp; Service Labor
                       </td>
                       <td className="py-2.5 px-3">
                         <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">
                           Active Service
                         </span>
                       </td>
-                      <td className="py-2.5 px-3 text-slate-500">Shop Rate</td>
                       <td className="py-2.5 px-3 font-mono">1</td>
                       <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
-                        ${ticket.price.toFixed(2)}
-                      </td>
-                      <td className="py-2.5 px-3 font-mono text-red-600">
-                        -${discount.toFixed(2)}
+                        ${(ticket.laborCents / 100).toFixed(2)}
                       </td>
                       <td className="py-2.5 px-3 font-mono font-bold text-right text-slate-900">
-                        ${taxableSubtotal.toFixed(2)}
+                        ${(ticket.laborCents / 100).toFixed(2)}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-slate-400 text-[10px]">
+                        Base Labor
                       </td>
                     </tr>
 
-                    {/* Attached Parts from Database */}
-                    {(ticket as any).partsUsed?.map((pu: any) => (
-                      <tr key={pu.id} className="hover:bg-slate-50">
+                    {/* Attached Line Items / Parts from Database */}
+                    {ticket.items?.map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50">
                         <td className="py-2.5 px-3 font-mono font-bold text-indigo-600">
-                          {pu.part?.sku || 'CUSTOM'}
+                          {item.partId ? 'INVENTORY' : 'CUSTOM'}
                         </td>
                         <td className="py-2.5 px-3 font-semibold text-slate-900">
-                          {pu.customName || pu.part?.name}
+                          {item.description}
                         </td>
                         <td className="py-2.5 px-3">
                           <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800">
-                            Part Deducted from Stock
+                            {item.partId ? 'Part Installed from Stock' : 'Custom Service'}
                           </span>
                         </td>
-                        <td className="py-2.5 px-3 text-slate-500">OEM Spec</td>
-                        <td className="py-2.5 px-3 font-mono">{pu.quantity}</td>
+                        <td className="py-2.5 px-3 font-mono">{item.quantity}</td>
                         <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
-                          ${(pu.unitSellInCents / 100).toFixed(2)}
+                          ${(item.unitPriceCents / 100).toFixed(2)}
                         </td>
-                        <td className="py-2.5 px-3 font-mono text-slate-400">$0.00</td>
                         <td className="py-2.5 px-3 font-mono font-bold text-right text-slate-900">
-                          ${((pu.unitSellInCents * pu.quantity) / 100).toFixed(2)}
+                          ${((item.unitPriceCents * item.quantity) / 100).toFixed(2)}
+                        </td>
+                        <td className="py-2.5 px-3 text-right">
+                          <button
+                            onClick={() => handleRemoveItem(item.id, item.description)}
+                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer"
+                            title="Remove Line Item"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
                         </td>
                       </tr>
                     ))}
@@ -917,13 +1156,19 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               </h3>
               <button
                 onClick={() => setIsAddItemModalOpen(false)}
-                className="p-1 rounded text-slate-400 hover:text-slate-600"
+                className="p-1 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <form onSubmit={handleAttachPart} className="space-y-4 text-xs">
+            <form onSubmit={handleAttachItem} className="space-y-4 text-xs">
+              {addItemError && (
+                <div className="p-2.5 bg-red-50 text-red-700 text-xs rounded border border-red-200">
+                  {addItemError}
+                </div>
+              )}
+
               {/* Select from Inventory */}
               <div>
                 <label className="block text-[11px] font-semibold text-slate-600 mb-1">
@@ -943,7 +1188,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   <option value="">-- Choose Stock Component --</option>
                   {availableParts.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.name} (${(p.retailInCents / 100).toFixed(2)}) — {p.stockQuantity} in stock
+                      {p.name} (${(p.priceCents / 100).toFixed(2)}) — {p.stock} in stock
                     </option>
                   ))}
                 </select>
@@ -959,7 +1204,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
                   <label className="block text-[10px] font-semibold text-slate-500 mb-1">
-                    Custom Labor Description
+                    Custom Description
                   </label>
                   <input
                     type="text"
@@ -978,6 +1223,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   <input
                     type="number"
                     step="0.01"
+                    min="0"
                     disabled={!!selectedPartId}
                     value={customItemPrice}
                     onChange={(e) => setCustomItemPrice(e.target.value)}
@@ -987,18 +1233,32 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 </div>
               </div>
 
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 mb-1">
+                  Quantity
+                </label>
+                <input
+                  type="number"
+                  min="1"
+                  max="99"
+                  value={itemQuantity}
+                  onChange={(e) => setItemQuantity(parseInt(e.target.value, 10) || 1)}
+                  className="w-20 px-2 py-1.5 font-mono text-xs bg-slate-50 border border-slate-200 rounded-lg"
+                />
+              </div>
+
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
                   onClick={() => setIsAddItemModalOpen(false)}
-                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={isAttachingPart}
-                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer"
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer disabled:opacity-50"
                 >
                   {isAttachingPart ? 'Attaching...' : 'Add Line Item'}
                 </button>
@@ -1021,7 +1281,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               </h3>
               <button
                 onClick={() => setIsPaymentModalOpen(false)}
-                className="p-1 rounded text-slate-400 hover:text-slate-600"
+                className="p-1 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1048,13 +1308,14 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 </label>
                 <select
                   value={paymentMethod}
-                  onChange={(e) => setPaymentMethod(e.target.value)}
+                  onChange={(e) => setPaymentMethod(e.target.value as any)}
                   className="w-full px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
                 >
-                  <option value="CREDIT_CARD">Credit Card / POS Terminal</option>
-                  <option value="DEBIT">Debit Card (Interac)</option>
+                  <option value="CARD">Credit Card / Terminal</option>
+                  <option value="DEBIT">Debit Card</option>
                   <option value="CASH">Cash Drawer</option>
-                  <option value="STRIPE">Stripe Link</option>
+                  <option value="E_TRANSFER">E-Transfer / Direct</option>
+                  <option value="OTHER">Other</option>
                 </select>
               </div>
 
@@ -1062,7 +1323,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsPaymentModalOpen(false)}
-                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg"
+                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
                 >
                   Cancel
                 </button>
@@ -1072,6 +1333,61 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer disabled:opacity-50"
                 >
                   {isRecordingPayment ? 'Recording...' : 'Authorize & Pay'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          DISCOUNT MODAL
+         ======================================================== */}
+      {isDiscountModalOpen && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-xs w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-indigo-600" />
+                Set Work Order Discount
+              </h3>
+              <button
+                onClick={() => setIsDiscountModalOpen(false)}
+                className="p-1 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleSaveDiscount} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                  Discount Amount ($)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={discountInput}
+                  onChange={(e) => setDiscountInput(e.target.value)}
+                  className="w-full px-3 py-1.5 text-sm font-bold font-mono bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDiscountModalOpen(false)}
+                  className="px-3 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingDiscount}
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer disabled:opacity-50"
+                >
+                  {isSavingDiscount ? 'Saving...' : 'Apply Discount'}
                 </button>
               </div>
             </form>

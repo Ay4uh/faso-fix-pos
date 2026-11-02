@@ -1,7 +1,33 @@
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import { ticketService } from './ticketService';
-import { prisma } from './prisma';
+import { ZodError } from 'zod';
+import {
+  HttpError,
+  getSettings,
+  updateSettings,
+  listTickets,
+  getTicket,
+  createTicket,
+  updateTicket,
+  deleteTicket,
+  addItem,
+  removeItem,
+  addPayment,
+  voidPayment,
+  addNote,
+  listCustomers,
+  lookupCustomerByPhone,
+  getCustomer,
+  updateCustomer,
+  listParts,
+  createPart,
+  updatePart,
+  adjustStock,
+  deletePart,
+  getDashboard,
+  getReport,
+  exportTicketsCsv,
+} from './service';
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -9,212 +35,278 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
-// API: Dashboard KPI Stats
-app.get('/api/stats', async (req: Request, res: Response) => {
-  try {
-    const bench = req.query.bench as string | undefined;
-    const stats = await ticketService.getStats(bench);
-    res.json({ success: true, data: stats });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+const wrap = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    fn(req, res, next).catch(next);
+  };
+};
+
+const getParam = (req: Request, name: string): string => {
+  const val = req.params[name];
+  return Array.isArray(val) ? val[0] : (val || '');
+};
+
+// ---------------------------------------------------------------------------
+// Dashboard, Stats & Reports
+// ---------------------------------------------------------------------------
+
+app.get('/api/dashboard', wrap(async (_req, res) => {
+  const data = await getDashboard();
+  res.json({ success: true, data });
+}));
+
+// Backwards compatibility endpoint for any dashboard KPI widgets
+app.get('/api/stats', wrap(async (_req, res) => {
+  const data = await getDashboard();
+  res.json({
+    success: true,
+    data: {
+      ...data,
+      totalActive: data.open,
+      waitingOnParts: data.waitingOnParts,
+      completed: data.completed,
+      pending: data.pending,
+      inProgress: data.inProgress,
+      totalPipeline: data.openValueCents / 100,
+      projectedPipeline: data.openValueCents / 100,
+      securedInvoiced: data.collectedMonthCents / 100,
+      customerCount: data.customerCount,
+    },
+  });
+}));
+
+app.get('/api/reports', wrap(async (req, res) => {
+  const days = req.query.days ? parseInt(req.query.days as string, 10) : 30;
+  const data = await getReport(days);
+  res.json({ success: true, data });
+}));
+
+// ---------------------------------------------------------------------------
+// Settings
+// ---------------------------------------------------------------------------
+
+app.get('/api/settings', wrap(async (_req, res) => {
+  const settings = await getSettings();
+  res.json({ success: true, data: settings });
+}));
+
+app.put('/api/settings', wrap(async (req, res) => {
+  const settings = await updateSettings(req.body);
+  res.json({ success: true, data: settings });
+}));
+
+// ---------------------------------------------------------------------------
+// Tickets (Work Orders)
+// ---------------------------------------------------------------------------
+
+app.get('/api/tickets', wrap(async (req, res) => {
+  const view = (req.query.view || req.query.status || 'OPEN') as string;
+  const search = req.query.search as string | undefined;
+  const tickets = await listTickets({ view, search });
+  res.json({ success: true, count: tickets.length, data: tickets });
+}));
+
+app.get('/api/tickets/:id', wrap(async (req, res) => {
+  const ticket = await getTicket(getParam(req, 'id'));
+  res.json({ success: true, data: ticket });
+}));
+
+app.post('/api/tickets', wrap(async (req, res) => {
+  const ticket = await createTicket(req.body);
+  res.status(201).json({ success: true, data: ticket });
+}));
+
+app.put('/api/tickets/:id', wrap(async (req, res) => {
+  const ticket = await updateTicket(getParam(req, 'id'), req.body);
+  res.json({ success: true, data: ticket });
+}));
+
+app.delete('/api/tickets/:id', wrap(async (req, res) => {
+  const result = await deleteTicket(getParam(req, 'id'));
+  res.json({ success: true, data: result });
+}));
+
+// Quick complete shortcut
+app.post('/api/tickets/:id/quick-complete', wrap(async (req, res) => {
+  const ticket = await updateTicket(getParam(req, 'id'), { status: 'COMPLETED' });
+  res.json({ success: true, message: 'Work order marked completed', data: ticket });
+}));
+
+// Line items / parts attachment
+app.post('/api/tickets/:id/items', wrap(async (req, res) => {
+  const ticket = await addItem(getParam(req, 'id'), req.body);
+  res.status(201).json({ success: true, data: ticket });
+}));
+
+// Backward-compatible route for parts attachment
+app.post('/api/tickets/:id/parts', wrap(async (req, res) => {
+  const { partId, customName, price, quantity } = req.body;
+  const ticket = await addItem(getParam(req, 'id'), {
+    partId: partId || undefined,
+    description: customName || undefined,
+    unitPriceCents: price !== undefined ? Math.round(Number(price) * 100) : undefined,
+    quantity: quantity ? Number(quantity) : 1,
+  });
+  res.status(201).json({ success: true, data: ticket });
+}));
+
+app.delete('/api/tickets/:id/items/:itemId', wrap(async (req, res) => {
+  const ticket = await removeItem(getParam(req, 'id'), getParam(req, 'itemId'));
+  res.json({ success: true, data: ticket });
+}));
+
+// Payments
+app.post('/api/tickets/:id/payments', wrap(async (req, res) => {
+  const body = req.body || {};
+  const amountCents = body.amountCents ?? (body.amount !== undefined ? Math.round(Number(body.amount) * 100) : undefined);
+  const ticket = await addPayment(getParam(req, 'id'), {
+    amountCents,
+    method: body.method || 'CASH',
+    note: body.note,
+  });
+  res.status(201).json({ success: true, data: ticket });
+}));
+
+app.delete('/api/tickets/:id/payments/:paymentId', wrap(async (req, res) => {
+  const ticket = await voidPayment(getParam(req, 'id'), getParam(req, 'paymentId'));
+  res.json({ success: true, data: ticket });
+}));
+
+// Notes & notifications
+app.post('/api/tickets/:id/notes', wrap(async (req, res) => {
+  const { note, message, type, kind } = req.body;
+  const noteKind = kind || (type === 'CUSTOMER' ? 'CUSTOMER_NOTE' : 'INTERNAL_NOTE');
+  const ticket = await addNote(getParam(req, 'id'), {
+    kind: noteKind,
+    message: message || note || '',
+  });
+  res.status(201).json({ success: true, data: ticket });
+}));
+
+app.post('/api/tickets/:id/notify', wrap(async (req, res) => {
+  const { message, customerPhone } = req.body;
+  const ticket = await addNote(getParam(req, 'id'), {
+    kind: 'MESSAGE',
+    message: `[SMS to ${customerPhone || 'Customer'}]: ${message}`,
+  });
+  res.json({ success: true, message: `Notification sent to ${customerPhone}`, data: ticket });
+}));
+
+// ---------------------------------------------------------------------------
+// Customers
+// ---------------------------------------------------------------------------
+
+app.get('/api/customers', wrap(async (req, res) => {
+  const search = req.query.search as string | undefined;
+  const customers = await listCustomers(search);
+  res.json({ success: true, count: customers.length, data: customers });
+}));
+
+app.get('/api/customers/lookup', wrap(async (req, res) => {
+  const phone = (req.query.phone as string) || '';
+  const customer = await lookupCustomerByPhone(phone);
+  res.json({ success: true, data: customer });
+}));
+
+app.get('/api/customers/:id', wrap(async (req, res) => {
+  const customer = await getCustomer(getParam(req, 'id'));
+  res.json({ success: true, data: customer });
+}));
+
+app.put('/api/customers/:id', wrap(async (req, res) => {
+  const customer = await updateCustomer(getParam(req, 'id'), req.body);
+  res.json({ success: true, data: customer });
+}));
+
+// ---------------------------------------------------------------------------
+// Inventory
+// ---------------------------------------------------------------------------
+
+app.get('/api/inventory', wrap(async (req, res) => {
+  const search = req.query.search as string | undefined;
+  const parts = await listParts(search);
+  res.json({ success: true, count: parts.length, data: parts });
+}));
+
+app.post('/api/inventory', wrap(async (req, res) => {
+  const body = req.body || {};
+  const costCents = body.costCents ?? (body.cost !== undefined ? Math.round(Number(body.cost) * 100) : 0);
+  const priceCents = body.priceCents ?? (body.retail !== undefined ? Math.round(Number(body.retail) * 100) : (body.price !== undefined ? Math.round(Number(body.price) * 100) : 0));
+  const stock = body.stock ?? (body.stockQuantity !== undefined ? Number(body.stockQuantity) : 0);
+  const reorderPoint = body.reorderPoint !== undefined ? Number(body.reorderPoint) : 2;
+
+  const part = await createPart({
+    sku: body.sku,
+    name: body.name,
+    category: body.category || 'GENERAL',
+    costCents,
+    priceCents,
+    stock,
+    reorderPoint,
+    supplier: body.supplier,
+  });
+  res.status(201).json({ success: true, data: part });
+}));
+
+app.put('/api/inventory/:id', wrap(async (req, res) => {
+  const body = req.body || {};
+  const updateData: any = { ...body };
+  if (body.cost !== undefined && body.costCents === undefined) {
+    updateData.costCents = Math.round(Number(body.cost) * 100);
+    delete updateData.cost;
   }
-});
-
-// API: Get Tickets
-app.get('/api/tickets', async (req: Request, res: Response) => {
-  try {
-    const status = req.query.status as string | undefined;
-    const search = req.query.search as string | undefined;
-    const bench = req.query.bench as string | undefined;
-    const tickets = await ticketService.getTickets({ status, search, benchNumber: bench });
-    res.json({ success: true, count: tickets.length, data: tickets });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+  if (body.retail !== undefined && body.priceCents === undefined) {
+    updateData.priceCents = Math.round(Number(body.retail) * 100);
+    delete updateData.retail;
   }
-});
-
-// API: Get Single Ticket
-app.get('/api/tickets/:id', async (req: Request, res: Response) => {
-  try {
-    const ticket = await ticketService.getTicketById(req.params.id);
-    if (!ticket) {
-      return res.status(404).json({ success: false, error: 'Ticket not found' });
-    }
-    res.json({ success: true, data: ticket });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+  if (body.stockQuantity !== undefined && body.stock === undefined) {
+    updateData.stock = Number(body.stockQuantity);
+    delete updateData.stockQuantity;
   }
-});
+  const part = await updatePart(getParam(req, 'id'), updateData);
+  res.json({ success: true, data: part });
+}));
 
-// API: Create Ticket
-app.post('/api/tickets', async (req: Request, res: Response) => {
-  try {
-    const { customer, deviceMakeModel, serialNumber, faultDescription, price, technicianNote, dueDate, status, priority, passcode, benchNumber, condition } = req.body;
-
-    const parts = (deviceMakeModel || '').trim().split(' ');
-    const make = parts[0] || 'Unknown';
-    const model = parts.slice(1).join(' ') || 'Device';
-
-    const ticket = await ticketService.createTicket({
-      customer,
-      device: {
-        make,
-        model,
-        serialNumber,
-        passcode,
-        condition,
-      },
-      faultDescription,
-      price: typeof price === 'string' ? parseFloat(price) : price,
-      technicianNote,
-      dueDate,
-      status,
-      priority,
-      benchNumber,
-    });
-
-    res.status(201).json({ success: true, data: ticket });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+app.post('/api/inventory/:id/adjust', wrap(async (req, res) => {
+  const delta = Number(req.body.delta);
+  if (isNaN(delta) || delta === 0) {
+    throw new HttpError(400, 'A non-zero numeric delta is required for stock adjustment');
   }
-});
+  const part = await adjustStock(getParam(req, 'id'), delta);
+  res.json({ success: true, data: part });
+}));
 
-// API: Attach Part or Labor to Ticket
-app.post('/api/tickets/:id/parts', async (req: Request, res: Response) => {
-  try {
-    const { partId, customName, price, quantity } = req.body;
-    const part = await ticketService.attachPart(req.params.id, {
-      partId,
-      customName,
-      price: parseFloat(price),
-      quantity: parseInt(quantity || 1),
-    });
-    res.status(201).json({ success: true, data: part });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+app.delete('/api/inventory/:id', wrap(async (req, res) => {
+  const result = await deletePart(getParam(req, 'id'));
+  res.json({ success: true, data: result });
+}));
+
+// ---------------------------------------------------------------------------
+// Export
+// ---------------------------------------------------------------------------
+
+app.get('/api/export/tickets', wrap(async (_req, res) => {
+  const csv = await exportTicketsCsv();
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', 'attachment; filename="ApexFix-WorkOrders.csv"');
+  res.send(csv);
+}));
+
+// ---------------------------------------------------------------------------
+// Central Error Handler
+// ---------------------------------------------------------------------------
+
+app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  if (err instanceof HttpError) {
+    return res.status(err.status).json({ success: false, error: err.message });
   }
-});
-
-// API: Quick Complete Status Action
-app.post('/api/tickets/:id/quick-complete', async (req: Request, res: Response) => {
-  try {
-    const ticket = await ticketService.quickComplete(req.params.id);
-    res.json({ success: true, message: 'Ticket marked completed', data: ticket });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
+  if (err instanceof ZodError) {
+    const issues = err.issues || (err as any).errors || [];
+    const message = issues.map((e: any) => `${e.path.join('.') || 'input'}: ${e.message}`).join(', ');
+    return res.status(400).json({ success: false, error: message || 'Invalid input', details: err.flatten() });
   }
-});
-
-// API: Add Note to Ticket
-app.post('/api/tickets/:id/notes', async (req: Request, res: Response) => {
-  try {
-    const { note, type } = req.body;
-    const record = await ticketService.addNote(req.params.id, note, type);
-    res.json({ success: true, data: record });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// API: Record Payment for Ticket Invoice
-app.post('/api/tickets/:id/payments', async (req: Request, res: Response) => {
-  try {
-    const { amount, method } = req.body;
-    const payment = await ticketService.recordPayment(req.params.id, parseFloat(amount), method);
-    res.json({ success: true, data: payment });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// API: Send Customer SMS
-app.post('/api/tickets/:id/notify', async (req: Request, res: Response) => {
-  try {
-    const { message, customerPhone } = req.body;
-    console.log(`[SMS Gateway] Dispatched to ${customerPhone}: "${message}"`);
-    
-    await ticketService.addNote(req.params.id, `[SMS to ${customerPhone}]: ${message}`, 'CUSTOMER');
-
-    res.json({
-      success: true,
-      message: `SMS update successfully sent to ${customerPhone}`,
-    });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// API: Update Ticket
-app.put('/api/tickets/:id', async (req: Request, res: Response) => {
-  try {
-    const ticket = await ticketService.updateTicket(req.params.id, req.body);
-    res.json({ success: true, data: ticket });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// API: Delete Ticket (Soft Delete)
-app.delete('/api/tickets/:id', async (req: Request, res: Response) => {
-  try {
-    await ticketService.deleteTicket(req.params.id);
-    res.json({ success: true, message: 'Ticket soft-deleted from active queue' });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// API: Customers list
-app.get('/api/customers', async (_req: Request, res: Response) => {
-  try {
-    const customers = await ticketService.getCustomers();
-    res.json({ success: true, data: customers });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// API: Parts Inventory
-app.get('/api/inventory', async (_req: Request, res: Response) => {
-  try {
-    const parts = await ticketService.getInventory();
-    res.json({ success: true, data: parts });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-app.post('/api/inventory', async (req: Request, res: Response) => {
-  try {
-    const { sku, name, category, cost, retail, stockQuantity, reorderPoint, supplier } = req.body;
-    const part = await prisma.inventoryPart.create({
-      data: {
-        sku: (sku || `PRT-${Date.now().toString().slice(-6)}`).toUpperCase(),
-        name,
-        category: category || 'GENERAL',
-        costInCents: Math.round(parseFloat(cost || 0) * 100),
-        retailInCents: Math.round(parseFloat(retail || 0) * 100),
-        stockQuantity: parseInt(stockQuantity || 0),
-        reorderPoint: parseInt(reorderPoint || 2),
-        supplier: supplier || 'Direct Supplier',
-      },
-    });
-    res.status(201).json({ success: true, data: part });
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// API: Export Work Orders CSV
-app.get('/api/export/tickets', async (_req: Request, res: Response) => {
-  try {
-    const csv = await ticketService.exportTicketsCsv();
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', 'attachment; filename="ApexFix-WorkOrders.csv"');
-    res.send(csv);
-  } catch (error: any) {
-    res.status(500).json({ success: false, error: error.message });
-  }
+  console.error('[API Error]', err);
+  return res.status(500).json({ success: false, error: err.message || 'Internal server error' });
 });
 
 app.listen(PORT, () => {

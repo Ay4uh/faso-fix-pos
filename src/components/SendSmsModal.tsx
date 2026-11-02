@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Ticket } from '../types';
-import { X, Send, MessageSquare, Check, Phone } from 'lucide-react';
+import { X, MessageSquare, Send } from 'lucide-react';
+import { posAudio } from '../utils/audio';
 
 interface SendSmsModalProps {
   ticket: Ticket | null;
@@ -11,38 +12,35 @@ interface SendSmsModalProps {
 export const SendSmsModal: React.FC<SendSmsModalProps> = ({ ticket, onClose, onSuccess }) => {
   if (!ticket) return null;
 
-  const defaultTemplates = [
-    `Hi ${ticket.customer.fullName}, ApexFix update: Your ${ticket.deviceMakeModel} repair is COMPLETED and ready for pickup at Bench #04! Total: $${ticket.price.toFixed(2)}.`,
-    `Hi ${ticket.customer.fullName}, your ${ticket.deviceMakeModel} diagnostic is in progress. Required components have been ordered. We will notify you once received!`,
-    `Hi ${ticket.customer.fullName}, our technician Alex Mercer is actively working on your ${ticket.deviceMakeModel}. Expected completion by ${new Date(ticket.dueDate).toLocaleDateString()}.`,
-  ];
-
-  const [message, setMessage] = useState(defaultTemplates[0]);
+  const [message, setMessage] = useState(
+    `Hello ${ticket.customer.fullName}, ApexFix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) is currently ${ticket.status.toLowerCase().replace('_', ' ')}.`
+  );
   const [isSending, setIsSending] = useState(false);
-  const [sentSuccess, setSentSuccess] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const handleSend = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!message.trim()) return;
+
     setIsSending(true);
+    setErrorMsg(null);
     try {
       const res = await fetch(`/api/tickets/${ticket.id}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message,
-          customerPhone: ticket.customer.phoneNumber,
+          message: message.trim(),
+          customerPhone: ticket.customer.phone,
         }),
       });
 
-      if (!res.ok) throw new Error('Failed to dispatch notification');
+      if (!res.ok) throw new Error('SMS transmission failed');
 
-      setSentSuccess(true);
-      setTimeout(() => {
-        onSuccess();
-        onClose();
-      }, 1200);
-    } catch (err) {
-      alert('Failed to send SMS message');
+      posAudio.playScanBeep();
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Could not send SMS');
     } finally {
       setIsSending(false);
     }
@@ -50,15 +48,19 @@ export const SendSmsModal: React.FC<SendSmsModalProps> = ({ ticket, onClose, onS
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden animate-in zoom-in-95">
         <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between bg-slate-50">
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center">
+            <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
               <MessageSquare className="w-4 h-4" />
             </div>
             <div>
-              <h3 className="text-xs font-bold text-slate-900">Send Customer SMS Update</h3>
-              <p className="text-[11px] text-slate-500">Instant dispatch to customer mobile</p>
+              <h3 className="font-bold text-xs text-slate-900">
+                Send SMS Update (WO #{ticket.ticketNumber})
+              </h3>
+              <p className="text-[10px] text-slate-500">
+                To {ticket.customer.fullName} • {ticket.customer.phone}
+              </p>
             </div>
           </div>
           <button
@@ -69,91 +71,45 @@ export const SendSmsModal: React.FC<SendSmsModalProps> = ({ ticket, onClose, onS
           </button>
         </div>
 
-        <form onSubmit={handleSend} className="p-5 space-y-4 text-xs">
-          {/* Recipient summary */}
-          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between">
-            <div>
-              <span className="font-bold text-slate-900 block">{ticket.customer.fullName}</span>
-              <span className="text-slate-500 font-mono flex items-center gap-1">
-                <Phone className="w-3 h-3 text-slate-400" />
-                {ticket.customer.phoneNumber}
-              </span>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4 text-xs">
+          {errorMsg && (
+            <div className="p-2.5 bg-red-50 text-red-700 text-xs rounded border border-red-200">
+              {errorMsg}
             </div>
-            <span className="font-mono text-xs font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded">
-              #{ticket.ticketNumber}
-            </span>
-          </div>
+          )}
 
-          {/* Quick template buttons */}
           <div>
-            <label className="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-              Quick Templates
-            </label>
-            <div className="space-y-1.5">
-              <button
-                type="button"
-                onClick={() => setMessage(defaultTemplates[0])}
-                className="w-full text-left p-2 rounded-lg border border-slate-200 hover:bg-indigo-50/50 hover:border-indigo-300 transition-colors text-[11px] text-slate-700"
-              >
-                ✅ <strong>Ready for Pickup:</strong> Work order finished, total due.
-              </button>
-              <button
-                type="button"
-                onClick={() => setMessage(defaultTemplates[1])}
-                className="w-full text-left p-2 rounded-lg border border-slate-200 hover:bg-amber-50/50 hover:border-amber-300 transition-colors text-[11px] text-slate-700"
-              >
-                📦 <strong>Parts Ordered:</strong> Waiting on component delivery.
-              </button>
-              <button
-                type="button"
-                onClick={() => setMessage(defaultTemplates[2])}
-                className="w-full text-left p-2 rounded-lg border border-slate-200 hover:bg-blue-50/50 hover:border-blue-300 transition-colors text-[11px] text-slate-700"
-              >
-                ⚙️ <strong>In-Progress Bench:</strong> Active diagnostics update.
-              </button>
-            </div>
-          </div>
-
-          {/* Message textarea */}
-          <div>
-            <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">
-              SMS Message Body
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Text Message Body
             </label>
             <textarea
-              rows={3}
+              rows={4}
               required
               value={message}
               onChange={(e) => setMessage(e.target.value)}
-              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 text-xs font-sans leading-relaxed"
+              className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
             />
+            <span className="text-[10px] text-slate-400 mt-1 block">
+              Dispatches via SMS gateway and automatically records into the work order audit trail.
+            </span>
           </div>
 
-          {/* Footer action */}
-          <div className="pt-2 flex items-center justify-between">
-            <div>
-              {sentSuccess && (
-                <span className="text-xs font-semibold text-emerald-600 flex items-center gap-1">
-                  <Check className="w-3.5 h-3.5" /> SMS dispatched!
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-3.5 py-1.5 text-slate-600 hover:bg-slate-100 rounded-lg font-semibold"
-              >
-                Cancel
-              </button>
-              <button
-                type="submit"
-                disabled={isSending || sentSuccess}
-                className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold shadow-sm transition-all cursor-pointer disabled:opacity-50"
-              >
-                <Send className="w-3.5 h-3.5" />
-                <span>{isSending ? 'Sending...' : 'Send SMS'}</span>
-              </button>
-            </div>
+          <div className="pt-2 border-t border-slate-100 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg cursor-pointer"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSending}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer disabled:opacity-50"
+            >
+              <Send className="w-3.5 h-3.5" />
+              <span>{isSending ? 'Sending...' : 'Send Text'}</span>
+            </button>
           </div>
         </form>
       </div>

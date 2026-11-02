@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Search, Plus, Wrench, Download, Cpu, Command } from 'lucide-react';
+import { Search, Plus, Wrench, Download, Cpu } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 
 interface HeaderProps {

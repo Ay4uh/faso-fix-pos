@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Ticket } from '../types';
-import { X, Printer, Tag, FileText, Check } from 'lucide-react';
+import { X, Printer, Tag, FileText } from 'lucide-react';
 import { Barcode } from './Barcode';
 
 interface PrintTicketModalProps {
@@ -15,6 +15,19 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
 
   const handlePrint = () => {
     window.print();
+  };
+
+  const totals = ticket.totals || {
+    subtotalCents: ticket.laborCents,
+    laborCents: ticket.laborCents,
+    itemsCents: 0,
+    discountCents: ticket.discountCents,
+    taxRateBps: ticket.taxRateBps,
+    taxCents: 0,
+    totalCents: ticket.laborCents,
+    paidCents: 0,
+    balanceCents: ticket.laborCents,
+    paymentStatus: 'UNPAID',
   };
 
   return (
@@ -79,7 +92,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               
               {/* Barcode */}
               <div className="pt-2">
-                <Barcode value={`WO-${ticket.ticketNumber.padStart(4, '0')}`} width={180} height={42} />
+                <Barcode value={`WO-${String(ticket.ticketNumber).padStart(4, '0')}`} width={180} height={42} />
               </div>
             </div>
 
@@ -98,15 +111,15 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             <div className="space-y-1 border-b border-dashed border-slate-200 pb-2">
               <div className="text-[10px] text-slate-400 uppercase font-bold font-sans">Client Contact</div>
               <div className="font-bold text-sm text-slate-900">{ticket.customer.fullName}</div>
-              <div>{ticket.customer.phoneNumber}</div>
+              <div>{ticket.customer.phone}</div>
               {ticket.customer.email && <div className="text-[11px] text-slate-500">{ticket.customer.email}</div>}
             </div>
 
             {/* Device */}
             <div className="space-y-1 border-b border-dashed border-slate-200 pb-2">
               <div className="text-[10px] text-slate-400 uppercase font-bold font-sans">Unit Details & Diagnostics</div>
-              <div className="font-bold text-slate-900">{ticket.deviceMakeModel}</div>
-              {ticket.serialNumber && <div className="text-[10px] text-slate-500">IMEI/Serial: {ticket.serialNumber}</div>}
+              <div className="font-bold text-slate-900">{ticket.device?.name || 'Device'}</div>
+              {ticket.device?.serialNumber && <div className="text-[10px] text-slate-500">IMEI/Serial: {ticket.device.serialNumber}</div>}
               {ticket.device?.passcode && <div className="text-[10px] text-slate-800 font-bold">Intake PIN: {ticket.device.passcode}</div>}
               <div className="text-[11px] text-slate-700 mt-1 italic">
                 Fault: {ticket.faultDescription}
@@ -116,20 +129,38 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             {/* Financials */}
             <div className="space-y-1 border-b border-dashed border-slate-300 pb-3">
               <div className="flex justify-between">
-                <span>Diagnostic & Hardware Service:</span>
-                <span>${ticket.price.toFixed(2)}</span>
+                <span>Labor & Service:</span>
+                <span>${(totals.laborCents / 100).toFixed(2)}</span>
               </div>
-              <div className="flex justify-between text-red-600">
-                <span>Shop Promotional Discount:</span>
-                <span>-$15.00</span>
-              </div>
+              {totals.itemsCents > 0 && (
+                <div className="flex justify-between">
+                  <span>Replaced Parts & Supplies:</span>
+                  <span>${(totals.itemsCents / 100).toFixed(2)}</span>
+                </div>
+              )}
+              {totals.discountCents > 0 && (
+                <div className="flex justify-between text-red-600">
+                  <span>Shop Discount:</span>
+                  <span>-${(totals.discountCents / 100).toFixed(2)}</span>
+                </div>
+              )}
               <div className="flex justify-between text-slate-500 text-[11px]">
-                <span>Taxes (GST 8% + PST 5%):</span>
-                <span>+${((Math.max(0, ticket.price - 15) * 0.13)).toFixed(2)}</span>
+                <span>Taxes:</span>
+                <span>+${(totals.taxCents / 100).toFixed(2)}</span>
               </div>
               <div className="flex justify-between font-bold text-sm text-slate-900 pt-1 border-t border-slate-200">
-                <span>TOTAL WORK ORDER:</span>
-                <span>${(Math.max(0, ticket.price - 15) * 1.13).toFixed(2)}</span>
+                <span>TOTAL:</span>
+                <span>${(totals.totalCents / 100).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between text-emerald-700 text-[11px]">
+                <span>Amount Paid:</span>
+                <span>${(totals.paidCents / 100).toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between font-bold text-slate-900">
+                <span>Balance Owing:</span>
+                <span className={totals.balanceCents > 0 ? 'text-amber-600' : 'text-emerald-600'}>
+                  ${(totals.balanceCents / 100).toFixed(2)}
+                </span>
               </div>
             </div>
 
@@ -157,16 +188,16 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
 
               <div>
                 <div className="font-bold text-sm truncate">{ticket.customer.fullName}</div>
-                <div className="text-[11px] text-slate-600">{ticket.customer.phoneNumber}</div>
+                <div className="text-[11px] text-slate-600">{ticket.customer.phone}</div>
               </div>
 
               <div className="p-1.5 bg-slate-100 rounded text-[11px] space-y-0.5">
-                <div className="font-bold truncate">{ticket.deviceMakeModel}</div>
+                <div className="font-bold truncate">{ticket.device?.name || 'Device'}</div>
                 {ticket.device?.passcode && (
                   <div className="font-bold text-slate-900">PIN: {ticket.device.passcode}</div>
                 )}
-                {ticket.serialNumber && (
-                  <div className="text-[9px] text-slate-500 truncate">{ticket.serialNumber}</div>
+                {ticket.device?.serialNumber && (
+                  <div className="text-[9px] text-slate-500 truncate">{ticket.device.serialNumber}</div>
                 )}
               </div>
 
@@ -175,7 +206,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               </div>
 
               <div className="pt-1 flex flex-col items-center justify-center border-t border-dashed border-slate-200">
-                <Barcode value={`WO-${ticket.ticketNumber.padStart(4, '0')}`} width={180} height={36} />
+                <Barcode value={`WO-${String(ticket.ticketNumber).padStart(4, '0')}`} width={180} height={36} />
                 <span className="text-[9px] text-slate-400 mt-1">DUE: {new Date(ticket.dueDate).toLocaleDateString()}</span>
               </div>
             </div>
