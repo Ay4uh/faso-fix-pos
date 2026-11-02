@@ -14,16 +14,12 @@ import {
   MessageSquare,
   Lock,
   Layers,
-  Save,
-  ShieldCheck,
-  Tag,
   Trash2,
   DollarSign,
   Check,
   Mail,
   PenTool,
 } from 'lucide-react';
-import { Barcode } from './Barcode';
 import { posAudio } from '../utils/audio';
 import { SignaturePad } from './SignaturePad';
 
@@ -51,7 +47,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   onPrint,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'notes' | 'payments' | 'diagnostics' | 'signature' | 'history'
+    'notes' | 'payments' | 'signature' | 'history'
   >('notes');
   const [noteSubTab, setNoteSubTab] = useState<'customer' | 'internal' | 'sms'>('customer');
 
@@ -75,7 +71,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
   // Security
   const [passcode, setPasscode] = useState(ticket.device?.passcode || '');
-  const [patternDots, setPatternDots] = useState<number[]>([1, 2, 5, 8]);
   const [isSavingSecurity, setIsSavingSecurity] = useState(false);
   const [securitySaved, setSecuritySaved] = useState(false);
 
@@ -101,30 +96,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     ((ticket.totals ? ticket.totals.discountCents : ticket.discountCents) / 100).toFixed(2)
   );
   const [isSavingDiscount, setIsSavingDiscount] = useState(false);
-
-  // Diagnostics
-  const defaultDiagnostics = {
-    powerOn: true,
-    displayTouch: true,
-    cameraFront: true,
-    cameraRear: true,
-    chargingPort: true,
-    speakers: true,
-    microphones: true,
-    wifiBluetooth: true,
-    biometrics: true,
-    batteryHealth: true,
-  };
-  const [diagnostics, setDiagnostics] = useState<Record<string, boolean>>(() => {
-    if (ticket.diagnostics) {
-      const parsed: Record<string, boolean> = {};
-      for (const [k, v] of Object.entries(ticket.diagnostics)) {
-        parsed[k] = v === 'PASS';
-      }
-      return { ...defaultDiagnostics, ...parsed };
-    }
-    return defaultDiagnostics;
-  });
 
   // Load Inventory
   useEffect(() => {
@@ -162,12 +133,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const balanceOwing = totals.balanceCents / 100;
   const isPaidInFull = totals.balanceCents === 0;
 
-  const togglePatternDot = (dotIndex: number) => {
-    setPatternDots((prev) =>
-      prev.includes(dotIndex) ? prev.filter((d) => d !== dotIndex) : [...prev, dotIndex]
-    );
-  };
-
   const handleSaveSecurity = async () => {
     setIsSavingSecurity(true);
     try {
@@ -177,7 +142,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         body: JSON.stringify({
           device: {
             passcode,
-            pattern: patternDots.join(','),
           },
         }),
       });
@@ -185,7 +149,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       setTimeout(() => setSecuritySaved(false), 2000);
       onRefresh();
     } catch {
-      alert('Failed to save security details');
+      alert('Failed to save passcode');
     } finally {
       setIsSavingSecurity(false);
     }
@@ -373,20 +337,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
-  const handleToggleDiagnostic = async (key: string) => {
-    const updated = { ...diagnostics, [key]: !diagnostics[key] };
-    setDiagnostics(updated);
-    const diagPayload: Record<string, 'PASS' | 'FAIL'> = {};
-    for (const [k, v] of Object.entries(updated)) {
-      diagPayload[k] = v ? 'PASS' : 'FAIL';
-    }
-    await fetch(`/api/tickets/${ticket.id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ diagnostics: diagPayload }),
-    });
-  };
-
   const handleSaveSignature = async (dataUrl: string) => {
     try {
       await fetch(`/api/tickets/${ticket.id}`, {
@@ -512,50 +462,38 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           </div>
 
           {/* Action CTAs */}
-          <div className="flex items-center gap-2 sm:gap-3">
-            <div className="hidden lg:block">
-              <Barcode value={`WO-${String(ticket.ticketNumber).padStart(4, '0')}`} width={110} height={28} />
-            </div>
-
-            <button
-              onClick={() => setIsAddItemModalOpen(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg text-xs font-semibold cursor-pointer transition-colors"
-            >
-              <Plus className="w-3.5 h-3.5" />
-              <span>Attach Part / Labor</span>
-            </button>
-
-            <button
-              onClick={() => {
-                setPaymentAmount(balanceOwing > 0 ? balanceOwing.toFixed(2) : '');
-                setIsPaymentModalOpen(true);
-              }}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer"
-            >
-              <CreditCard className="w-3.5 h-3.5" />
-              <span>Take Payment</span>
-            </button>
+          <div className="flex items-center gap-2">
+            {balanceOwing > 0 ? (
+              <button
+                onClick={() => {
+                  setPaymentAmount(balanceOwing.toFixed(2));
+                  setIsPaymentModalOpen(true);
+                }}
+                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>Pay Balance (${balanceOwing.toFixed(2)})</span>
+              </button>
+            ) : (
+              <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                Paid in Full
+              </span>
+            )}
 
             <button
               onClick={() => onPrint(ticket)}
-              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
-              title="Print Work Order Receipt"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+              title="Print Receipt"
             >
-              <Printer className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={() => onPrint(ticket)}
-              className="p-1.5 rounded-lg text-slate-600 hover:text-slate-900 hover:bg-slate-100 transition-colors cursor-pointer"
-              title="Print Thermal Bench Sticker"
-            >
-              <Tag className="w-4 h-4" />
+              <Printer className="w-3.5 h-3.5" />
+              <span>Print</span>
             </button>
 
             <button
               onClick={() => setIsEmailModalOpen(true)}
-              className="p-1.5 rounded-lg text-slate-600 hover:text-indigo-600 hover:bg-slate-100 transition-colors cursor-pointer"
-              title="Email Work Order Receipt"
+              className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              title="Email Invoice"
             >
               <Mail className="w-4 h-4" />
             </button>
@@ -725,133 +663,75 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               )}
             </div>
 
-            {/* Store Location */}
-            <div className="text-xs text-slate-500 space-y-1 pt-1">
-              <div className="flex justify-between">
-                <span>Workstation:</span>
-                <span className="font-semibold text-slate-800">{ticket.bench || 'Bench #04'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Technician:</span>
-                <span className="font-semibold text-slate-800">{ticket.technician || 'Alex Mercer'}</span>
-              </div>
-              <div className="flex justify-between">
-                <span>Storage Bin:</span>
-                <span className="font-mono text-slate-800 font-semibold">{ticket.storageBin || 'Bin A-04'}</span>
-              </div>
+            {/* Workstation Info */}
+            <div className="text-xs text-slate-500 pt-2 border-t border-slate-100 flex items-center justify-between">
+              <span>Station: <strong className="text-slate-800">{ticket.bench || 'Bench #01'}</strong></span>
+              <span>Tech: <strong className="text-slate-800">{ticket.technician || 'Alex Mercer'}</strong></span>
             </div>
           </div>
 
           {/* RIGHT PANEL */}
           <div className="flex-1 p-5 space-y-5 overflow-y-auto">
-            {/* Device Overview Card (Matches UI from Screenshot) */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs">
+            {/* Clean Device Information Card */}
+            <div className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3">
               <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
-                  <span className="px-2.5 py-1 rounded-full text-[11px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1">
+                  <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1.5">
                     <Smartphone className="w-3.5 h-3.5" />
-                    Device Unit
-                  </span>
-                  <span className="font-bold text-sm text-slate-900">
                     {ticket.device?.name || 'Device'}
                   </span>
                 </div>
 
                 <div className="text-xs font-mono text-slate-500">
-                  IMEI/Serial: <span className="font-bold text-slate-800">{ticket.device?.serialNumber || 'N/A'}</span>
+                  Serial / IMEI: <span className="font-bold text-slate-800">{ticket.device?.serialNumber || 'N/A'}</span>
                 </div>
               </div>
 
-              {/* Hardware & Security Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 text-xs">
-                {/* 1. Device Security & Pattern Grid */}
-                <div className="space-y-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-slate-600 flex items-center gap-1">
-                      <Lock className="w-3 h-3 text-slate-400" /> Passcode / Pattern
-                    </span>
-                    <div className="flex items-center gap-1">
-                      <input
-                        type="text"
-                        value={passcode}
-                        onChange={(e) => setPasscode(e.target.value)}
-                        placeholder="PIN e.g. 2580"
-                        className="w-20 px-2 py-0.5 bg-white border border-slate-200 rounded font-mono text-xs text-center"
-                      />
-                      <button
-                        type="button"
-                        onClick={handleSaveSecurity}
-                        disabled={isSavingSecurity}
-                        className="p-1 bg-indigo-600 text-white rounded hover:bg-indigo-700 cursor-pointer"
-                        title="Save PIN"
-                      >
-                        <Save className="w-3 h-3" />
-                      </button>
-                    </div>
+              {/* Device Specs & Reported Problem */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pt-1 text-xs">
+                {/* 1. Device Passcode / PIN */}
+                <div className="space-y-1.5 bg-slate-50 p-3 rounded-lg border border-slate-200 flex flex-col justify-between">
+                  <div>
+                    <label className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                      <Lock className="w-3.5 h-3.5 text-slate-500" />
+                      Device Passcode / PIN
+                    </label>
+                    <p className="text-[10px] text-slate-400 mt-0.5">Needed for bench testing</p>
                   </div>
-
-                  {/* 3x3 Pattern Lock Grid */}
-                  <div className="flex flex-col items-center justify-center pt-1">
-                    <div className="grid grid-cols-3 gap-2.5 p-2 bg-white rounded-lg border border-slate-200">
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((dot) => {
-                        const isConnected = patternDots.includes(dot);
-                        return (
-                          <button
-                            key={dot}
-                            type="button"
-                            onClick={() => togglePatternDot(dot)}
-                            className={`w-4 h-4 rounded-full border transition-all cursor-pointer ${
-                              isConnected
-                                ? 'bg-indigo-600 border-indigo-600 scale-110 shadow-xs'
-                                : 'bg-slate-200 border-slate-300 hover:bg-slate-300'
-                            }`}
-                            title={`Pattern Node ${dot}`}
-                          />
-                        );
-                      })}
-                    </div>
-                    <span className="text-[10px] text-slate-400 mt-1">
-                      {securitySaved ? '✅ Saved!' : 'Interactive Pattern Lock'}
-                    </span>
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <input
+                      type="text"
+                      value={passcode}
+                      onChange={(e) => setPasscode(e.target.value)}
+                      placeholder="e.g. 1234 or None"
+                      className="flex-1 px-2.5 py-1.5 bg-white border border-slate-200 rounded-md font-mono text-xs font-semibold text-slate-900 focus:outline-none focus:border-indigo-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveSecurity}
+                      disabled={isSavingSecurity}
+                      className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-semibold cursor-pointer transition-colors"
+                    >
+                      {securitySaved ? 'Saved!' : 'Save'}
+                    </button>
                   </div>
                 </div>
 
-                {/* 2. Device Attributes */}
-                <div className="space-y-2 text-slate-600">
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-400 block">Reported Fault</label>
-                    <p className="font-semibold text-slate-800 mt-0.5 leading-snug">{ticket.faultDescription}</p>
-                  </div>
-                  <div>
-                    <label className="text-[10px] uppercase font-bold text-slate-400 block">Intake Physical Condition</label>
-                    <p className="text-slate-700 text-[11px] mt-0.5">{ticket.device?.condition || 'No cosmetic defects logged'}</p>
-                  </div>
+                {/* 2. Reported Problem */}
+                <div className="space-y-1 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Reported Issue / Fault</span>
+                  <p className="font-semibold text-slate-900 text-xs leading-snug">{ticket.faultDescription}</p>
                 </div>
 
-                {/* 3. Carrier & Warranty Status */}
-                <div className="space-y-2 bg-slate-50 p-3 rounded-lg border border-slate-200 text-[11px]">
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Blacklist Status:</span>
-                    <span className="font-bold text-emerald-700 bg-emerald-100/80 px-1.5 py-0.5 rounded">
-                      CLEAN / WHITELISTED
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Carrier Lock:</span>
-                    <span className="font-semibold text-slate-700">Factory Unlocked</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-500">Warranty SLA:</span>
-                    <span className="font-bold text-indigo-700 flex items-center gap-1">
-                      <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-                      90-Day Guarantee
-                    </span>
-                  </div>
+                {/* 3. Intake Physical Condition */}
+                <div className="space-y-1 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block tracking-wider">Intake Cosmetic Condition</span>
+                  <p className="text-slate-700 text-xs">{ticket.device?.condition || 'No cosmetic defects logged at intake'}</p>
                 </div>
               </div>
             </div>
 
-            {/* TABBED INTERACTION SECTION - SIMPLIFIED 5 WORKBENCH TABS */}
+            {/* TABBED INTERACTION SECTION - SIMPLIFIED 4 WORKBENCH TABS */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
               <div className="flex items-center gap-1 border-b border-slate-200 px-4 bg-slate-50/75 overflow-x-auto">
                 <button
@@ -877,18 +757,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 >
                   <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
                   <span>Payments &amp; Receipts ({ticket.payments?.length || 0})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('diagnostics')}
-                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === 'diagnostics'
-                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
-                      : 'border-transparent text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
-                  <span>Hardware QA Checks</span>
                 </button>
                 <button
                   type="button"
@@ -1152,31 +1020,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                         )}
                       </tbody>
                     </table>
-                  </div>
-                )}
-
-                {activeTab === 'diagnostics' && (
-                  <div className="space-y-3">
-                    <p className="text-[11px] text-slate-500">Click any component to toggle QA inspection pass/fail status:</p>
-                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                      {Object.entries(diagnostics).map(([key, value]) => (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => handleToggleDiagnostic(key)}
-                          className={`p-2.5 rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
-                            value
-                              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                              : 'bg-red-50 border-red-200 text-red-900'
-                          }`}
-                        >
-                          <span className="capitalize font-semibold text-xs">
-                            {key.replace(/([A-Z])/g, ' $1')}
-                          </span>
-                          <CheckCircle2 className={`w-4 h-4 ${value ? 'text-emerald-600' : 'text-slate-300'}`} />
-                        </button>
-                      ))}
-                    </div>
                   </div>
                 )}
 

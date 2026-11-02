@@ -5,9 +5,7 @@ import {
   Users,
   BarChart3,
   Settings,
-  Cpu,
   Package,
-  UserCheck,
 } from 'lucide-react';
 import { DashboardStats } from '../types';
 
@@ -23,10 +21,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   setCurrentTab,
   stats,
-  selectedBench,
   openCreateModal,
 }) => {
-  const activeBenchName = selectedBench === 'ALL' ? 'All Shop Benches' : selectedBench;
 
   return (
     <aside className="w-60 bg-white border-r border-slate-200 flex flex-col justify-between p-4 shrink-0 h-[calc(100vh-61px)] sticky top-[61px] select-none shadow-[1px_0_4px_rgba(0,0,0,0.02)]">
@@ -128,45 +124,15 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           </nav>
         </div>
-
-        {/* Workstation Status Box */}
-        <div className="bg-slate-900 text-white rounded-xl p-3 shadow-md space-y-2 border border-slate-800">
-          <div className="flex items-center justify-between">
-            <span className="text-[11px] font-bold text-emerald-400 flex items-center gap-1.5">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-              </span>
-              {activeBenchName}
-            </span>
-            <Cpu className="w-3.5 h-3.5 text-indigo-300" />
-          </div>
-
-          <div className="text-[11px] text-slate-300 space-y-1 pt-1 border-t border-white/10">
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">Assigned Tech:</span>
-              <span className="font-semibold text-white">Alex Mercer</span>
-            </div>
-            <div className="flex items-center justify-between">
-              <span className="text-slate-400">Shop Rate:</span>
-              <span className="font-semibold font-mono text-emerald-400">$85/hr</span>
-            </div>
-          </div>
-        </div>
       </div>
 
-      {/* Technician Profile Card */}
-      <div className="pt-3 border-t border-slate-200 flex items-center gap-3">
-        <div className="w-8 h-8 rounded-full bg-indigo-600 text-white font-bold text-xs flex items-center justify-center border border-indigo-200 shadow-xs">
-          AM
-        </div>
-        <div className="overflow-hidden">
-          <h4 className="text-xs font-bold text-slate-900 truncate">Alex Mercer</h4>
-          <p className="text-[10px] text-slate-500 font-medium truncate flex items-center gap-1">
-            <UserCheck className="w-3 h-3 text-emerald-600" />
-            Lead Technician
-          </p>
-        </div>
+      {/* Clean Shop Status Footer */}
+      <div className="pt-3 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-500">
+        <span className="flex items-center gap-1.5 font-medium">
+          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          ApexFix POS Online
+        </span>
+        <span className="font-mono text-slate-400 text-[10px]">v2.4</span>
       </div>
     </aside>
   );
