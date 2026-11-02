@@ -55,7 +55,11 @@ export function App() {
     try {
       setIsLoading(true);
       const params = new URLSearchParams();
-      if (activeFilter !== 'ALL') params.set('status', activeFilter);
+      if (activeFilter === 'ALL') {
+        params.set('view', 'ALL');
+      } else {
+        params.set('status', activeFilter);
+      }
       if (searchQuery.trim()) params.set('search', searchQuery.trim());
       if (selectedBench !== 'ALL') params.set('bench', selectedBench);
 
