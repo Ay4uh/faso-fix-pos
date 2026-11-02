@@ -71,6 +71,7 @@ model Ticket {
   technician       String?
   bench            String?
   storageBin       String?
+  signature        String?       // customer intake/pickup authorization signature data-url
   diagnostics      String        @default("{}") // JSON map of QA check -> PASS | FAIL
   dueDate          DateTime
   completedAt      DateTime?

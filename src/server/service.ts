@@ -100,12 +100,16 @@ export async function getTicket(id: string) {
   return { ...withTotals(t), otherTickets };
 }
 
-export async function listTickets(params: { view?: string; search?: string }) {
+export async function listTickets(params: { view?: string; search?: string; bench?: string }) {
   const view = params.view || 'OPEN';
   const where: Prisma.TicketWhereInput = { deletedAt: null };
 
   if (view === 'OPEN') where.status = { in: OPEN_STATUSES };
   else if (view !== 'ALL') where.status = view;
+
+  if (params.bench && params.bench !== 'ALL') {
+    where.bench = params.bench;
+  }
 
   const q = (params.search || '').trim();
   if (q) {
@@ -193,6 +197,7 @@ export async function createTicket(input: unknown) {
         technician: emptyToNull(data.technician) ?? null,
         bench: emptyToNull(data.bench) ?? null,
         storageBin: emptyToNull(data.storageBin) ?? null,
+        signature: emptyToNull(data.signature) ?? null,
         dueDate: parseDate(data.dueDate),
       },
     });
@@ -250,12 +255,16 @@ export async function updateTicket(id: string, input: unknown) {
         changes.push(`due date → ${due.toLocaleDateString()}`);
       }
     }
-    for (const key of ['technician', 'bench', 'storageBin'] as const) {
+    for (const key of ['technician', 'bench', 'storageBin', 'signature'] as const) {
       if (data[key] !== undefined) {
         const v = emptyToNull(data[key]) ?? null;
         if (v !== t[key]) {
           update[key] = v;
-          changes.push(`${key === 'storageBin' ? 'storage bin' : key} → ${v ?? 'none'}`);
+          if (key === 'signature') {
+            changes.push('customer signature captured');
+          } else {
+            changes.push(`${key === 'storageBin' ? 'storage bin' : key} → ${v ?? 'none'}`);
+          }
         }
       }
     }

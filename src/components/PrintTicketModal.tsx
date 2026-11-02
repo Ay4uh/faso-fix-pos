@@ -169,8 +169,22 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               <div className="text-[9px] text-slate-500 font-sans leading-tight">
                 <strong>90-Day Limited Warranty:</strong> All replaced components carry a 90-day parts and labor guarantee against manufacturer defects. Liquid damage or accidental drops void warranty. Unclaimed units after 30 days subject to storage fees.
               </div>
-              <div className="pt-6 border-b border-slate-400"></div>
-              <div className="text-[10px] text-center text-slate-400 font-sans">Customer Authorization Signature</div>
+              <div className="pt-2">
+                {ticket.signature ? (
+                  <div className="flex flex-col items-center">
+                    <img src={ticket.signature} alt="Customer Signature" className="h-14 object-contain max-w-[240px]" />
+                    <div className="w-full border-b border-slate-700"></div>
+                    <div className="text-[10px] text-slate-700 font-sans mt-0.5 font-semibold">
+                      Digitally Signed by {ticket.customer.fullName} • Verified Authorization
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="pt-8 border-b border-slate-400"></div>
+                    <div className="text-[10px] text-center text-slate-400 font-sans mt-0.5">Customer Authorization Signature</div>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         )}

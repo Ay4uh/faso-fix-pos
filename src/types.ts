@@ -98,6 +98,7 @@ export interface Ticket {
   technician?: string | null;
   bench?: string | null;
   storageBin?: string | null;
+  signature?: string | null;
   diagnostics?: Record<string, 'PASS' | 'FAIL'>;
   dueDate: string;
   completedAt?: string | null;

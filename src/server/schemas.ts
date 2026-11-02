@@ -34,6 +34,7 @@ export const createTicketSchema = z.object({
   technician: optionalText,
   bench: optionalText,
   storageBin: optionalText,
+  signature: optionalText,
   depositCents: cents.optional(),
   depositMethod: z.enum(PAYMENT_METHODS).optional(),
 });
@@ -49,6 +50,7 @@ export const updateTicketSchema = z
     technician: optionalText,
     bench: optionalText,
     storageBin: optionalText,
+    signature: optionalText,
     diagnostics: z.record(z.string(), z.enum(['PASS', 'FAIL'])),
     device: z
       .object({

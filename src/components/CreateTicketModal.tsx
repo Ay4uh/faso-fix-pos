@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
-import { X, Check, AlertCircle, Wrench, DollarSign, User, Phone, Mail, Hash } from 'lucide-react';
+import { X, Check, AlertCircle, Wrench, DollarSign, User, Phone, Mail, Hash, PenTool } from 'lucide-react';
 import { Customer } from '../types';
 import { posAudio } from '../utils/audio';
+import { SignaturePad } from './SignaturePad';
 
 interface CreateTicketModalProps {
   isOpen: boolean;
@@ -30,6 +31,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   const [price, setPrice] = useState('85.00');
   const [benchNumber, setBenchNumber] = useState('Bench #04');
   const [selectedConditions, setSelectedConditions] = useState<string[]>(['No Screen Cracks']);
+  const [signature, setSignature] = useState<string | null>(null);
 
   const [dueDate, setDueDate] = useState(() => {
     const d = new Date();
@@ -132,6 +134,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
           priority,
           bench: benchNumber,
           technician: 'Alex Mercer',
+          signature: signature || undefined,
         }),
       });
 
@@ -418,6 +421,20 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                 </select>
               </div>
             </div>
+          </div>
+
+          {/* Customer Signature & Authorization Section */}
+          <div className="space-y-2 pt-2 border-t border-slate-100">
+            <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center gap-1.5">
+              <PenTool className="w-3.5 h-3.5 text-indigo-600" />
+              4. Customer Authorization & Intake Sign-off
+            </span>
+            <SignaturePad
+              initialSignature={signature}
+              onSave={(dataUrl) => setSignature(dataUrl)}
+              onClear={() => setSignature(null)}
+              height={110}
+            />
           </div>
 
           {/* Modal Footer Actions */}

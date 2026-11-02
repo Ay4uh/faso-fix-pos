@@ -102,7 +102,8 @@ app.put('/api/settings', wrap(async (req, res) => {
 app.get('/api/tickets', wrap(async (req, res) => {
   const view = (req.query.view || req.query.status || 'OPEN') as string;
   const search = req.query.search as string | undefined;
-  const tickets = await listTickets({ view, search });
+  const bench = req.query.bench as string | undefined;
+  const tickets = await listTickets({ view, search, bench });
   res.json({ success: true, count: tickets.length, data: tickets });
 }));
 
