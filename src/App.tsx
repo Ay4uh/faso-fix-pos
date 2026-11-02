@@ -11,11 +11,11 @@ import { CustomersView } from './components/CustomersView';
 import { InventoryView } from './components/InventoryView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { Ticket, Customer, DashboardStats } from './types';
-import { RefreshCw, SlidersHorizontal, CheckCircle2 } from 'lucide-react';
+import { SlidersHorizontal, CheckCircle2 } from 'lucide-react';
 import { posAudio } from './utils/audio';
 
 export function App() {
-  const [currentTab, setCurrentTab] = useState<'dashboard' | 'dataview' | 'analytics' | 'customers' | 'inventory' | 'settings'>('dashboard');
+  const [currentTab, setCurrentTab] = useState<'repairs' | 'customers' | 'inventory' | 'analytics' | 'settings'>('repairs');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('ALL');
   const [selectedBench, setSelectedBench] = useState('ALL');
@@ -155,6 +155,11 @@ export function App() {
 
   return (
     <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans">
+      {/* Top Loading Progress Line */}
+      {isLoading && (
+        <div className="fixed top-0 left-0 right-0 h-0.5 bg-indigo-600 z-50 animate-pulse" />
+      )}
+
       {/* Toast Notification */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 text-xs font-semibold animate-in slide-in-from-bottom-5">
@@ -165,8 +170,6 @@ export function App() {
 
       {/* Sticky Top Header */}
       <Header
-        currentTab={currentTab as any}
-        setCurrentTab={setCurrentTab as any}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         selectedBench={selectedBench}
@@ -182,20 +185,20 @@ export function App() {
             currentTab={currentTab}
             setCurrentTab={setCurrentTab}
             stats={stats}
+            selectedBench={selectedBench}
             openCreateModal={() => setIsCreateModalOpen(true)}
           />
         </div>
 
         {/* Dynamic Content Workspace */}
-        <main className="flex-1 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-6">
-          {/* Top Metric Cards */}
-          {(currentTab === 'dashboard' || currentTab === 'dataview') && (
-            <MetricCards stats={stats} />
-          )}
+        <main className="flex-1 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-5">
+          {/* 1. Primary Tab: Repairs Queue */}
+          {currentTab === 'repairs' && (
+            <div className="space-y-5">
+              {/* Quick KPI Overview */}
+              <MetricCards stats={stats} />
 
-          {/* Tab Views */}
-          {currentTab === 'dashboard' && (
-            <div className="space-y-4">
+              {/* Main Ticket Queue Table */}
               <TicketTable
                 tickets={tickets}
                 totalTicketsCount={stats?.totalActive ? stats.totalActive + (stats.completed || 0) : tickets.length}
@@ -210,36 +213,7 @@ export function App() {
             </div>
           )}
 
-          {currentTab === 'dataview' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
-                <div>
-                  <h2 className="text-sm font-bold text-slate-900">Live Repair Grid (Data View)</h2>
-                  <p className="text-xs text-slate-500">Unfiltered dense tabular layout with raw column views</p>
-                </div>
-                <button
-                  onClick={fetchData}
-                  className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-lg transition-colors cursor-pointer"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
-                  Sync Grid
-                </button>
-              </div>
-
-              <TicketTable
-                tickets={tickets}
-                totalTicketsCount={tickets.length}
-                activeFilter={activeFilter}
-                setActiveFilter={setActiveFilter}
-                onSelectTicket={handleSelectTicket}
-                onUpdateStatus={handleUpdateStatus}
-                onQuickComplete={handleQuickComplete}
-                onOpenSmsModal={(t) => setSmsTicket(t)}
-                onPrintTicket={(t) => setPrintTicket(t)}
-              />
-            </div>
-          )}
-
+          {/* 2. Customers CRM Directory */}
           {currentTab === 'customers' && (
             <CustomersView
               customers={customers}
@@ -250,56 +224,59 @@ export function App() {
             />
           )}
 
+          {/* 3. Parts Inventory & Stock Adjuster */}
           {currentTab === 'inventory' && (
             <InventoryView />
           )}
 
+          {/* 4. Analytics & Reports */}
           {currentTab === 'analytics' && (
             <AnalyticsView tickets={tickets} stats={stats} />
           )}
 
+          {/* 5. Shop Settings */}
           {currentTab === 'settings' && (
             <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4 max-w-2xl">
               <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
                 <SlidersHorizontal className="w-5 h-5 text-indigo-600" />
-                ApexFix Workstation Configuration
+                ApexFix System Configuration
               </h2>
               <div className="space-y-3 text-xs text-slate-600">
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
                   <div>
-                    <span className="font-bold text-slate-800 block">Active Workstation Station</span>
-                    <span className="text-slate-500">Dundas Terminal Bench #04 (Hardware & Micro-solder)</span>
+                    <span className="font-bold text-slate-800 block">Active Selected Workstation</span>
+                    <span className="text-slate-500">{selectedBench === 'ALL' ? 'All Shop Workstations' : selectedBench}</span>
                   </div>
                   <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded font-semibold text-[10px]">
-                    Online & Active
+                    Online &amp; Active
                   </span>
                 </div>
 
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
                   <div>
-                    <span className="font-bold text-slate-800 block">Database Engine</span>
-                    <span className="text-slate-500">Relational SQLite v2 (dev.db via Prisma ORM)</span>
+                    <span className="font-bold text-slate-800 block">Database Storage</span>
+                    <span className="text-slate-500">ACID Relational SQLite with Prisma ORM</span>
                   </div>
                   <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-semibold text-[10px]">
-                    ACID Compliant
+                    Synced
                   </span>
                 </div>
 
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
                   <div>
-                    <span className="font-bold text-slate-800 block">Default Shop Hourly Rate</span>
-                    <span className="text-slate-500">Standard diagnostic & soldering labor rate</span>
+                    <span className="font-bold text-slate-800 block">Default Hourly Diagnostic Rate</span>
+                    <span className="text-slate-500">Standard diagnostic &amp; soldering labor rate</span>
                   </div>
                   <span className="font-mono font-bold text-indigo-600 text-sm">$85.00 / hr</span>
                 </div>
 
                 <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
                   <div>
-                    <span className="font-bold text-slate-800 block">Audio & Haptic Feedback</span>
-                    <span className="text-slate-500">Native Web Audio POS chimes & scan beeps</span>
+                    <span className="font-bold text-slate-800 block">Sound &amp; Audio Feedback</span>
+                    <span className="text-slate-500">Native Web Audio scanner beeps &amp; cash chimes</span>
                   </div>
                   <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded font-semibold text-[10px]">
-                    Enabled
+                    Active
                   </span>
                 </div>
               </div>

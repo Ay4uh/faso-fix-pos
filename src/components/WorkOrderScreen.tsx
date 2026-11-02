@@ -51,8 +51,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   onPrint,
 }) => {
   const [activeTab, setActiveTab] = useState<
-    'customerNotes' | 'internalNotes' | 'history' | 'payments' | 'inbox' | 'diagnostics' | 'signature'
-  >('customerNotes');
+    'notes' | 'payments' | 'diagnostics' | 'signature' | 'history'
+  >('notes');
+  const [noteSubTab, setNoteSubTab] = useState<'customer' | 'internal' | 'sms'>('customer');
 
   // Email invoice modal
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
@@ -200,7 +201,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          kind: activeTab === 'customerNotes' ? 'CUSTOMER_NOTE' : 'INTERNAL_NOTE',
+          kind: noteSubTab === 'customer' ? 'CUSTOMER_NOTE' : 'INTERNAL_NOTE',
           message: newNote.trim(),
         }),
       });
@@ -850,143 +851,211 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               </div>
             </div>
 
-            {/* TABBED INTERACTION SECTION */}
+            {/* TABBED INTERACTION SECTION - SIMPLIFIED 5 WORKBENCH TABS */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
               <div className="flex items-center gap-1 border-b border-slate-200 px-4 bg-slate-50/75 overflow-x-auto">
                 <button
-                  onClick={() => setActiveTab('customerNotes')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
-                    activeTab === 'customerNotes'
-                      ? 'border-indigo-600 text-indigo-700 bg-white'
+                  type="button"
+                  onClick={() => setActiveTab('notes')}
+                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === 'notes'
+                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
                       : 'border-transparent text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  CUSTOMER NOTES
+                  <MessageSquare className="w-3.5 h-3.5 text-indigo-600" />
+                  <span>Notes &amp; Messages</span>
                 </button>
                 <button
-                  onClick={() => setActiveTab('internalNotes')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
-                    activeTab === 'internalNotes'
-                      ? 'border-indigo-600 text-indigo-700 bg-white'
-                      : 'border-transparent text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  INTERNAL BENCH NOTES
-                </button>
-                <button
-                  onClick={() => setActiveTab('history')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
-                    activeTab === 'history'
-                      ? 'border-indigo-600 text-indigo-700 bg-white'
-                      : 'border-transparent text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  HANDLING HISTORY ({ticket.events?.length || 0})
-                </button>
-                <button
+                  type="button"
                   onClick={() => setActiveTab('payments')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
+                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                     activeTab === 'payments'
-                      ? 'border-indigo-600 text-indigo-700 bg-white'
+                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
                       : 'border-transparent text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  PAYMENTS LEDGER ({ticket.payments?.length || 0})
+                  <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Payments &amp; Receipts ({ticket.payments?.length || 0})</span>
                 </button>
                 <button
-                  onClick={() => setActiveTab('inbox')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
-                    activeTab === 'inbox'
-                      ? 'border-indigo-600 text-indigo-700 bg-white'
-                      : 'border-transparent text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  COMMUNICATIONS (SMS)
-                </button>
-                <button
+                  type="button"
                   onClick={() => setActiveTab('diagnostics')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer ${
+                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                     activeTab === 'diagnostics'
-                      ? 'border-indigo-600 text-indigo-700 bg-white'
+                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
                       : 'border-transparent text-slate-600 hover:text-slate-900'
                   }`}
                 >
-                  HARDWARE QA CHECKLIST
+                  <ShieldCheck className="w-3.5 h-3.5 text-blue-600" />
+                  <span>Hardware QA Checks</span>
                 </button>
                 <button
+                  type="button"
                   onClick={() => setActiveTab('signature')}
-                  className={`px-3 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
                     activeTab === 'signature'
-                      ? 'border-indigo-600 text-indigo-700 bg-white'
+                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
                       : 'border-transparent text-slate-600 hover:text-slate-900'
                   }`}
                 >
                   <PenTool className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>CUSTOMER SIGNATURE</span>
-                  {ticket.signature && <span className="text-[10px] text-emerald-600 font-bold">✓</span>}
+                  <span>Customer Waiver Signature</span>
+                  {ticket.signature && <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1 rounded">✓</span>}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('history')}
+                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
+                    activeTab === 'history'
+                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
+                      : 'border-transparent text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  <Clock className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Activity Audit Log ({ticket.events?.length || 0})</span>
                 </button>
               </div>
 
               {/* Tab Content */}
               <div className="p-4 text-xs">
-                {(activeTab === 'customerNotes' || activeTab === 'internalNotes') && (
+                {activeTab === 'notes' && (
                   <div className="space-y-4">
-                    <form onSubmit={handleAddNote} className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
-                        placeholder={`Add ${activeTab === 'customerNotes' ? 'customer-visible note' : 'private technician note'}...`}
-                        className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                      />
+                    {/* Sub-tab pills for notes & messages */}
+                    <div className="flex items-center gap-2 p-1 bg-slate-100 rounded-lg w-fit">
                       <button
-                        type="submit"
-                        disabled={isSubmittingNote}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                        type="button"
+                        onClick={() => setNoteSubTab('customer')}
+                        className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                          noteSubTab === 'customer'
+                            ? 'bg-white text-indigo-700 shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
                       >
-                        {isSubmittingNote ? 'Saving...' : 'Add Note'}
+                        Public Notes (Customer Visible)
                       </button>
-                    </form>
+                      <button
+                        type="button"
+                        onClick={() => setNoteSubTab('internal')}
+                        className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+                          noteSubTab === 'internal'
+                            ? 'bg-white text-indigo-700 shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        Private Bench Notes (Technicians Only)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setNoteSubTab('sms')}
+                        className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer flex items-center gap-1 ${
+                          noteSubTab === 'sms'
+                            ? 'bg-white text-indigo-700 shadow-xs'
+                            : 'text-slate-600 hover:text-slate-900'
+                        }`}
+                      >
+                        <Send className="w-3 h-3 text-indigo-600" />
+                        <span>Direct SMS Gateway</span>
+                      </button>
+                    </div>
 
-                    {/* Filtered Notes */}
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
-                          <th className="py-2 px-3">Date / Time</th>
-                          <th className="py-2 px-3">Author</th>
-                          <th className="py-2 px-3">Note Content</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {ticket.events
-                          ?.filter((ev) =>
-                            activeTab === 'customerNotes'
-                              ? ev.kind === 'CUSTOMER_NOTE' || ev.kind === 'MESSAGE'
-                              : ev.kind === 'INTERNAL_NOTE'
-                          )
-                          .map((ev) => (
-                            <tr key={ev.id} className="hover:bg-slate-50">
-                              <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">
-                                {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </td>
-                              <td className="py-2 px-3 font-semibold text-slate-900">{ev.author || 'Technician'}</td>
-                              <td className="py-2 px-3 text-slate-700">{ev.message}</td>
+                    {/* Note sub-tabs for customer & internal */}
+                    {(noteSubTab === 'customer' || noteSubTab === 'internal') && (
+                      <div className="space-y-3">
+                        <form onSubmit={handleAddNote} className="flex gap-2">
+                          <input
+                            type="text"
+                            value={newNote}
+                            onChange={(e) => setNewNote(e.target.value)}
+                            placeholder={`Enter ${noteSubTab === 'customer' ? 'a note visible to customer on receipt' : 'a private bench/technician diagnostic note'}...`}
+                            className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                          />
+                          <button
+                            type="submit"
+                            disabled={isSubmittingNote || !newNote.trim()}
+                            className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            {isSubmittingNote ? 'Saving...' : 'Post Note'}
+                          </button>
+                        </form>
+
+                        {/* Filtered Notes List */}
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
+                              <th className="py-2 px-3">Date / Time</th>
+                              <th className="py-2 px-3">Author</th>
+                              <th className="py-2 px-3">Note Content</th>
                             </tr>
-                          ))}
-                        {(!ticket.events ||
-                          ticket.events.filter((ev) =>
-                            activeTab === 'customerNotes'
-                              ? ev.kind === 'CUSTOMER_NOTE' || ev.kind === 'MESSAGE'
-                              : ev.kind === 'INTERNAL_NOTE'
-                          ).length === 0) && (
-                          <tr>
-                            <td colSpan={3} className="py-6 text-center text-slate-400 italic">
-                              No {activeTab === 'customerNotes' ? 'customer' : 'internal'} notes logged yet.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100">
+                            {ticket.events
+                              ?.filter((ev) =>
+                                noteSubTab === 'customer'
+                                  ? ev.kind === 'CUSTOMER_NOTE' || ev.kind === 'MESSAGE'
+                                  : ev.kind === 'INTERNAL_NOTE'
+                              )
+                              .map((ev) => (
+                                <tr key={ev.id} className="hover:bg-slate-50">
+                                  <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">
+                                    {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                  </td>
+                                  <td className="py-2 px-3 font-semibold text-slate-900">{ev.author || 'Technician'}</td>
+                                  <td className="py-2 px-3 text-slate-700">{ev.message}</td>
+                                </tr>
+                              ))}
+                            {(!ticket.events ||
+                              ticket.events.filter((ev) =>
+                                noteSubTab === 'customer'
+                                  ? ev.kind === 'CUSTOMER_NOTE' || ev.kind === 'MESSAGE'
+                                  : ev.kind === 'INTERNAL_NOTE'
+                              ).length === 0) && (
+                              <tr>
+                                <td colSpan={3} className="py-6 text-center text-slate-400 italic">
+                                  No {noteSubTab === 'customer' ? 'customer-facing' : 'internal tech'} notes logged yet.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+
+                    {/* SMS Gateway Sub-tab */}
+                    {noteSubTab === 'sms' && (
+                      <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
+                        <div className="flex items-center justify-between">
+                          <span className="font-bold text-slate-800 flex items-center gap-1.5">
+                            <MessageSquare className="w-4 h-4 text-indigo-600" />
+                            Live SMS Gateway to Customer ({ticket.customer.phone})
+                          </span>
+                          {smsSuccess && (
+                            <span className="text-emerald-600 font-bold text-[11px] flex items-center gap-1">
+                              <Check className="w-3.5 h-3.5" /> SMS Dispatched
+                            </span>
+                          )}
+                        </div>
+
+                        <form onSubmit={handleSendSms} className="space-y-2">
+                          <textarea
+                            rows={2}
+                            value={smsText}
+                            onChange={(e) => setSmsText(e.target.value)}
+                            className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-xs font-sans text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                          />
+                          <div className="flex justify-end">
+                            <button
+                              type="submit"
+                              disabled={isSendingSms || !smsText.trim()}
+                              className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer disabled:opacity-50"
+                            >
+                              <Send className="w-3.5 h-3.5" />
+                              <span>{isSendingSms ? 'Transmitting...' : 'Send SMS Update'}</span>
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -1022,13 +1091,17 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 {activeTab === 'payments' && (
                   <div className="space-y-4">
                     <div className="flex justify-between items-center">
-                      <span className="font-semibold text-slate-700">Recorded Tender Receipts</span>
+                      <div>
+                        <span className="font-semibold text-slate-800">Recorded Tender Receipts</span>
+                        <p className="text-[11px] text-slate-500">All cash, card, debit, and e-transfer payments applied to this work order.</p>
+                      </div>
                       <button
+                        type="button"
                         onClick={() => {
                           setPaymentAmount(balanceOwing > 0 ? balanceOwing.toFixed(2) : '');
                           setIsPaymentModalOpen(true);
                         }}
-                        className="px-3 py-1 bg-emerald-600 text-white rounded text-xs font-semibold cursor-pointer"
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold cursor-pointer shadow-xs"
                       >
                         + Add Payment
                       </button>
@@ -1061,6 +1134,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             <td className="py-2 px-3 text-slate-600">{pmt.note || 'Tender collected'}</td>
                             <td className="py-2 px-3 text-right">
                               <button
+                                type="button"
                                 onClick={() => handleVoidPayment(pmt.id)}
                                 className="text-red-500 hover:text-red-700 text-xs font-semibold cursor-pointer"
                               >
@@ -1081,62 +1155,28 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   </div>
                 )}
 
-                {activeTab === 'inbox' && (
-                  <div className="space-y-4">
-                    <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                          <MessageSquare className="w-4 h-4 text-indigo-600" />
-                          Live Mobile SMS Gateway: {ticket.customer.phone}
-                        </span>
-                        {smsSuccess && (
-                          <span className="text-emerald-600 font-bold text-[11px] flex items-center gap-1">
-                            <Check className="w-3.5 h-3.5" /> SMS Dispatched
-                          </span>
-                        )}
-                      </div>
-
-                      <form onSubmit={handleSendSms} className="space-y-2">
-                        <textarea
-                          rows={2}
-                          value={smsText}
-                          onChange={(e) => setSmsText(e.target.value)}
-                          className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-xs font-sans text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                        />
-                        <div className="flex justify-end">
-                          <button
-                            type="submit"
-                            disabled={isSendingSms}
-                            className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer disabled:opacity-50"
-                          >
-                            <Send className="w-3.5 h-3.5" />
-                            <span>{isSendingSms ? 'Transmitting...' : 'Send Text to Customer'}</span>
-                          </button>
-                        </div>
-                      </form>
-                    </div>
-                  </div>
-                )}
-
                 {activeTab === 'diagnostics' && (
-                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
-                    {Object.entries(diagnostics).map(([key, value]) => (
-                      <button
-                        key={key}
-                        type="button"
-                        onClick={() => handleToggleDiagnostic(key)}
-                        className={`p-2.5 rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
-                          value
-                            ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
-                            : 'bg-red-50 border-red-200 text-red-900'
-                        }`}
-                      >
-                        <span className="capitalize font-semibold text-xs">
-                          {key.replace(/([A-Z])/g, ' $1')}
-                        </span>
-                        <CheckCircle2 className={`w-4 h-4 ${value ? 'text-emerald-600' : 'text-slate-300'}`} />
-                      </button>
-                    ))}
+                  <div className="space-y-3">
+                    <p className="text-[11px] text-slate-500">Click any component to toggle QA inspection pass/fail status:</p>
+                    <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+                      {Object.entries(diagnostics).map(([key, value]) => (
+                        <button
+                          key={key}
+                          type="button"
+                          onClick={() => handleToggleDiagnostic(key)}
+                          className={`p-2.5 rounded-lg border text-left flex items-center justify-between transition-all cursor-pointer ${
+                            value
+                              ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                              : 'bg-red-50 border-red-200 text-red-900'
+                          }`}
+                        >
+                          <span className="capitalize font-semibold text-xs">
+                            {key.replace(/([A-Z])/g, ' $1')}
+                          </span>
+                          <CheckCircle2 className={`w-4 h-4 ${value ? 'text-emerald-600' : 'text-slate-300'}`} />
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 )}
 

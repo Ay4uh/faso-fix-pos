@@ -174,7 +174,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
           </span>
           <button
             onClick={() => setActiveFilter('ALL')}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
               activeFilter === 'ALL'
                 ? 'bg-slate-900 text-white shadow-sm'
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -183,8 +183,18 @@ export const TicketTable: React.FC<TicketTableProps> = ({
             All ({totalTicketsCount})
           </button>
           <button
+            onClick={() => setActiveFilter('PENDING')}
+            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
+              activeFilter === 'PENDING'
+                ? 'bg-slate-700 text-white shadow-sm'
+                : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+            }`}
+          >
+            Pending
+          </button>
+          <button
             onClick={() => setActiveFilter('IN_PROGRESS')}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
               activeFilter === 'IN_PROGRESS'
                 ? 'bg-blue-600 text-white shadow-sm'
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -194,7 +204,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
           </button>
           <button
             onClick={() => setActiveFilter('WAITING_ON_PARTS')}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
               activeFilter === 'WAITING_ON_PARTS'
                 ? 'bg-amber-600 text-white shadow-sm'
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
@@ -204,7 +214,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
           </button>
           <button
             onClick={() => setActiveFilter('COMPLETED')}
-            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${
+            className={`px-3 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
               activeFilter === 'COMPLETED'
                 ? 'bg-emerald-600 text-white shadow-sm'
                 : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
