@@ -1,13 +1,17 @@
 {
   "framework": "vite",
-  "buildCommand": "prisma generate && vite build && vite build --ssr src/server/serverless.ts --outDir api",
+  "buildCommand": "prisma generate && vite build && vite build --ssr src/server/serverless.ts --outDir api --emptyOutDir false",
   "outputDirectory": "dist",
   "functions": {
-    "api/**/*.js": {
+    "api/serverless.js": {
       "includeFiles": "prisma/**"
     }
   },
   "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/serverless.js"
+    },
     {
       "source": "/((?!api/).*)",
       "destination": "/index.html"
