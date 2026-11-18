@@ -23,12 +23,24 @@ export class HttpError extends Error {
 }
 
 const STATUS_LABEL: Record<string, string> = {
-  PENDING: 'Pending',
-  IN_PROGRESS: 'In Progress',
-  WAITING_ON_PARTS: 'Waiting on Parts',
-  COMPLETED: 'Completed',
+  CHECKED_IN: 'Checked In',
+  PENDING: 'Checked In',
+  DIAGNOSING: 'Diagnosing',
+  IN_PROGRESS: 'Diagnosing',
+  WAITING_ON_APPROVAL: 'Waiting on Approval',
+  WAITING_ON_PARTS: 'Waiting on Part',
+  READY_FOR_PICKUP: 'Ready for Pickup',
+  COMPLETED: 'Completed / Paid',
 };
-const OPEN_STATUSES = ['PENDING', 'IN_PROGRESS', 'WAITING_ON_PARTS'];
+const OPEN_STATUSES = [
+  'CHECKED_IN',
+  'PENDING',
+  'DIAGNOSING',
+  'IN_PROGRESS',
+  'WAITING_ON_APPROVAL',
+  'WAITING_ON_PARTS',
+  'READY_FOR_PICKUP',
+];
 
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 const emptyToNull = (v: string | null | undefined) => (v === undefined ? undefined : v?.trim() ? v.trim() : null);
@@ -359,17 +371,20 @@ export async function addPayment(ticketId: string, input: unknown) {
   await prisma.$transaction(async (tx) => {
     const t = await loadTicket(tx, ticketId);
     const { balanceCents } = computeTotals(t);
-    if (balanceCents <= 0) throw new HttpError(409, 'Nothing is owing on this work order');
-    if (data.amountCents > balanceCents) {
-      throw new HttpError(400, `Payment (${money(data.amountCents)}) is more than the balance owing (${money(balanceCents)})`);
+    const isDeposit = data.note && /deposit/i.test(data.note);
+    if (!isDeposit) {
+      if (balanceCents <= 0) throw new HttpError(409, 'Nothing is owing on this work order');
+      if (data.amountCents > balanceCents) {
+        throw new HttpError(400, `Payment (${money(data.amountCents)}) is more than the balance owing (${money(balanceCents)})`);
+      }
     }
     await tx.payment.create({ data: { ticketId, amountCents: data.amountCents, method: data.method, note: emptyToNull(data.note) ?? null } });
-    const remaining = balanceCents - data.amountCents;
+    const remaining = Math.max(0, balanceCents - data.amountCents);
     await logEvent(
       tx,
       ticketId,
       'PAYMENT',
-      `Payment of ${money(data.amountCents)} received (${data.method.replace('_', '-')})${remaining === 0 ? ' — paid in full' : `, ${money(remaining)} still owing`}`,
+      `${isDeposit ? 'Deposit' : 'Payment'} of ${money(data.amountCents)} received (${data.method.replace('_', '-')})${remaining === 0 ? ' — paid in full' : `, ${money(remaining)} still owing`}`,
     );
   });
   return getTicket(ticketId);
@@ -591,8 +606,8 @@ export async function getDashboard() {
 
   return {
     open: open.length,
-    pending: count('PENDING'),
-    inProgress: count('IN_PROGRESS'),
+    pending: count('PENDING') + count('CHECKED_IN'),
+    inProgress: count('IN_PROGRESS') + count('DIAGNOSING'),
     waitingOnParts: count('WAITING_ON_PARTS'),
     completed: count('COMPLETED'),
     overdue: open.filter((t) => t.dueDate < today).length,

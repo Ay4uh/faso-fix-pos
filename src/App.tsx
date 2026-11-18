@@ -212,7 +212,7 @@ export function App() {
         </div>
       )}
 
-      {/* Sticky Top Header */}
+      {/* Sticky Top Header with God Mode Search */}
       <Header
         currentTab={currentTab}
         viewMode={viewMode}
@@ -220,6 +220,8 @@ export function App() {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         openCreateModal={() => setIsCreateModalOpen(true)}
+        tickets={tickets}
+        onSelectTicket={handleSelectTicket}
       />
 
       {/* Main Layout Area */}

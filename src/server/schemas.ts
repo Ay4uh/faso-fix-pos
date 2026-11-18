@@ -1,6 +1,15 @@
 import { z } from 'zod';
 
-export const STATUSES = ['PENDING', 'IN_PROGRESS', 'WAITING_ON_PARTS', 'COMPLETED'] as const;
+export const STATUSES = [
+  'CHECKED_IN',
+  'DIAGNOSING',
+  'WAITING_ON_APPROVAL',
+  'WAITING_ON_PARTS',
+  'READY_FOR_PICKUP',
+  'COMPLETED',
+  'PENDING',
+  'IN_PROGRESS',
+] as const;
 export const PRIORITIES = ['LOW', 'STANDARD', 'URGENT'] as const;
 export const PAYMENT_METHODS = ['CASH', 'CARD', 'DEBIT', 'E_TRANSFER', 'OTHER'] as const;
 export const NOTE_KINDS = ['CUSTOMER_NOTE', 'INTERNAL_NOTE', 'MESSAGE'] as const;

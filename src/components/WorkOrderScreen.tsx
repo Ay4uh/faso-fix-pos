@@ -75,8 +75,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailSuccess, setEmailSuccess] = useState(false);
 
-  // Notes
+  // Notes (Split-Note Architecture)
   const [newNote, setNewNote] = useState('');
+  const [noteKind, setNoteKind] = useState<'INTERNAL_NOTE' | 'CUSTOMER_NOTE'>('INTERNAL_NOTE');
+  const [noteFilter, setNoteFilter] = useState<'ALL' | 'INTERNAL_NOTE' | 'CUSTOMER_NOTE'>('ALL');
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState('');
@@ -95,11 +97,16 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const [isSavingSecurity, setIsSavingSecurity] = useState(false);
   const [securitySaved, setSecuritySaved] = useState(false);
 
-  // Payments
+  // Payments & Deposits
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
   const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'DEBIT' | 'E_TRANSFER' | 'OTHER'>('CARD');
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+
+  const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
+  const [depositAmount, setDepositAmount] = useState('50.00');
+  const [depositMethod, setDepositMethod] = useState<'CASH' | 'CARD' | 'DEBIT' | 'E_TRANSFER'>('CARD');
+  const [isRecordingDeposit, setIsRecordingDeposit] = useState(false);
 
   // Line Item / Part Attachment
   const [isAddItemModalOpen, setIsAddItemModalOpen] = useState(false);
@@ -189,7 +196,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          kind: 'INTERNAL_NOTE',
+          kind: noteKind,
           message: newNote.trim(),
         }),
       });
@@ -202,6 +209,35 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       alert('Failed to save note');
     } finally {
       setIsSubmittingNote(false);
+    }
+  };
+
+  const handleRecordDeposit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amountVal = parseFloat(depositAmount);
+    if (!amountVal || amountVal <= 0) return;
+
+    setIsRecordingDeposit(true);
+    try {
+      const res = await fetch(`/api/tickets/${ticket.id}/payments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amountCents: Math.round(amountVal * 100),
+          method: depositMethod,
+          note: 'Special-order part deposit',
+        }),
+      });
+      if (!res.ok) throw new Error('Deposit failed');
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
+      posAudio.playCashChime();
+      setIsDepositModalOpen(false);
+      setDepositAmount('50.00');
+    } catch {
+      alert('Could not record part deposit');
+    } finally {
+      setIsRecordingDeposit(false);
     }
   };
 
@@ -467,28 +503,42 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            COMPLETED
+            COMPLETED / PAID
           </span>
         );
-      case 'IN_PROGRESS':
+      case 'READY_FOR_PICKUP':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
-            <Clock className="w-3.5 h-3.5 text-blue-600" />
-            IN PROGRESS
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-teal-100 text-teal-800 border border-teal-300">
+            READY FOR PICKUP
           </span>
         );
       case 'WAITING_ON_PARTS':
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
             <Package className="w-3.5 h-3.5 text-amber-600" />
-            WAITING ON PARTS
+            WAITING ON PART
           </span>
         );
+      case 'WAITING_ON_APPROVAL':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+            WAITING ON APPROVAL
+          </span>
+        );
+      case 'DIAGNOSING':
+      case 'IN_PROGRESS':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+            <Clock className="w-3.5 h-3.5 text-blue-600" />
+            DIAGNOSING
+          </span>
+        );
+      case 'CHECKED_IN':
       case 'PENDING':
       default:
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
-            PENDING
+            CHECKED IN
           </span>
         );
     }
@@ -518,21 +568,24 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               {getStatusBadge()}
             </div>
 
-            {/* Quick Status Dropdown */}
+            {/* Quick Status Dropdown (6-Stage Pipeline) */}
             <select
               value={ticket.status}
               onChange={async (e) => {
                 const nextStatus = e.target.value as any;
                 if (nextStatus === 'COMPLETED') posAudio.playSuccessChime();
+                setTicket((prev) => ({ ...prev, status: nextStatus }));
                 await onUpdateStatus(ticket.id, nextStatus);
                 onRefresh();
               }}
-              className="bg-slate-50 border border-slate-200 rounded-md text-xs font-semibold px-2.5 py-1 text-slate-700 hover:bg-slate-100 cursor-pointer focus:outline-none"
+              className="bg-slate-50 border border-slate-200 rounded-md text-xs font-bold px-2.5 py-1 text-slate-800 hover:bg-slate-100 cursor-pointer focus:outline-none"
             >
-              <option value="PENDING">Pending</option>
-              <option value="IN_PROGRESS">In-Progress</option>
-              <option value="WAITING_ON_PARTS">Waiting on Parts</option>
-              <option value="COMPLETED">Completed</option>
+              <option value="CHECKED_IN">1. Checked In</option>
+              <option value="DIAGNOSING">2. Diagnosing</option>
+              <option value="WAITING_ON_APPROVAL">3. Waiting on Approval</option>
+              <option value="WAITING_ON_PARTS">4. Waiting on Part</option>
+              <option value="READY_FOR_PICKUP">5. Ready for Pickup</option>
+              <option value="COMPLETED">6. Completed / Paid</option>
             </select>
           </div>
 
@@ -700,16 +753,32 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 </span>
               </div>
 
-              {balanceOwing > 0 && (
-                <button
-                  onClick={() => {
-                    setPaymentAmount(balanceOwing.toFixed(2));
-                    setIsPaymentModalOpen(true);
-                  }}
-                  className="w-full mt-2 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-xs"
-                >
-                  Collect ${balanceOwing.toFixed(2)}
-                </button>
+              {balanceOwing > 0 ? (
+                <div className="space-y-1.5 pt-1">
+                  <button
+                    onClick={() => {
+                      setPaymentAmount(balanceOwing.toFixed(2));
+                      setIsPaymentModalOpen(true);
+                    }}
+                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span>Checkout &amp; Pay (${balanceOwing.toFixed(2)})</span>
+                  </button>
+
+                  <button
+                    onClick={() => setIsDepositModalOpen(true)}
+                    className="w-full py-1.5 bg-slate-200/80 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1.5"
+                  >
+                    <DollarSign className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>+ Take Part Deposit</span>
+                  </button>
+                </div>
+              ) : (
+                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-center text-xs font-bold text-emerald-800 flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600" />
+                  <span>Invoice Paid in Full</span>
+                </div>
               )}
             </div>
 
@@ -805,6 +874,47 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   <Plus className="w-3.5 h-3.5" />
                   <span>Attach Part / Labor</span>
                 </button>
+              </div>
+
+              {/* Fast 1-Click Common Labor Presets */}
+              <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-1.5 overflow-x-auto text-[11px]">
+                <span className="font-bold text-slate-500 whitespace-nowrap mr-1">Fast Labor:</span>
+                {[
+                  { name: 'Screen Labor', price: 85 },
+                  { name: 'Battery Replacement', price: 45 },
+                  { name: 'Diagnostic Inspection', price: 35 },
+                  { name: 'Thermal Paste / Clean', price: 25 },
+                  { name: 'Port / Micro-Soldering', price: 95 },
+                ].map((preset) => (
+                  <button
+                    key={preset.name}
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        const res = await fetch(`/api/tickets/${ticket.id}/items`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            description: preset.name,
+                            quantity: 1,
+                            unitPriceCents: preset.price * 100,
+                            unitCostCents: 0,
+                          }),
+                        });
+                        if (res.ok) {
+                          const json = await res.json();
+                          if (json.data) applyTicketUpdate(json.data);
+                          posAudio.playScanBeep();
+                        }
+                      } catch {
+                        alert('Failed to attach labor');
+                      }
+                    }}
+                    className="px-2.5 py-1 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 text-slate-700 hover:text-indigo-700 rounded-md font-semibold transition cursor-pointer whitespace-nowrap shadow-2xs"
+                  >
+                    + {preset.name} (${preset.price})
+                  </button>
+                ))}
               </div>
 
               <div className="overflow-x-auto">
@@ -951,30 +1061,112 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
               {/* Tab Content */}
               <div className="p-4 text-xs">
-                {/* 1. BENCH TECH NOTES */}
+                {/* 1. SPLIT-NOTE ARCHITECTURE (Private Bench vs Public Customer Notes) */}
                 {activeTab === 'notes' && (
-                  <div className="space-y-3">
+                  <div className="space-y-3.5">
+                    {/* Note Type Selector & Audience Warning */}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 bg-slate-50 border border-slate-200/90 rounded-xl">
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => setNoteKind('INTERNAL_NOTE')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            noteKind === 'INTERNAL_NOTE'
+                              ? 'bg-amber-600 text-white shadow-xs'
+                              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <Lock className="w-3.5 h-3.5" />
+                          <span>Private Bench Note (Tech Only)</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setNoteKind('CUSTOMER_NOTE')}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            noteKind === 'CUSTOMER_NOTE'
+                              ? 'bg-blue-600 text-white shadow-xs'
+                              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
+                          }`}
+                        >
+                          <Printer className="w-3.5 h-3.5" />
+                          <span>Public Note (Prints on Receipt)</span>
+                        </button>
+                      </div>
+
+                      <div className="text-[11px] font-medium text-slate-500">
+                        {noteKind === 'INTERNAL_NOTE' ? (
+                          <span className="text-amber-700 font-semibold flex items-center gap-1">
+                            <Lock className="w-3 h-3" /> Confidential • Bench tech only • Never on receipt
+                          </span>
+                        ) : (
+                          <span className="text-blue-700 font-semibold flex items-center gap-1">
+                            <Printer className="w-3 h-3" /> Customer-facing • Appears on printed invoice
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Note Creation Form */}
                     <form onSubmit={handleAddNote} className="flex gap-2">
                       <input
                         type="text"
                         value={newNote}
                         onChange={(e) => setNewNote(e.target.value)}
-                        placeholder="Enter internal technician diagnostic note..."
-                        className="flex-1 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+                        placeholder={
+                          noteKind === 'INTERNAL_NOTE'
+                            ? "Enter tech notes (e.g. Screw stripped on bottom left, motherboard shield missing...)"
+                            : "Enter public note for customer receipt (e.g. Replaced display assembly and tested functions OK)..."
+                        }
+                        className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition"
                       />
                       <button
                         type="submit"
                         disabled={isSubmittingNote || !newNote.trim()}
-                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold text-xs transition-colors cursor-pointer disabled:opacity-50"
+                        className={`px-4 py-2.5 text-white rounded-lg font-bold text-xs transition shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5 ${
+                          noteKind === 'INTERNAL_NOTE'
+                            ? 'bg-amber-600 hover:bg-amber-700'
+                            : 'bg-blue-600 hover:bg-blue-700'
+                        }`}
                       >
-                        {isSubmittingNote ? 'Saving...' : 'Post Note'}
+                        <Plus className="w-3.5 h-3.5" />
+                        <span>{isSubmittingNote ? 'Saving...' : noteKind === 'INTERNAL_NOTE' ? 'Post Bench Note' : 'Post Public Note'}</span>
                       </button>
                     </form>
+
+                    {/* Filter Pills */}
+                    <div className="flex items-center justify-between pt-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">View:</span>
+                        {[
+                          { id: 'ALL', label: 'All Notes' },
+                          { id: 'INTERNAL_NOTE', label: 'Private Bench Only' },
+                          { id: 'CUSTOMER_NOTE', label: 'Public Receipt Only' },
+                        ].map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            onClick={() => setNoteFilter(f.id as any)}
+                            className={`px-2.5 py-1 rounded text-xs font-semibold transition cursor-pointer ${
+                              noteFilter === f.id
+                                ? 'bg-slate-900 text-white'
+                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                            }`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
+
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        {ticket.events?.filter((ev) => ev.kind === 'INTERNAL_NOTE' || ev.kind === 'CUSTOMER_NOTE').length || 0} total entries
+                      </span>
+                    </div>
 
                     {/* Filtered Notes List */}
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
+                          <th className="py-2 px-3">Audience / Type</th>
                           <th className="py-2 px-3">Date / Time</th>
                           <th className="py-2 px-3">Author</th>
                           <th className="py-2 px-3">Note Content</th>
@@ -983,11 +1175,30 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       </thead>
                       <tbody className="divide-y divide-slate-100">
                         {ticket.events
-                          ?.filter((ev) => ev.kind === 'INTERNAL_NOTE' || ev.kind === 'CUSTOMER_NOTE')
+                          ?.filter((ev) => {
+                            if (ev.kind !== 'INTERNAL_NOTE' && ev.kind !== 'CUSTOMER_NOTE') return false;
+                            if (noteFilter === 'ALL') return true;
+                            return ev.kind === noteFilter;
+                          })
                           .map((ev) => {
                             const isEditing = editingNoteId === ev.id;
+                            const isPublic = ev.kind === 'CUSTOMER_NOTE';
+
                             return (
                               <tr key={ev.id} className="hover:bg-slate-50 transition-colors">
+                                <td className="py-2 px-3 whitespace-nowrap align-top text-xs">
+                                  {isPublic ? (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                                      <Printer className="w-3 h-3 text-blue-600" />
+                                      Public Receipt
+                                    </span>
+                                  ) : (
+                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
+                                      <Lock className="w-3 h-3 text-amber-600" />
+                                      Private Bench
+                                    </span>
+                                  )}
+                                </td>
                                 <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap align-top text-xs">
                                   {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </td>
@@ -1055,10 +1266,14 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             );
                           })}
                         {(!ticket.events ||
-                          ticket.events.filter((ev) => ev.kind === 'INTERNAL_NOTE' || ev.kind === 'CUSTOMER_NOTE').length === 0) && (
+                          ticket.events.filter((ev) => {
+                            if (ev.kind !== 'INTERNAL_NOTE' && ev.kind !== 'CUSTOMER_NOTE') return false;
+                            if (noteFilter === 'ALL') return true;
+                            return ev.kind === noteFilter;
+                          }).length === 0) && (
                           <tr>
-                            <td colSpan={4} className="py-6 text-center text-slate-400 italic text-xs">
-                              No internal technician notes logged yet.
+                            <td colSpan={5} className="py-6 text-center text-slate-400 italic text-xs">
+                              No notes found matching this filter.
                             </td>
                           </tr>
                         )}
@@ -1420,6 +1635,107 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-50"
                 >
                   {isRecordingPayment ? 'Recording...' : 'Complete Payment'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          ONE-CLICK PART DEPOSIT MODAL (Frictionless Invoicing)
+         ======================================================== */}
+      {isDepositModalOpen && (
+        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <DollarSign className="w-4 h-4 text-indigo-600" />
+                Collect Part Deposit (WO #{ticket.ticketNumber})
+              </h3>
+              <button
+                onClick={() => setIsDepositModalOpen(false)}
+                className="p-1 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <form onSubmit={handleRecordDeposit} className="space-y-3.5 text-xs">
+              <p className="text-[11px] text-slate-500 leading-tight">
+                Secure a non-refundable deposit before special-ordering supplier parts. Credited directly to balance due.
+              </p>
+
+              {/* Quick Preset Deposit Chips */}
+              <div className="flex items-center gap-1.5">
+                {['25.00', '50.00', '100.00', '150.00'].map((amt) => (
+                  <button
+                    key={amt}
+                    type="button"
+                    onClick={() => setDepositAmount(amt)}
+                    className={`flex-1 py-1 text-xs rounded-md border font-mono font-bold transition cursor-pointer ${
+                      depositAmount === amt
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    ${amt.split('.')[0]}
+                  </button>
+                ))}
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Custom Deposit Amount ($)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  value={depositAmount}
+                  onChange={(e) => setDepositAmount(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono font-bold text-slate-900 focus:outline-none focus:border-indigo-600"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Tender Method
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  {(['CARD', 'CASH', 'DEBIT', 'E_TRANSFER'] as const).map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => setDepositMethod(m)}
+                      className={`py-2 px-2.5 rounded-lg border text-xs font-semibold transition cursor-pointer ${
+                        depositMethod === m
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                      }`}
+                    >
+                      {m.replace('_', ' ')}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsDepositModalOpen(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isRecordingDeposit}
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-50 flex items-center gap-1.5"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  <span>{isRecordingDeposit ? 'Recording...' : `Collect $${depositAmount} Deposit`}</span>
                 </button>
               </div>
             </form>

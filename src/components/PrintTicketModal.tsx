@@ -319,6 +319,30 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               </p>
             </div>
 
+            {/* Phase 2 • Public Customer Notes (Strictly Split: Only CUSTOMER_NOTE prints here, INTERNAL_NOTE is confidential) */}
+            {ticket.events && ticket.events.filter((e) => e.kind === 'CUSTOMER_NOTE').length > 0 && (
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-1.5">
+                <div className="flex items-center justify-between pb-1 border-b border-slate-200/60">
+                  <span className="font-mono text-[10px] uppercase text-slate-700 font-bold">
+                    Completed Scope &amp; Public Customer Notes
+                  </span>
+                  <span className="text-emerald-700 font-mono text-[10px] font-semibold">
+                    Customer Copy
+                  </span>
+                </div>
+                <div className="space-y-1 pt-0.5">
+                  {ticket.events
+                    .filter((e) => e.kind === 'CUSTOMER_NOTE')
+                    .map((note) => (
+                      <div key={note.id} className="text-xs text-slate-700 flex items-start gap-1.5">
+                        <span className="text-indigo-600 font-bold">•</span>
+                        <span>{note.message}</span>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
             {/* Line Items & Scope Table */}
             <div className="border border-slate-200 rounded-xl overflow-hidden">
               <div className="px-4 py-2 bg-slate-100 flex items-center justify-between font-mono text-[10px] uppercase text-slate-600 font-bold">

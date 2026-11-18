@@ -1,4 +1,12 @@
-export type TicketStatus = 'PENDING' | 'IN_PROGRESS' | 'WAITING_ON_PARTS' | 'COMPLETED';
+export type TicketStatus =
+  | 'CHECKED_IN'
+  | 'DIAGNOSING'
+  | 'WAITING_ON_APPROVAL'
+  | 'WAITING_ON_PARTS'
+  | 'READY_FOR_PICKUP'
+  | 'COMPLETED'
+  | 'PENDING'
+  | 'IN_PROGRESS';
 export type TicketPriority = 'LOW' | 'STANDARD' | 'URGENT';
 export type PaymentMethod = 'CASH' | 'CARD' | 'DEBIT' | 'E_TRANSFER' | 'OTHER';
 export type EventKind = 'STATUS' | 'CUSTOMER_NOTE' | 'INTERNAL_NOTE' | 'PAYMENT' | 'ITEM' | 'MESSAGE' | 'SYSTEM';
