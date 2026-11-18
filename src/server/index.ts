@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
+import crypto from 'node:crypto';
 import { ZodError } from 'zod';
 import {
   HttpError,
@@ -120,6 +121,54 @@ const getParam = (req: Request, name: string): string => {
   const val = req.params[name];
   return Array.isArray(val) ? val[0] : (val || '');
 };
+
+// ---------------------------------------------------------------------------
+// Real-Time Server-Sent Events (SSE) Live Bus
+// ---------------------------------------------------------------------------
+interface SseClient {
+  id: string;
+  res: Response;
+}
+
+const sseClients: SseClient[] = [];
+
+export function broadcastLiveEvent(event: string, data: any = {}) {
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (let i = sseClients.length - 1; i >= 0; i--) {
+    try {
+      sseClients[i].res.write(payload);
+    } catch {
+      sseClients.splice(i, 1);
+    }
+  }
+}
+
+app.get('/api/live/stream', (req: Request, res: Response) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache',
+    'Connection': 'keep-alive',
+  });
+  res.write(`event: connected\ndata: ${JSON.stringify({ status: 'connected', time: Date.now() })}\n\n`);
+
+  const clientId = crypto.randomUUID();
+  const client: SseClient = { id: clientId, res };
+  sseClients.push(client);
+
+  const heartbeat = setInterval(() => {
+    try {
+      res.write(': heartbeat\n\n');
+    } catch {
+      clearInterval(heartbeat);
+    }
+  }, 15000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    const index = sseClients.findIndex((c) => c.id === clientId);
+    if (index !== -1) sseClients.splice(index, 1);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Authentication & Current User Profile Routes
@@ -263,6 +312,7 @@ app.get('/api/settings', wrap(async (_req, res) => {
 app.put('/api/settings', wrap(async (req, res) => {
   const actor = req.user ? { id: req.user.id, name: req.user.name } : undefined;
   const settings = await updateSettings(req.body, actor);
+  broadcastLiveEvent('settings_updated', settings);
   res.json({ success: true, data: settings });
 }));
 
@@ -285,11 +335,13 @@ app.get('/api/tickets/:id', wrap(async (req, res) => {
 
 app.post('/api/tickets', wrap(async (req, res) => {
   const ticket = await createTicket(req.body);
+  broadcastLiveEvent('ticket_created', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
 
 app.put('/api/tickets/:id', wrap(async (req, res) => {
   const ticket = await updateTicket(getParam(req, 'id'), req.body);
+  broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));
 
@@ -305,18 +357,21 @@ app.delete('/api/tickets/:id', requireAdmin, wrap(async (req, res) => {
     details: `Administrator deleted work order ${ticketId}`,
   });
 
+  broadcastLiveEvent('ticket_deleted', { id: ticketId });
   res.json({ success: true, data: result });
 }));
 
 // Quick complete shortcut
 app.post('/api/tickets/:id/quick-complete', wrap(async (req, res) => {
   const ticket = await updateTicket(getParam(req, 'id'), { status: 'COMPLETED' });
+  broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, message: 'Work order marked completed', data: ticket });
 }));
 
 // Line items / parts attachment
 app.post('/api/tickets/:id/items', wrap(async (req, res) => {
   const ticket = await addItem(getParam(req, 'id'), req.body);
+  broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
 
@@ -329,11 +384,13 @@ app.post('/api/tickets/:id/parts', wrap(async (req, res) => {
     unitPriceCents: price !== undefined ? Math.round(Number(price) * 100) : undefined,
     quantity: quantity ? Number(quantity) : 1,
   });
+  broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
 
 app.delete('/api/tickets/:id/items/:itemId', wrap(async (req, res) => {
   const ticket = await removeItem(getParam(req, 'id'), getParam(req, 'itemId'));
+  broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));
 
@@ -346,11 +403,13 @@ app.post('/api/tickets/:id/payments', wrap(async (req, res) => {
     method: body.method || 'CASH',
     note: body.note,
   });
+  broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
 
 app.delete('/api/tickets/:id/payments/:paymentId', wrap(async (req, res) => {
   const ticket = await voidPayment(getParam(req, 'id'), getParam(req, 'paymentId'));
+  broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));
 
@@ -362,6 +421,7 @@ app.post('/api/tickets/:id/notes', wrap(async (req, res) => {
     kind: noteKind,
     message: message || note || '',
   });
+  broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
 
@@ -371,6 +431,7 @@ app.post('/api/tickets/:id/notify', wrap(async (req, res) => {
     kind: 'MESSAGE',
     message: `[SMS to ${customerPhone || 'Customer'}]: ${message}`,
   });
+  broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, message: `Notification sent to ${customerPhone}`, data: ticket });
 }));
 
@@ -380,11 +441,13 @@ app.put('/api/tickets/:id/notes/:noteId', wrap(async (req, res) => {
     return res.status(400).json({ success: false, error: 'Note message cannot be empty' });
   }
   const ticket = await updateNote(getParam(req, 'id'), getParam(req, 'noteId'), message);
+  broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));
 
 app.delete('/api/tickets/:id/notes/:noteId', wrap(async (req, res) => {
   const ticket = await deleteNote(getParam(req, 'id'), getParam(req, 'noteId'));
+  broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));
 
@@ -411,6 +474,7 @@ app.get('/api/customers/:id', wrap(async (req, res) => {
 
 app.put('/api/customers/:id', wrap(async (req, res) => {
   const customer = await updateCustomer(getParam(req, 'id'), req.body);
+  broadcastLiveEvent('customer_updated', customer);
   res.json({ success: true, data: customer });
 }));
 
@@ -441,6 +505,7 @@ app.post('/api/inventory', wrap(async (req, res) => {
     reorderPoint,
     supplier: body.supplier,
   });
+  broadcastLiveEvent('inventory_updated', part);
   res.status(201).json({ success: true, data: part });
 }));
 
@@ -460,6 +525,7 @@ app.put('/api/inventory/:id', wrap(async (req, res) => {
     delete updateData.stockQuantity;
   }
   const part = await updatePart(getParam(req, 'id'), updateData);
+  broadcastLiveEvent('inventory_updated', part);
   res.json({ success: true, data: part });
 }));
 
@@ -469,11 +535,13 @@ app.post('/api/inventory/:id/adjust', wrap(async (req, res) => {
     throw new HttpError(400, 'A non-zero numeric delta is required for stock adjustment');
   }
   const part = await adjustStock(getParam(req, 'id'), delta);
+  broadcastLiveEvent('inventory_updated', part);
   res.json({ success: true, data: part });
 }));
 
 app.delete('/api/inventory/:id', wrap(async (req, res) => {
   const result = await deletePart(getParam(req, 'id'));
+  broadcastLiveEvent('inventory_updated', { id: getParam(req, 'id') });
   res.json({ success: true, data: result });
 }));
 

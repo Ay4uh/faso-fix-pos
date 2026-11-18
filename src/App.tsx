@@ -67,14 +67,19 @@ export function App() {
   const handleLogout = async () => {
     try {
       await fetchWithAuth('/api/auth/logout', { method: 'POST' });
-    } catch {}
+    } catch (err) {
+      console.warn('[Logout Error]', err);
+    }
     removeToken();
+    localStorage.removeItem('apexfix_session_token');
+    sessionStorage.clear();
     setCurrentUser(null);
     posAudio.playBeep();
-    showToast('Signed out of session');
+    showToast('Logged out successfully');
     if (currentTab === 'admin') {
       setCurrentTab('repairs');
     }
+    await fetchData(true);
   };
 
   const handleDeleteTicket = async (ticketId: string) => {
@@ -164,9 +169,76 @@ export function App() {
     fetchData();
     const interval = setInterval(() => {
       fetchData(true);
-    }, 2500);
+    }, 3000);
     return () => clearInterval(interval);
   }, [activeFilter, searchQuery, selectedBench, selectedTicket?.id]);
+
+  // Real-time live updates via Server-Sent Events (SSE)
+  useEffect(() => {
+    let es: EventSource | null = null;
+    let reconnectTimer: any = null;
+
+    const connectSSE = () => {
+      try {
+        es = new EventSource('/api/live/stream');
+
+        es.addEventListener('ticket_created', (e) => {
+          try {
+            const newTicket: Ticket = JSON.parse(e.data);
+            setTickets((prev) => {
+              if (prev.some((t) => t.id === newTicket.id)) return prev;
+              return [newTicket, ...prev];
+            });
+            fetchData(true);
+          } catch {}
+        });
+
+        es.addEventListener('ticket_updated', (e) => {
+          try {
+            const updated: Ticket = JSON.parse(e.data);
+            setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+            setSelectedTicket((curr) => (curr && curr.id === updated.id ? updated : curr));
+            fetchData(true);
+          } catch {}
+        });
+
+        es.addEventListener('ticket_deleted', (e) => {
+          try {
+            const { id } = JSON.parse(e.data);
+            setTickets((prev) => prev.filter((t) => t.id !== id));
+            setSelectedTicket((curr) => (curr && curr.id === id ? null : curr));
+            fetchData(true);
+          } catch {}
+        });
+
+        es.addEventListener('customer_updated', () => {
+          fetchData(true);
+        });
+
+        es.addEventListener('inventory_updated', () => {
+          fetchData(true);
+        });
+
+        es.addEventListener('settings_updated', () => {
+          fetchData(true);
+        });
+
+        es.onerror = () => {
+          es?.close();
+          reconnectTimer = setTimeout(connectSSE, 4000);
+        };
+      } catch (err) {
+        console.warn('[SSE Init Error]', err);
+      }
+    };
+
+    connectSSE();
+
+    return () => {
+      if (es) es.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+    };
+  }, []);
 
   useEffect(() => {
     const handleFocus = () => fetchData(true);
@@ -362,6 +434,7 @@ export function App() {
                   setIsAdminLoginModalOpen(true);
                 }
               }}
+              onLogout={handleLogout}
             />
           )}
 
@@ -428,7 +501,14 @@ export function App() {
       <CreateTicketModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        onSuccess={() => fetchData(true)}
+        onSuccess={(createdTicket) => {
+          if (createdTicket) {
+            setTickets((prev) => [createdTicket, ...prev.filter((t) => t.id !== createdTicket.id)]);
+            setSelectedTicket(createdTicket);
+          }
+          showToast(`Work order #${createdTicket?.ticketNumber || ''} created successfully`);
+          fetchData(true);
+        }}
         existingCustomers={customers}
       />
 

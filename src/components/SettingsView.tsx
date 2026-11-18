@@ -14,6 +14,7 @@ import {
   Shield,
   Play,
   Lock,
+  LogOut,
   User,
   KeyRound,
   Bell,
@@ -33,6 +34,7 @@ interface SettingsViewProps {
   onSettingsUpdated?: () => void;
   onUserUpdated?: (user: UserType) => void;
   onOpenAdminConsole?: () => void;
+  onLogout?: () => void;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -40,6 +42,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onSettingsUpdated,
   onUserUpdated,
   onOpenAdminConsole,
+  onLogout,
 }) => {
   const [activeTab, setActiveTab] = useState<
     'account' | 'security' | 'notifications' | 'preferences' | 'system' | 'users'
@@ -532,11 +535,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   />
                 </div>
 
-                <div className="pt-2 flex justify-end">
+                <div className="pt-2 flex items-center justify-between">
+                  {onLogout && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        onLogout();
+                      }}
+                      className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-700 text-xs font-bold rounded-xl border border-red-200 transition cursor-pointer flex items-center gap-1.5 shadow-2xs"
+                    >
+                      <LogOut className="w-3.5 h-3.5 text-red-600" />
+                      <span>Log Out of Session</span>
+                    </button>
+                  )}
                   <button
                     type="submit"
                     disabled={isSaving}
-                    className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-sm shadow-indigo-600/30 flex items-center space-x-2 cursor-pointer disabled:opacity-50"
+                    className="ml-auto px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-sm shadow-indigo-600/30 flex items-center space-x-2 cursor-pointer disabled:opacity-50"
                   >
                     <Save className="w-3.5 h-3.5" />
                     <span>{isSaving ? 'Saving...' : 'Save Profile Details'}</span>

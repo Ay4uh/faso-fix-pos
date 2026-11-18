@@ -17,7 +17,7 @@ import { posAudio } from '../utils/audio';
 interface CreateTicketModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: () => void;
+  onSuccess: (createdTicket?: any) => void;
   existingCustomers: Customer[];
 }
 
@@ -140,7 +140,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
       }
 
       posAudio.playSuccessChime();
-      onSuccess();
+      onSuccess(data.data);
       onClose();
     } catch (err: any) {
       setErrorMsg(err.message || 'Error occurred while saving ticket');
@@ -159,7 +159,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
               <Wrench className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900 leading-tight">Quick Device Intake</h2>
+              <h2 className="text-sm font-bold text-slate-900 leading-tight">New Ticket</h2>
               <p className="text-[11px] text-slate-500 font-medium">Customer contact, hardware details &amp; reported issue</p>
             </div>
           </div>

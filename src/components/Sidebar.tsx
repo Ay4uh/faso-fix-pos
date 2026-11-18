@@ -74,7 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>New Ticket</span>
             </div>
             <span className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-indigo-600 text-white font-bold shadow-2xs">
-              + Intake
+              + New
             </span>
           </button>
 
@@ -165,70 +165,84 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* ========================================================
-          BOTTOM ADMIN ACCESS SECTION — VISUALLY SEPARATED
+          BOTTOM AUTH & SYSTEM ACCESS SECTION — VISUALLY SEPARATED
          ======================================================== */}
       <div className="p-3 border-t-2 border-slate-200 bg-white space-y-2">
-        {isAdmin ? (
-          <div className="p-2.5 bg-gradient-to-r from-slate-900 to-indigo-950 rounded-xl text-white space-y-2 shadow-xs">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className="w-7 h-7 rounded-lg bg-indigo-500/30 border border-indigo-400/40 text-indigo-300 flex items-center justify-center text-xs font-bold">
-                  👑
+        {currentUser ? (
+          <div className="space-y-2">
+            {/* User Profile Card */}
+            <div className={`p-2.5 rounded-xl border transition-all ${
+              isAdmin 
+                ? 'bg-gradient-to-r from-slate-900 to-indigo-950 text-white border-slate-800 shadow-xs' 
+                : 'bg-slate-50 text-slate-900 border-slate-200'
+            }`}>
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2.5 min-w-0">
+                  <div className={`w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold shrink-0 ${
+                    isAdmin 
+                      ? 'bg-indigo-500/30 border border-indigo-400/40 text-indigo-300' 
+                      : 'bg-indigo-100 text-indigo-700 border border-indigo-200'
+                  }`}>
+                    {isAdmin ? '👑' : currentUser.name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="truncate">
+                    <p className={`text-xs font-bold truncate ${isAdmin ? 'text-white' : 'text-slate-900'}`}>
+                      {currentUser.name}
+                    </p>
+                    <p className={`text-[10px] font-mono ${isAdmin ? 'text-indigo-300' : 'text-slate-500'}`}>
+                      {isAdmin ? 'Administrator' : (currentUser.bench || 'Technician')}
+                    </p>
+                  </div>
                 </div>
-                <div className="truncate">
-                  <p className="text-[11px] font-bold text-white truncate">{currentUser.name}</p>
-                  <p className="text-[10px] text-indigo-300 font-mono">Administrator</p>
-                </div>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0 ml-1" title="Session Active" />
               </div>
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Admin Active" />
+
+              {isAdmin && (
+                <div className="pt-2 mt-2 border-t border-slate-800/80">
+                  <button
+                    type="button"
+                    onClick={() => setCurrentTab('admin')}
+                    className={`w-full py-1.5 rounded-lg text-[11px] font-bold text-center transition cursor-pointer ${
+                      currentTab === 'admin'
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                    }`}
+                  >
+                    Open Admin Console &rarr;
+                  </button>
+                </div>
+              )}
             </div>
 
-            <div className="grid grid-cols-2 gap-1.5 pt-1 border-t border-slate-800/80">
-              <button
-                onClick={() => setCurrentTab('admin')}
-                className={`w-full py-1.5 rounded-lg text-[11px] font-bold text-center transition cursor-pointer ${
-                  currentTab === 'admin'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
-                }`}
-              >
-                Dashboard
-              </button>
-              <button
-                onClick={onLogout}
-                className="w-full py-1.5 bg-slate-800 hover:bg-red-900/60 text-slate-300 hover:text-red-200 rounded-lg text-[11px] font-bold transition flex items-center justify-center space-x-1 cursor-pointer"
-              >
-                <LogOut className="w-3 h-3" />
-                <span>Logout</span>
-              </button>
-            </div>
+            {/* Dedicated High-Contrast Logout Button */}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                onLogout();
+              }}
+              title="Sign out of current account"
+              className="w-full py-2 px-3 bg-red-50 hover:bg-red-100 active:bg-red-200 border border-red-200 text-red-700 hover:text-red-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-2xs group"
+            >
+              <LogOut className="w-3.5 h-3.5 text-red-600 group-hover:scale-110 transition-transform" />
+              <span>Log Out</span>
+            </button>
           </div>
         ) : (
           <div className="space-y-2">
-            {/* Standard User / Staff Card if logged in */}
-            {currentUser && (
-              <div className="p-2 bg-slate-50 rounded-xl border border-slate-200 flex items-center justify-between">
-                <div className="flex items-center space-x-2.5">
-                  <div className="w-7 h-7 rounded-full bg-slate-200 text-slate-700 font-bold flex items-center justify-center text-[11px]">
-                    {currentUser.name.charAt(0)}
-                  </div>
-                  <div className="truncate">
-                    <p className="text-xs font-bold text-slate-900 truncate">{currentUser.name}</p>
-                    <p className="text-[10px] text-slate-500 font-medium">{currentUser.bench || 'Technician'}</p>
-                  </div>
-                </div>
-                <button
-                  onClick={onLogout}
-                  title="Sign out of technician session"
-                  className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
+            {/* Guest / Offline Mode Note */}
+            <div className="p-2 bg-slate-50 rounded-xl border border-slate-200/80 flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <span className="w-2 h-2 rounded-full bg-slate-400" />
+                <span className="text-[11px] font-semibold text-slate-600">Guest Tech Mode</span>
               </div>
-            )}
+              <span className="text-[10px] text-slate-400 font-mono">Standard POS</span>
+            </div>
 
             {/* Clearly Visible Dedicated Admin Login Button */}
             <button
+              type="button"
               onClick={onOpenAdminLogin}
               className="w-full flex items-center justify-between p-3 rounded-xl bg-slate-900 hover:bg-slate-800 active:bg-slate-950 text-white transition-all shadow-md shadow-slate-900/10 border border-slate-800 group cursor-pointer"
             >

@@ -234,10 +234,11 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={openCreateModal}
+          title="Create New Ticket (Hotkey: N)"
           className="inline-flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-3.5 sm:px-4 py-2 rounded-lg text-xs font-bold shadow-sm shadow-indigo-600/30 transition cursor-pointer shrink-0"
         >
           <Plus className="w-4 h-4" />
-          <span className="hidden md:inline">Intake (60s)</span>
+          <span className="hidden md:inline">New Ticket</span>
         </button>
       </div>
     </header>
