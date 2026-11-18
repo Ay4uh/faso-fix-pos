@@ -395,6 +395,35 @@ export async function addNote(ticketId: string, input: unknown) {
   return getTicket(ticketId);
 }
 
+export async function updateNote(ticketId: string, noteId: string, message: string) {
+  await prisma.$transaction(async (tx) => {
+    await loadTicket(tx, ticketId);
+    const existing = await tx.ticketEvent.findFirst({
+      where: { id: noteId, ticketId },
+    });
+    if (!existing) throw new HttpError(404, 'Note not found');
+    await tx.ticketEvent.update({
+      where: { id: noteId },
+      data: { message: message.trim() },
+    });
+  });
+  return getTicket(ticketId);
+}
+
+export async function deleteNote(ticketId: string, noteId: string) {
+  await prisma.$transaction(async (tx) => {
+    await loadTicket(tx, ticketId);
+    const existing = await tx.ticketEvent.findFirst({
+      where: { id: noteId, ticketId },
+    });
+    if (!existing) throw new HttpError(404, 'Note not found');
+    await tx.ticketEvent.delete({
+      where: { id: noteId },
+    });
+  });
+  return getTicket(ticketId);
+}
+
 // ---------------------------------------------------------------------------
 // Customers
 // ---------------------------------------------------------------------------

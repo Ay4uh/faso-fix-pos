@@ -15,6 +15,8 @@ import {
   addPayment,
   voidPayment,
   addNote,
+  updateNote,
+  deleteNote,
   listCustomers,
   lookupCustomerByPhone,
   getCustomer,
@@ -191,6 +193,20 @@ app.post('/api/tickets/:id/notify', wrap(async (req, res) => {
     message: `[SMS to ${customerPhone || 'Customer'}]: ${message}`,
   });
   res.json({ success: true, message: `Notification sent to ${customerPhone}`, data: ticket });
+}));
+
+app.put('/api/tickets/:id/notes/:noteId', wrap(async (req, res) => {
+  const { message } = req.body;
+  if (!message || !message.trim()) {
+    return res.status(400).json({ success: false, error: 'Note message cannot be empty' });
+  }
+  const ticket = await updateNote(getParam(req, 'id'), getParam(req, 'noteId'), message);
+  res.json({ success: true, data: ticket });
+}));
+
+app.delete('/api/tickets/:id/notes/:noteId', wrap(async (req, res) => {
+  const ticket = await deleteNote(getParam(req, 'id'), getParam(req, 'noteId'));
+  res.json({ success: true, data: ticket });
 }));
 
 // ---------------------------------------------------------------------------

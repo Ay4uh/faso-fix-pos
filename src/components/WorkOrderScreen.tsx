@@ -19,6 +19,7 @@ import {
   Check,
   Mail,
   PenTool,
+  Pencil,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { SignaturePad } from './SignaturePad';
@@ -61,6 +62,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   // Notes
   const [newNote, setNewNote] = useState('');
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
+  const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
+  const [editingNoteText, setEditingNoteText] = useState('');
+  const [isUpdatingNote, setIsUpdatingNote] = useState(false);
+  const [isDeletingNoteId, setIsDeletingNoteId] = useState<string | null>(null);
 
   // SMS
   const [smsText, setSmsText] = useState(
@@ -175,6 +180,52 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       alert('Failed to save note');
     } finally {
       setIsSubmittingNote(false);
+    }
+  };
+
+  const handleStartEditNote = (noteId: string, currentText: string) => {
+    setEditingNoteId(noteId);
+    setEditingNoteText(currentText);
+  };
+
+  const handleCancelEditNote = () => {
+    setEditingNoteId(null);
+    setEditingNoteText('');
+  };
+
+  const handleSaveEditNote = async (noteId: string) => {
+    if (!editingNoteText.trim()) return;
+    try {
+      setIsUpdatingNote(true);
+      const res = await fetch(`/api/tickets/${ticket.id}/notes/${noteId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: editingNoteText.trim() }),
+      });
+      if (!res.ok) throw new Error('Failed to update note');
+      setEditingNoteId(null);
+      setEditingNoteText('');
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Error updating note');
+    } finally {
+      setIsUpdatingNote(false);
+    }
+  };
+
+  const handleDeleteNote = async (noteId: string) => {
+    if (!window.confirm('Are you sure you want to delete this note?')) return;
+    try {
+      setIsDeletingNoteId(noteId);
+      const res = await fetch(`/api/tickets/${ticket.id}/notes/${noteId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error('Failed to delete note');
+      onRefresh();
+    } catch (err: any) {
+      alert(err.message || 'Error deleting note');
+    } finally {
+      setIsDeletingNoteId(null);
     }
   };
 
@@ -854,6 +905,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                               <th className="py-2 px-3">Date / Time</th>
                               <th className="py-2 px-3">Author</th>
                               <th className="py-2 px-3">Note Content</th>
+                              <th className="py-2 px-3 text-right">Actions</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100">
@@ -863,15 +915,76 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                                   ? ev.kind === 'CUSTOMER_NOTE' || ev.kind === 'MESSAGE'
                                   : ev.kind === 'INTERNAL_NOTE'
                               )
-                              .map((ev) => (
-                                <tr key={ev.id} className="hover:bg-slate-50">
-                                  <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">
-                                    {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                  </td>
-                                  <td className="py-2 px-3 font-semibold text-slate-900">{ev.author || 'Technician'}</td>
-                                  <td className="py-2 px-3 text-slate-700">{ev.message}</td>
-                                </tr>
-                              ))}
+                              .map((ev) => {
+                                const isEditing = editingNoteId === ev.id;
+                                return (
+                                  <tr key={ev.id} className="hover:bg-slate-50 transition-colors">
+                                    <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap align-top text-xs">
+                                      {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                    </td>
+                                    <td className="py-2 px-3 font-semibold text-slate-900 align-top whitespace-nowrap text-xs">
+                                      {ev.author || 'Technician'}
+                                    </td>
+                                    <td className="py-2 px-3 text-slate-700 text-xs">
+                                      {isEditing ? (
+                                        <div className="flex items-center gap-2">
+                                          <input
+                                            type="text"
+                                            value={editingNoteText}
+                                            onChange={(e) => setEditingNoteText(e.target.value)}
+                                            className="flex-1 px-2.5 py-1 text-xs bg-white border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                            autoFocus
+                                            onKeyDown={(e) => {
+                                              if (e.key === 'Enter') handleSaveEditNote(ev.id);
+                                              if (e.key === 'Escape') handleCancelEditNote();
+                                            }}
+                                          />
+                                          <button
+                                            type="button"
+                                            onClick={() => handleSaveEditNote(ev.id)}
+                                            disabled={isUpdatingNote || !editingNoteText.trim()}
+                                            className="px-2 py-1 bg-indigo-600 text-white rounded text-xs font-semibold hover:bg-indigo-700 transition"
+                                          >
+                                            {isUpdatingNote ? 'Saving...' : 'Save'}
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={handleCancelEditNote}
+                                            className="px-2 py-1 bg-slate-200 text-slate-700 rounded text-xs font-medium hover:bg-slate-300 transition"
+                                          >
+                                            Cancel
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <span>{ev.message}</span>
+                                      )}
+                                    </td>
+                                    <td className="py-2 px-3 text-right whitespace-nowrap align-top">
+                                      {!isEditing && (
+                                        <div className="flex items-center justify-end gap-1.5">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleStartEditNote(ev.id, ev.message)}
+                                            className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-100 transition"
+                                            title="Edit note"
+                                          >
+                                            <Pencil className="w-3.5 h-3.5" />
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleDeleteNote(ev.id)}
+                                            disabled={isDeletingNoteId === ev.id}
+                                            className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition"
+                                            title="Delete note"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                          </button>
+                                        </div>
+                                      )}
+                                    </td>
+                                  </tr>
+                                );
+                              })}
                             {(!ticket.events ||
                               ticket.events.filter((ev) =>
                                 noteSubTab === 'customer'
@@ -879,7 +992,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                                   : ev.kind === 'INTERNAL_NOTE'
                               ).length === 0) && (
                               <tr>
-                                <td colSpan={3} className="py-6 text-center text-slate-400 italic">
+                                <td colSpan={4} className="py-6 text-center text-slate-400 italic text-xs">
                                   No {noteSubTab === 'customer' ? 'customer-facing' : 'internal tech'} notes logged yet.
                                 </td>
                               </tr>

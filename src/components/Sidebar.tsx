@@ -3,7 +3,6 @@ import {
   LayoutDashboard,
   PlusCircle,
   Users,
-  Package,
   BarChart3,
   Settings,
 } from 'lucide-react';
@@ -21,11 +20,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentTab,
   setCurrentTab,
   stats,
-  selectedBench = 'ALL',
   openCreateModal,
 }) => {
-  const activeBenchName = selectedBench === 'ALL' ? 'Bench #04 Active' : `${selectedBench} Active`;
-
   return (
     <aside className="w-64 shrink-0 bg-white border-r border-slate-200/80 flex flex-col justify-between select-none z-20 shadow-xs h-[calc(100vh-64px)] sticky top-16">
       <div>
@@ -87,25 +83,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           <button
-            onClick={() => setCurrentTab('inventory')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
-              currentTab === 'inventory'
-                ? 'bg-indigo-50 text-indigo-700 font-semibold shadow-xs'
-                : 'text-slate-600 hover:bg-slate-100/80 hover:text-slate-900'
-            }`}
-          >
-            <div className="flex items-center space-x-3">
-              <Package className={`w-4 h-4 ${currentTab === 'inventory' ? 'text-indigo-600' : 'text-slate-400'}`} />
-              <span>Parts &amp; Stock</span>
-            </div>
-            {stats && stats.lowStock > 0 && (
-              <span className="text-xs px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">
-                {stats.lowStock} low
-              </span>
-            )}
-          </button>
-
-          <button
             onClick={() => setCurrentTab('analytics')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-lg text-sm font-medium transition-all cursor-pointer ${
               currentTab === 'analytics'
@@ -133,24 +110,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </button>
         </nav>
-
-        {/* Workstation Quick Status */}
-        <div className="mx-4 mt-4 p-3.5 bg-slate-50 border border-slate-200/70 rounded-xl">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-semibold text-slate-700 flex items-center space-x-1.5">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
-              <span>{activeBenchName}</span>
-            </span>
-            <span className="text-[10px] text-slate-500 font-mono">v3.4.1</span>
-          </div>
-          <div className="text-[11px] text-slate-500 leading-snug">
-            Lead Technician: <strong className="text-slate-800">Alex Mercer</strong>
-          </div>
-          <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex justify-between text-[11px]">
-            <span className="text-slate-500">Shop Rate:</span>
-            <span className="font-semibold text-slate-800">$85/hr standard</span>
-          </div>
-        </div>
       </div>
 
       {/* User Profile Footer */}
