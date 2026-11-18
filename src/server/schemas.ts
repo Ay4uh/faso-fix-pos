@@ -137,5 +137,51 @@ export const settingsSchema = z
     technicians: trimmed.max(2000),
     benches: trimmed.max(2000),
     receiptFooter: trimmed.max(1000),
+    defaultLaborRateCents: z.number().int().min(0).max(1000000),
+    enableSoundBeeps: z.boolean(),
+    requireIntakeSignature: z.boolean(),
+    currencySymbol: trimmed.min(1).max(10),
+    dateFormat: trimmed.min(4).max(20),
   })
   .partial();
+
+export const loginSchema = z.object({
+  usernameOrEmail: trimmed.min(1, 'Username or email is required').max(120),
+  password: z.string().min(1, 'Password is required'),
+});
+
+export const userCreateSchema = z.object({
+  username: trimmed.min(3, 'Username must be at least 3 characters').max(40).regex(/^[a-zA-Z0-9_.-]+$/, 'Username can only contain letters, numbers, dots, hyphens, and underscores'),
+  email: trimmed.email('Valid email is required'),
+  name: trimmed.min(2, 'Name must be at least 2 characters').max(100),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+  role: z.enum(['ADMIN', 'USER']).default('USER'),
+  phone: optionalText,
+  bench: optionalText,
+  bio: optionalText,
+});
+
+export const userUpdateSchema = z.object({
+  name: trimmed.min(2).max(100).optional(),
+  email: trimmed.email().optional(),
+  phone: optionalText,
+  bench: optionalText,
+  bio: optionalText,
+  role: z.enum(['ADMIN', 'USER']).optional(),
+  status: z.enum(['ACTIVE', 'DISABLED']).optional(),
+  preferences: z.string().optional(),
+});
+
+export const changePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+  confirmPassword: z.string().min(8, 'Confirm password must be at least 8 characters'),
+}).refine((data) => data.newPassword === data.confirmPassword, {
+  message: 'New passwords do not match',
+  path: ['confirmPassword'],
+});
+
+export const resetPasswordSchema = z.object({
+  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+});
+

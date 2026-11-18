@@ -11,12 +11,15 @@ import { CustomersView } from './components/CustomersView';
 import { InventoryView } from './components/InventoryView';
 import { AnalyticsView } from './components/AnalyticsView';
 import { SettingsView } from './components/SettingsView';
-import { Ticket, Customer, DashboardStats } from './types';
-import { CheckCircle2 } from 'lucide-react';
+import { AdminDashboard } from './components/AdminDashboard';
+import { AdminLoginModal } from './components/AdminLoginModal';
+import { Ticket, Customer, DashboardStats, User } from './types';
+import { CheckCircle2, ShieldAlert, Lock } from 'lucide-react';
 import { posAudio } from './utils/audio';
+import { fetchWithAuth, removeToken } from './utils/auth';
 
 export function App() {
-  const [currentTab, setCurrentTab] = useState<'repairs' | 'customers' | 'inventory' | 'analytics' | 'settings'>('repairs');
+  const [currentTab, setCurrentTab] = useState<'repairs' | 'customers' | 'inventory' | 'analytics' | 'settings' | 'admin'>('repairs');
   const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('ALL');
@@ -26,6 +29,10 @@ export function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+
+  // Authentication & Session
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
 
   // Modals / Screens
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -37,6 +44,37 @@ export function App() {
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
+  };
+
+  // Check auth session on startup
+  useEffect(() => {
+    const verifySession = async () => {
+      try {
+        const res = await fetchWithAuth('/api/auth/me');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.authenticated && json.user) {
+            setCurrentUser(json.user);
+          }
+        }
+      } catch (err) {
+        console.error('[Session Check Error]', err);
+      }
+    };
+    verifySession();
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetchWithAuth('/api/auth/logout', { method: 'POST' });
+    } catch {}
+    removeToken();
+    setCurrentUser(null);
+    posAudio.playBeep();
+    showToast('Signed out of session');
+    if (currentTab === 'admin') {
+      setCurrentTab('repairs');
+    }
   };
 
   // Global ESC key listener to close modals
@@ -233,7 +271,9 @@ export function App() {
             currentTab={currentTab}
             setCurrentTab={setCurrentTab}
             stats={stats}
-            selectedBench={selectedBench}
+            currentUser={currentUser}
+            onOpenAdminLogin={() => setIsAdminLoginModalOpen(true)}
+            onLogout={handleLogout}
             openCreateModal={() => setIsCreateModalOpen(true)}
           />
         </div>
@@ -288,7 +328,48 @@ export function App() {
 
           {/* 5. Shop Settings */}
           {currentTab === 'settings' && (
-            <SettingsView onSettingsUpdated={() => fetchData(true)} />
+            <SettingsView
+              currentUser={currentUser}
+              onSettingsUpdated={() => fetchData(true)}
+              onUserUpdated={(u) => setCurrentUser(u)}
+              onOpenAdminConsole={() => {
+                if (currentUser?.role === 'ADMIN') {
+                  setCurrentTab('admin');
+                } else {
+                  setIsAdminLoginModalOpen(true);
+                }
+              }}
+            />
+          )}
+
+          {/* 6. Admin Console / Dashboard (Server-Gated: Admin only) */}
+          {currentTab === 'admin' && (
+            currentUser?.role === 'ADMIN' ? (
+              <AdminDashboard
+                currentUser={currentUser}
+                onLogout={handleLogout}
+                onNavigateToTab={(t) => setCurrentTab(t as any)}
+              />
+            ) : (
+              <div className="bg-white p-12 rounded-2xl border border-slate-200 shadow-sm text-center max-w-lg mx-auto space-y-4 my-8">
+                <div className="w-14 h-14 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center mx-auto shadow-inner">
+                  <ShieldAlert className="w-7 h-7" />
+                </div>
+                <div className="space-y-1">
+                  <h2 className="text-lg font-extrabold text-slate-900">Restricted Administrator Area</h2>
+                  <p className="text-xs text-slate-500 leading-relaxed">
+                    You must be authenticated as an authorized system administrator to access user management, audit logs, and system controls.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setIsAdminLoginModalOpen(true)}
+                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-md inline-flex items-center space-x-2 cursor-pointer"
+                >
+                  <Lock className="w-4 h-4" />
+                  <span>Administrator Authentication</span>
+                </button>
+              </div>
+            )
           )}
         </main>
       </div>
@@ -338,6 +419,18 @@ export function App() {
       <PrintTicketModal
         ticket={printTicket}
         onClose={() => setPrintTicket(null)}
+      />
+
+      <AdminLoginModal
+        isOpen={isAdminLoginModalOpen}
+        onClose={() => setIsAdminLoginModalOpen(false)}
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          showToast(`Authenticated as ${user.name}`);
+          if (user.role === 'ADMIN') {
+            setCurrentTab('admin');
+          }
+        }}
       />
     </div>
   );

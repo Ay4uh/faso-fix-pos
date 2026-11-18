@@ -9,19 +9,72 @@ generator client {
 
 // Single-row shop configuration (id is always 1).
 model Setting {
-  id               Int      @id @default(1)
-  shopName         String   @default("My Repair Shop")
-  address          String   @default("")
-  phone            String   @default("")
-  email            String   @default("")
-  taxLabel         String   @default("HST")
-  taxRateBps       Int      @default(1300) // basis points: 1300 = 13.00%
-  warrantyDays     Int      @default(90)
-  technicians      String   @default("") // newline separated
-  benches          String   @default("") // newline separated
-  receiptFooter    String   @default("Please back up your data. Devices left unclaimed for 30 days may incur storage fees.")
-  nextTicketNumber Int      @default(1) // sequential work order counter
-  updatedAt        DateTime @updatedAt
+  id                    Int      @id @default(1)
+  shopName              String   @default("My Repair Shop")
+  address               String   @default("")
+  phone                 String   @default("")
+  email                 String   @default("")
+  taxLabel              String   @default("HST")
+  taxRateBps            Int      @default(1300) // basis points: 1300 = 13.00%
+  warrantyDays          Int      @default(90)
+  technicians           String   @default("") // newline separated
+  benches               String   @default("") // newline separated
+  receiptFooter         String   @default("Please back up your data. Devices left unclaimed for 30 days may incur storage fees.")
+  nextTicketNumber      Int      @default(1) // sequential work order counter
+  defaultLaborRateCents Int      @default(8500) // basis cents: 8500 = $85.00
+  enableSoundBeeps      Boolean  @default(true)
+  requireIntakeSignature Boolean @default(true)
+  currencySymbol        String   @default("$")
+  dateFormat            String   @default("YYYY-MM-DD")
+  updatedAt             DateTime @updatedAt
+}
+
+model User {
+  id           String     @id @default(uuid())
+  username     String     @unique
+  email        String     @unique
+  name         String
+  passwordHash String
+  role         String     @default("USER") // ADMIN | USER
+  status       String     @default("ACTIVE") // ACTIVE | DISABLED
+  phone        String?
+  bio          String?
+  bench        String?    @default("Bench #01")
+  preferences  String     @default("{}") // JSON: { soundFX: true, compactView: false, emailAlerts: true }
+  lastLoginAt  DateTime?
+  sessions     Session[]
+  auditLogs    AuditLog[] @relation("UserAuditLogs")
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  @@index([role])
+  @@index([status])
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  userId    String?
+  actorName String
+  action    String   // e.g. LOGIN, LOGOUT, USER_CREATE, USER_UPDATE, USER_DELETE, ROLE_CHANGE, STATUS_CHANGE, PASSWORD_RESET, SETTINGS_UPDATE
+  details   String
+  ipAddress String?
+  user      User?    @relation("UserAuditLogs", fields: [userId], references: [id], onDelete: SetNull)
+  createdAt DateTime @default(now())
+
+  @@index([action])
+  @@index([createdAt])
 }
 
 model Customer {

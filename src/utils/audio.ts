@@ -2,8 +2,18 @@
 
 class PosAudio {
   private ctx: AudioContext | null = null;
+  private muted: boolean = false;
+
+  setMuted(muted: boolean) {
+    this.muted = muted;
+  }
+
+  isMuted(): boolean {
+    return this.muted;
+  }
 
   private getContext() {
+    if (this.muted) return null;
     if (!this.ctx && typeof window !== 'undefined') {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (AudioCtx) this.ctx = new AudioCtx();
@@ -14,8 +24,35 @@ class PosAudio {
     return this.ctx;
   }
 
+  // Scanner / Standard Beep
+  playBeep() {
+    this.playScanBeep();
+  }
+
+  // Barcode / Scanner Beep
+  playScanBeep() {
+    if (this.muted) return;
+    const ctx = this.getContext();
+    if (!ctx) return;
+    const now = ctx.currentTime;
+
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(2400, now);
+
+    gain.gain.setValueAtTime(0.15, now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + 0.08);
+  }
+
   // Cash Register Ding (for Payments)
   playCashChime() {
+    if (this.muted) return;
     const ctx = this.getContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -35,8 +72,9 @@ class PosAudio {
     osc1.stop(now + 0.35);
   }
 
-  // Completion Chime (for Quick-Complete)
+  // Completion Chime (for Quick-Complete / Success)
   playSuccessChime() {
+    if (this.muted) return;
     const ctx = this.getContext();
     if (!ctx) return;
     const now = ctx.currentTime;
@@ -57,24 +95,27 @@ class PosAudio {
     });
   }
 
-  // Barcode / Scanner Beep
-  playScanBeep() {
+  // Warning / Error double-tone
+  playWarningBeep() {
+    if (this.muted) return;
     const ctx = this.getContext();
     if (!ctx) return;
     const now = ctx.currentTime;
 
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.type = 'sine';
-    osc.frequency.setValueAtTime(2400, now);
+    [220, 180].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(freq, now + i * 0.12);
 
-    gain.gain.setValueAtTime(0.15, now);
-    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.08);
+      gain.gain.setValueAtTime(0.15, now + i * 0.12);
+      gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.1);
 
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + 0.08);
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(now + i * 0.12);
+      osc.stop(now + i * 0.12 + 0.1);
+    });
   }
 }
 

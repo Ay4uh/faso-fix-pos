@@ -150,6 +150,86 @@ export interface ShopSettings {
   technicians: string;
   benches: string;
   receiptFooter: string;
+  defaultLaborRateCents: number;
+  enableSoundBeeps: boolean;
+  requireIntakeSignature: boolean;
+  currencySymbol: string;
+  dateFormat: string;
+  updatedAt?: string;
+}
+
+export type UserRole = 'ADMIN' | 'USER';
+export type UserStatus = 'ACTIVE' | 'DISABLED';
+
+export interface UserPreferences {
+  soundFX: boolean;
+  compactView: boolean;
+  autoPrint: boolean;
+  emailAlerts: boolean;
+  highPriorityAudio: boolean;
+  lowStockAlerts: boolean;
+}
+
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  name: string;
+  role: UserRole;
+  status: UserStatus;
+  phone?: string | null;
+  bio?: string | null;
+  bench?: string | null;
+  preferences: string; // JSON string
+  lastLoginAt?: string | null;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AuditLog {
+  id: string;
+  userId?: string | null;
+  actorName: string;
+  action: string;
+  details: string;
+  ipAddress?: string | null;
+  createdAt: string;
+}
+
+export interface AdminOverview {
+  users: {
+    total: number;
+    active: number;
+    disabled: number;
+    admins: number;
+    technicians: number;
+    recent: {
+      id: string;
+      username: string;
+      name: string;
+      email: string;
+      role: UserRole;
+      status: UserStatus;
+      createdAt: string;
+      lastLoginAt: string | null;
+    }[];
+  };
+  system: {
+    status: string;
+    database: string;
+    serverTime: string;
+    activeWorkstations: number;
+  };
+  shop: {
+    totalTickets: number;
+    activeTickets: number;
+    completedTickets: number;
+    totalCustomers: number;
+    totalInventoryItems: number;
+    lowStockAlerts: number;
+    lifetimeRevenueCents: number;
+  };
+  recentAudits: AuditLog[];
 }
 
 export interface DashboardData {

@@ -11,7 +11,19 @@ import {
   paymentSchema,
   settingsSchema,
   updateTicketSchema,
+  loginSchema,
+  userCreateSchema,
+  userUpdateSchema,
+  changePasswordSchema,
+  resetPasswordSchema,
 } from './schemas';
+import {
+  hashPassword,
+  verifyPassword,
+  createSession,
+  destroySession,
+  recordAudit,
+} from './auth';
 
 type Tx = Prisma.TransactionClient;
 
@@ -77,10 +89,22 @@ export async function getSettings(tx: Tx | typeof prisma = prisma) {
   return tx.setting.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
 }
 
-export async function updateSettings(input: unknown) {
+export async function updateSettings(input: unknown, actor?: { id?: string; name?: string }) {
   const data = settingsSchema.parse(input);
   await getSettings();
-  return prisma.setting.update({ where: { id: 1 }, data });
+  const updated = await prisma.setting.update({ where: { id: 1 }, data });
+
+  if (actor?.name) {
+    const changedKeys = Object.keys(data).join(', ');
+    await recordAudit({
+      userId: actor.id,
+      actorName: actor.name,
+      action: 'SETTINGS_UPDATE',
+      details: `Updated shop settings (${changedKeys || 'no fields changed'})`,
+    });
+  }
+
+  return updated;
 }
 
 // ---------------------------------------------------------------------------
@@ -722,6 +746,465 @@ export async function exportTicketsCsv() {
     ]);
   }
   return rows.map((r) => r.map(esc).join(',')).join('\n') + '\n';
+}
+
+// ---------------------------------------------------------------------------
+// Authentication & User Management
+// ---------------------------------------------------------------------------
+
+export async function loginUser(input: unknown, ipAddress?: string) {
+  const { usernameOrEmail, password } = loginSchema.parse(input);
+
+  const user = await prisma.user.findFirst({
+    where: {
+      OR: [
+        { username: usernameOrEmail.toLowerCase() },
+        { email: usernameOrEmail.toLowerCase() },
+      ],
+    },
+  });
+
+  if (!user) {
+    throw new HttpError(401, 'Invalid username/email or password');
+  }
+
+  if (user.status !== 'ACTIVE') {
+    throw new HttpError(403, 'This account has been deactivated. Contact an administrator.');
+  }
+
+  const isValid = verifyPassword(password, user.passwordHash);
+  if (!isValid) {
+    throw new HttpError(401, 'Invalid username/email or password');
+  }
+
+  // Update last login
+  await prisma.user.update({
+    where: { id: user.id },
+    data: { lastLoginAt: new Date() },
+  });
+
+  const token = await createSession(user.id);
+
+  await recordAudit({
+    userId: user.id,
+    actorName: user.name,
+    action: 'LOGIN',
+    details: `User logged in from ${ipAddress || 'local'}`,
+    ipAddress,
+  });
+
+  const { passwordHash: _, ...safeUser } = user;
+  return { token, user: safeUser };
+}
+
+export async function logoutUser(token: string, actorName?: string) {
+  await destroySession(token);
+  if (actorName) {
+    await recordAudit({
+      actorName,
+      action: 'LOGOUT',
+      details: 'User logged out',
+    });
+  }
+  return { success: true };
+}
+
+export async function listUsers(params: { search?: string; role?: string; status?: string }) {
+  const where: Prisma.UserWhereInput = {};
+
+  if (params.role && params.role !== 'ALL') {
+    where.role = params.role;
+  }
+
+  if (params.status && params.status !== 'ALL') {
+    where.status = params.status;
+  }
+
+  if (params.search?.trim()) {
+    const q = params.search.trim().toLowerCase();
+    where.OR = [
+      { name: { contains: q } },
+      { username: { contains: q } },
+      { email: { contains: q } },
+    ];
+  }
+
+  const users = await prisma.user.findMany({
+    where,
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+      phone: true,
+      bench: true,
+      bio: true,
+      preferences: true,
+      lastLoginAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+
+  return users;
+}
+
+export async function getUser(id: string) {
+  const user = await prisma.user.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+      phone: true,
+      bench: true,
+      bio: true,
+      preferences: true,
+      lastLoginAt: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+
+  if (!user) throw new HttpError(404, 'User account not found');
+  return user;
+}
+
+export async function createUser(input: unknown, actor: { id: string; name: string }) {
+  const data = userCreateSchema.parse(input);
+
+  const existingUsername = await prisma.user.findUnique({
+    where: { username: data.username.toLowerCase() },
+  });
+  if (existingUsername) {
+    throw new HttpError(409, 'Username is already taken');
+  }
+
+  const existingEmail = await prisma.user.findUnique({
+    where: { email: data.email.toLowerCase() },
+  });
+  if (existingEmail) {
+    throw new HttpError(409, 'Email address is already registered');
+  }
+
+  const passwordHash = hashPassword(data.password);
+
+  const user = await prisma.user.create({
+    data: {
+      username: data.username.toLowerCase(),
+      email: data.email.toLowerCase(),
+      name: data.name,
+      passwordHash,
+      role: data.role,
+      status: 'ACTIVE',
+      phone: data.phone ?? null,
+      bench: data.bench ?? 'Bench #01',
+      bio: data.bio ?? '',
+      preferences: JSON.stringify({
+        soundFX: true,
+        compactView: false,
+        autoPrint: false,
+        emailAlerts: true,
+      }),
+    },
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+      phone: true,
+      bench: true,
+      bio: true,
+      createdAt: true,
+    },
+  });
+
+  await recordAudit({
+    userId: actor.id,
+    actorName: actor.name,
+    action: 'USER_CREATE',
+    details: `Created new ${user.role} user: ${user.username} (${user.name})`,
+  });
+
+  return user;
+}
+
+export async function updateUser(id: string, input: unknown, actor: { id: string; name: string }) {
+  const existing = await prisma.user.findUnique({ where: { id } });
+  if (!existing) throw new HttpError(404, 'User account not found');
+
+  const data = userUpdateSchema.parse(input);
+
+  // If changing role away from ADMIN or deactivating, ensure we don't deactivate or demote last admin
+  if (
+    (data.role && data.role !== 'ADMIN' && existing.role === 'ADMIN') ||
+    (data.status && data.status === 'DISABLED' && existing.status === 'ACTIVE' && existing.role === 'ADMIN')
+  ) {
+    const adminCount = await prisma.user.count({
+      where: { role: 'ADMIN', status: 'ACTIVE', NOT: { id } },
+    });
+    if (adminCount === 0) {
+      throw new HttpError(400, 'Cannot demote or deactivate the last remaining active administrator');
+    }
+  }
+
+  // If changing email, check uniqueness
+  if (data.email && data.email.toLowerCase() !== existing.email) {
+    const duplicate = await prisma.user.findUnique({
+      where: { email: data.email.toLowerCase() },
+    });
+    if (duplicate) throw new HttpError(409, 'Email address is already in use by another user');
+  }
+
+  const updateData: Prisma.UserUpdateInput = {};
+  if (data.name !== undefined) updateData.name = data.name;
+  if (data.email !== undefined) updateData.email = data.email.toLowerCase();
+  if (data.phone !== undefined) updateData.phone = data.phone;
+  if (data.bench !== undefined) updateData.bench = data.bench;
+  if (data.bio !== undefined) updateData.bio = data.bio;
+  if (data.role !== undefined) updateData.role = data.role;
+  if (data.status !== undefined) updateData.status = data.status;
+  if (data.preferences !== undefined) updateData.preferences = data.preferences;
+
+  const updated = await prisma.user.update({
+    where: { id },
+    data: updateData,
+    select: {
+      id: true,
+      username: true,
+      email: true,
+      name: true,
+      role: true,
+      status: true,
+      phone: true,
+      bench: true,
+      bio: true,
+      preferences: true,
+      updatedAt: true,
+    },
+  });
+
+  const actions: string[] = [];
+  if (data.role && data.role !== existing.role) actions.push(`role changed to ${data.role}`);
+  if (data.status && data.status !== existing.status) actions.push(`status changed to ${data.status}`);
+  if (actions.length === 0) actions.push('profile information updated');
+
+  await recordAudit({
+    userId: actor.id,
+    actorName: actor.name,
+    action: data.role !== existing.role ? 'ROLE_CHANGE' : (data.status !== existing.status ? 'STATUS_CHANGE' : 'USER_UPDATE'),
+    details: `Updated user ${existing.username}: ${actions.join(', ')}`,
+  });
+
+  return updated;
+}
+
+export async function deleteUser(id: string, actor: { id: string; name: string }) {
+  if (id === actor.id) {
+    throw new HttpError(400, 'Security Violation: You cannot delete your own logged-in administrator account');
+  }
+
+  const user = await prisma.user.findUnique({ where: { id } });
+  if (!user) throw new HttpError(404, 'User account not found');
+
+  if (user.role === 'ADMIN') {
+    const adminCount = await prisma.user.count({
+      where: { role: 'ADMIN', status: 'ACTIVE', NOT: { id } },
+    });
+    if (adminCount === 0) {
+      throw new HttpError(400, 'Security Violation: Cannot delete the last remaining administrator account');
+    }
+  }
+
+  // Delete sessions first then delete user
+  await prisma.session.deleteMany({ where: { userId: id } });
+  await prisma.user.delete({ where: { id } });
+
+  await recordAudit({
+    userId: actor.id,
+    actorName: actor.name,
+    action: 'USER_DELETE',
+    details: `Deleted user account: ${user.username} (${user.name}, role: ${user.role})`,
+  });
+
+  return { success: true, message: `User ${user.username} successfully deleted` };
+}
+
+export async function changeUserPassword(userId: string, input: unknown, actorName: string) {
+  const { currentPassword, newPassword } = changePasswordSchema.parse(input);
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new HttpError(404, 'User account not found');
+
+  const isValid = verifyPassword(currentPassword, user.passwordHash);
+  if (!isValid) {
+    throw new HttpError(400, 'Current password is incorrect');
+  }
+
+  const passwordHash = hashPassword(newPassword);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash },
+  });
+
+  await recordAudit({
+    userId,
+    actorName,
+    action: 'PASSWORD_RESET',
+    details: `User ${user.username} changed their account password`,
+  });
+
+  return { success: true, message: 'Password successfully updated' };
+}
+
+export async function adminResetUserPassword(userId: string, input: unknown, actor: { id: string; name: string }) {
+  const { newPassword } = resetPasswordSchema.parse(input);
+
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new HttpError(404, 'User account not found');
+
+  const passwordHash = hashPassword(newPassword);
+  await prisma.user.update({
+    where: { id: userId },
+    data: { passwordHash },
+  });
+
+  // Invalidate any existing sessions for this user so they must log in with new password
+  await prisma.session.deleteMany({ where: { userId } });
+
+  await recordAudit({
+    userId: actor.id,
+    actorName: actor.name,
+    action: 'PASSWORD_RESET',
+    details: `Administrator ${actor.name} securely reset password for user ${user.username}`,
+  });
+
+  return { success: true, message: `Password for ${user.username} has been reset` };
+}
+
+export async function updateUserPreferences(userId: string, preferences: unknown) {
+  const user = await prisma.user.findUnique({ where: { id: userId } });
+  if (!user) throw new HttpError(404, 'User not found');
+
+  const prefString = typeof preferences === 'string' ? preferences : JSON.stringify(preferences);
+
+  const updated = await prisma.user.update({
+    where: { id: userId },
+    data: { preferences: prefString },
+    select: { id: true, preferences: true },
+  });
+
+  return updated;
+}
+
+// ---------------------------------------------------------------------------
+// Audit & Activity Logs
+// ---------------------------------------------------------------------------
+
+export async function listAuditLogs(params: { limit?: number; action?: string; search?: string }) {
+  const limit = Math.min(params.limit || 100, 500);
+  const where: Prisma.AuditLogWhereInput = {};
+
+  if (params.action && params.action !== 'ALL') {
+    where.action = params.action;
+  }
+
+  if (params.search?.trim()) {
+    const q = params.search.trim().toLowerCase();
+    where.OR = [
+      { actorName: { contains: q } },
+      { details: { contains: q } },
+      { action: { contains: q } },
+    ];
+  }
+
+  const logs = await prisma.auditLog.findMany({
+    where,
+    orderBy: { createdAt: 'desc' },
+    take: limit,
+  });
+
+  return logs;
+}
+
+// ---------------------------------------------------------------------------
+// Admin Dashboard Overview Statistics
+// ---------------------------------------------------------------------------
+
+export async function getAdminOverview() {
+  const [
+    totalUsers,
+    activeUsers,
+    disabledUsers,
+    adminUsers,
+    standardUsers,
+    recentUsers,
+    recentAudits,
+    ticketsCount,
+    activeTicketsCount,
+    completedTicketsCount,
+    customersCount,
+    inventoryCount,
+    lowStockParts,
+    revenueAgg,
+  ] = await Promise.all([
+    prisma.user.count(),
+    prisma.user.count({ where: { status: 'ACTIVE' } }),
+    prisma.user.count({ where: { status: 'DISABLED' } }),
+    prisma.user.count({ where: { role: 'ADMIN' } }),
+    prisma.user.count({ where: { role: 'USER' } }),
+    prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      select: { id: true, username: true, name: true, email: true, role: true, status: true, createdAt: true, lastLoginAt: true },
+    }),
+    prisma.auditLog.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 8,
+    }),
+    prisma.ticket.count({ where: { deletedAt: null } }),
+    prisma.ticket.count({ where: { deletedAt: null, status: { in: OPEN_STATUSES } } }),
+    prisma.ticket.count({ where: { deletedAt: null, status: 'COMPLETED' } }),
+    prisma.customer.count(),
+    prisma.inventoryPart.count(),
+    prisma.inventoryPart.count({ where: { stock: { lte: 2 } } }),
+    prisma.payment.aggregate({ _sum: { amountCents: true } }),
+  ]);
+
+  return {
+    users: {
+      total: totalUsers,
+      active: activeUsers,
+      disabled: disabledUsers,
+      admins: adminUsers,
+      technicians: standardUsers,
+      recent: recentUsers,
+    },
+    system: {
+      status: 'OPERATIONAL',
+      database: 'ACID Relational SQLite',
+      serverTime: new Date().toISOString(),
+      activeWorkstations: 4,
+    },
+    shop: {
+      totalTickets: ticketsCount,
+      activeTickets: activeTicketsCount,
+      completedTickets: completedTicketsCount,
+      totalCustomers: customersCount,
+      totalInventoryItems: inventoryCount,
+      lowStockAlerts: lowStockParts,
+      lifetimeRevenueCents: revenueAgg._sum.amountCents || 0,
+    },
+    recentAudits,
+  };
 }
 
 export { z };

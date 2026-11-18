@@ -29,7 +29,42 @@ import {
   getDashboard,
   getReport,
   exportTicketsCsv,
+  loginUser,
+  logoutUser,
+  listUsers,
+  getUser,
+  createUser,
+  updateUser,
+  deleteUser,
+  changeUserPassword,
+  adminResetUserPassword,
+  updateUserPreferences,
+  listAuditLogs,
+  getAdminOverview,
 } from './service';
+import { authenticateSession, ensureAdminProvisioning } from './auth';
+
+declare global {
+  namespace Express {
+    interface Request {
+      user?: {
+        id: string;
+        username: string;
+        email: string;
+        name: string;
+        role: string;
+        status: string;
+        phone: string | null;
+        bench: string | null;
+        bio: string | null;
+        preferences: string;
+        lastLoginAt: Date | null;
+        createdAt: Date;
+      };
+      token?: string;
+    }
+  }
+}
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -37,16 +72,149 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
+// Session resolution middleware
+app.use(async (req: Request, _res: Response, next: NextFunction) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : (req.headers['x-session-token'] as string | undefined);
+
+    if (token) {
+      req.token = token;
+      const user = await authenticateSession(token);
+      if (user) {
+        req.user = user;
+      }
+    }
+  } catch (err) {
+    console.error('[Auth Middleware Error]', err);
+  }
+  next();
+});
+
 const wrap = (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) => {
   return (req: Request, res: Response, next: NextFunction) => {
     fn(req, res, next).catch(next);
   };
 };
 
+const requireAuth = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Please log in.' });
+  }
+  next();
+};
+
+const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.user) {
+    return res.status(401).json({ success: false, error: 'Authentication required. Please log in.' });
+  }
+  if (req.user.role !== 'ADMIN') {
+    return res.status(403).json({ success: false, error: 'Access forbidden: Administrator privileges required.' });
+  }
+  next();
+};
+
 const getParam = (req: Request, name: string): string => {
   const val = req.params[name];
   return Array.isArray(val) ? val[0] : (val || '');
 };
+
+// ---------------------------------------------------------------------------
+// Authentication & Current User Profile Routes
+// ---------------------------------------------------------------------------
+
+app.post('/api/auth/login', wrap(async (req, res) => {
+  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const result = await loginUser(req.body, ip);
+  res.json({ success: true, ...result });
+}));
+
+app.post('/api/auth/logout', wrap(async (req, res) => {
+  const token = req.token;
+  if (token) {
+    await logoutUser(token, req.user?.name);
+  }
+  res.json({ success: true, message: 'Logged out successfully' });
+}));
+
+app.get('/api/auth/me', wrap(async (req, res) => {
+  if (!req.user) {
+    return res.json({ success: true, authenticated: false, user: null });
+  }
+  res.json({ success: true, authenticated: true, user: req.user });
+}));
+
+app.put('/api/auth/profile', requireAuth, wrap(async (req, res) => {
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const updated = await updateUser(req.user!.id, req.body, actor);
+  res.json({ success: true, user: updated });
+}));
+
+app.put('/api/auth/password', requireAuth, wrap(async (req, res) => {
+  const result = await changeUserPassword(req.user!.id, req.body, req.user!.name);
+  res.json(result);
+}));
+
+app.put('/api/auth/preferences', requireAuth, wrap(async (req, res) => {
+  const updated = await updateUserPreferences(req.user!.id, req.body.preferences || req.body);
+  res.json({ success: true, preferences: updated.preferences });
+}));
+
+// ---------------------------------------------------------------------------
+// Administrator Management Endpoints (Strictly requireAdmin)
+// ---------------------------------------------------------------------------
+
+app.get('/api/admin/overview', requireAdmin, wrap(async (_req, res) => {
+  const overview = await getAdminOverview();
+  res.json({ success: true, data: overview });
+}));
+
+app.get('/api/admin/users', requireAdmin, wrap(async (req, res) => {
+  const search = req.query.search as string | undefined;
+  const role = req.query.role as string | undefined;
+  const status = req.query.status as string | undefined;
+  const users = await listUsers({ search, role, status });
+  res.json({ success: true, count: users.length, data: users });
+}));
+
+app.post('/api/admin/users', requireAdmin, wrap(async (req, res) => {
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const user = await createUser(req.body, actor);
+  res.status(201).json({ success: true, data: user });
+}));
+
+app.get('/api/admin/users/:id', requireAdmin, wrap(async (req, res) => {
+  const user = await getUser(getParam(req, 'id'));
+  res.json({ success: true, data: user });
+}));
+
+app.put('/api/admin/users/:id', requireAdmin, wrap(async (req, res) => {
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const user = await updateUser(getParam(req, 'id'), req.body, actor);
+  res.json({ success: true, data: user });
+}));
+
+app.delete('/api/admin/users/:id', requireAdmin, wrap(async (req, res) => {
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const result = await deleteUser(getParam(req, 'id'), actor);
+  res.json(result);
+}));
+
+app.post('/api/admin/users/:id/reset-password', requireAdmin, wrap(async (req, res) => {
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const result = await adminResetUserPassword(getParam(req, 'id'), req.body, actor);
+  res.json(result);
+}));
+
+app.get('/api/admin/audit-logs', requireAdmin, wrap(async (req, res) => {
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
+  const action = req.query.action as string | undefined;
+  const search = req.query.search as string | undefined;
+  const logs = await listAuditLogs({ limit, action, search });
+  res.json({ success: true, count: logs.length, data: logs });
+}));
 
 // ---------------------------------------------------------------------------
 // Dashboard, Stats & Reports
@@ -93,7 +261,8 @@ app.get('/api/settings', wrap(async (_req, res) => {
 }));
 
 app.put('/api/settings', wrap(async (req, res) => {
-  const settings = await updateSettings(req.body);
+  const actor = req.user ? { id: req.user.id, name: req.user.name } : undefined;
+  const settings = await updateSettings(req.body, actor);
   res.json({ success: true, data: settings });
 }));
 
@@ -326,6 +495,11 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   return res.status(500).json({ success: false, error: err.message || 'Internal server error' });
 });
 
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
   console.log(`[ApexFix API] Running on http://localhost:${PORT}`);
+  try {
+    await ensureAdminProvisioning();
+  } catch (err) {
+    console.error('[Admin Provisioning Error]', err);
+  }
 });

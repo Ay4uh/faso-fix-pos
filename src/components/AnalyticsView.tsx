@@ -8,6 +8,7 @@ import {
   CreditCard,
   Smartphone,
   Layers,
+  Download,
 } from 'lucide-react';
 
 interface AnalyticsViewProps {
@@ -66,21 +67,32 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Days Span Selector */}
-            <div className="flex items-center bg-white/10 rounded-lg p-0.5 border border-white/15 text-xs font-semibold">
-              {[7, 30, 90].map((d) => (
-                <button
-                  key={d}
-                  onClick={() => setDays(d)}
-                  className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
-                    days === d
-                      ? 'bg-white text-slate-900 shadow-sm'
-                      : 'text-slate-300 hover:text-white'
-                  }`}
-                >
-                  {d} Days
-                </button>
-              ))}
+            {/* Days Span Selector & CSV Export */}
+            <div className="flex items-center gap-2">
+              <a
+                href="/api/export/tickets"
+                download="ApexFix-WorkOrders.csv"
+                className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/15 text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export CSV</span>
+              </a>
+
+              <div className="flex items-center bg-white/10 rounded-lg p-0.5 border border-white/15 text-xs font-semibold">
+                {[7, 30, 90].map((d) => (
+                  <button
+                    key={d}
+                    onClick={() => setDays(d)}
+                    className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                      days === d
+                        ? 'bg-white text-slate-900 shadow-sm'
+                        : 'text-slate-300 hover:text-white'
+                    }`}
+                  >
+                    {d} Days
+                  </button>
+                ))}
+              </div>
             </div>
 
             <div className="flex items-center gap-4 bg-white/10 backdrop-blur-xs p-3.5 rounded-xl border border-white/10">
