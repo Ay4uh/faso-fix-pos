@@ -30,6 +30,7 @@ export interface Customer {
   fullName: string;
   phone: string;
   phoneDigits: string;
+  altPhone?: string | null;
   email?: string | null;
   address?: string | null;
   notes?: string | null;

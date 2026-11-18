@@ -247,6 +247,9 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                   <div className="flex items-center gap-1.5 text-slate-600 font-mono text-xs">
                     <Phone className="w-3.5 h-3.5 text-slate-400" />
                     <span>{ticket.customer.phone}</span>
+                    {ticket.customer.altPhone && (
+                      <span className="text-slate-400 font-sans text-[11px]">(Alt: {ticket.customer.altPhone})</span>
+                    )}
                   </div>
                   {ticket.customer.email && (
                     <div className="flex items-center gap-1.5 text-slate-600 text-xs">
@@ -619,7 +622,10 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
 
               <div>
                 <div className="font-bold text-sm truncate">{ticket.customer.fullName}</div>
-                <div className="text-[11px] text-slate-600">{ticket.customer.phone}</div>
+                <div className="text-[11px] text-slate-600">
+                  {ticket.customer.phone}
+                  {ticket.customer.altPhone ? ` / ${ticket.customer.altPhone}` : ''}
+                </div>
               </div>
 
               <div className="p-2 bg-slate-100 rounded-lg text-[11px] space-y-0.5">

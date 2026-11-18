@@ -82,6 +82,7 @@ model Customer {
   fullName    String
   phone       String // as entered, for display
   phoneDigits String   @unique // digits only, used for de-duplication
+  altPhone    String?  // alternative contact phone (strictly optional)
   email       String?
   address     String?
   notes       String?

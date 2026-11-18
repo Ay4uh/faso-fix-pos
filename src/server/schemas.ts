@@ -26,6 +26,7 @@ export const createTicketSchema = z.object({
     phone: trimmed
       .min(1, 'Phone number is required')
       .refine((v) => v.replace(/\D/g, '').length >= 7, 'Phone number needs at least 7 digits'),
+    altPhone: optionalText,
     email: z.union([z.literal(''), trimmed.email('Invalid email address')]).optional().nullable(),
     address: optionalText,
   }),
@@ -104,6 +105,7 @@ export const customerUpdateSchema = z
   .object({
     fullName: trimmed.min(1).max(120),
     phone: trimmed.refine((v) => v.replace(/\D/g, '').length >= 7, 'Phone number needs at least 7 digits'),
+    altPhone: optionalText,
     email: z.union([z.literal(''), trimmed.email('Invalid email address')]).nullable(),
     address: optionalText,
     notes: optionalText,

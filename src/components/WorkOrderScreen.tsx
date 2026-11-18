@@ -678,9 +678,21 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
               <div className="text-xs text-slate-600 space-y-1 font-mono pt-1 border-t border-slate-100">
                 <div className="flex justify-between items-center">
-                  <span className="text-slate-400 font-sans">Mobile:</span>
+                  <span className="text-slate-400 font-sans">Primary:</span>
                   <span className="font-bold text-slate-800">{ticket.customer.phone}</span>
                 </div>
+                {ticket.customer.altPhone && (
+                  <div className="flex justify-between items-center text-[11px]">
+                    <span className="text-slate-400 font-sans">Alt Phone:</span>
+                    <a
+                      href={`tel:${ticket.customer.altPhone}`}
+                      className="font-bold text-indigo-600 hover:underline"
+                      title="Call Alternative Phone"
+                    >
+                      {ticket.customer.altPhone}
+                    </a>
+                  </div>
+                )}
                 {ticket.customer.email && (
                   <div className="flex justify-between items-center text-[11px]">
                     <span className="text-slate-400 font-sans">Email:</span>

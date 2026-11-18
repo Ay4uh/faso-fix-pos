@@ -46,6 +46,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     (c) =>
       c.fullName.toLowerCase().includes(search.toLowerCase()) ||
       c.phone.includes(search) ||
+      (c.altPhone && c.altPhone.includes(search)) ||
       (c.email && c.email.toLowerCase().includes(search.toLowerCase()))
   );
 
@@ -386,9 +387,20 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
 
                 <div className="space-y-2 text-xs text-slate-600">
                   <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-400">Phone:</span>
+                    <span className="text-slate-400">Primary Phone:</span>
                     <span className="font-mono font-bold text-slate-800">{activeCustomer.phone}</span>
                   </div>
+                  {activeCustomer.altPhone && (
+                    <div className="flex justify-between py-1 border-b border-slate-50">
+                      <span className="text-slate-400">Alt Phone:</span>
+                      <a
+                        href={`tel:${activeCustomer.altPhone}`}
+                        className="font-mono font-bold text-indigo-600 hover:underline"
+                      >
+                        {activeCustomer.altPhone}
+                      </a>
+                    </div>
+                  )}
                   {activeCustomer.email && (
                     <div className="flex justify-between py-1 border-b border-slate-50">
                       <span className="text-slate-400">Email:</span>

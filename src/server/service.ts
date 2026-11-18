@@ -194,6 +194,7 @@ export async function createTicket(input: unknown) {
           fullName: data.customer.fullName,
           phone: data.customer.phone,
           phoneDigits,
+          altPhone: emptyToNull(data.customer.altPhone) ?? null,
           email: emptyToNull(data.customer.email) ?? null,
           address: emptyToNull(data.customer.address) ?? null,
         },
@@ -201,6 +202,7 @@ export async function createTicket(input: unknown) {
     } else {
       // Returning customer: fill in contact details we didn't have before, never overwrite.
       const fill: Prisma.CustomerUpdateInput = {};
+      if (!customer.altPhone && data.customer.altPhone) fill.altPhone = data.customer.altPhone;
       if (!customer.email && data.customer.email) fill.email = data.customer.email;
       if (!customer.address && data.customer.address) fill.address = data.customer.address;
       if (Object.keys(fill).length) customer = await tx.customer.update({ where: { id: customer.id }, data: fill });
@@ -524,6 +526,7 @@ export async function updateCustomer(id: string, input: unknown) {
 
   const update: Prisma.CustomerUpdateInput = {};
   if (data.fullName !== undefined) update.fullName = data.fullName;
+  if (data.altPhone !== undefined) update.altPhone = emptyToNull(data.altPhone) ?? null;
   if (data.email !== undefined) update.email = emptyToNull(data.email) ?? null;
   if (data.address !== undefined) update.address = emptyToNull(data.address) ?? null;
   if (data.notes !== undefined) update.notes = emptyToNull(data.notes) ?? null;
