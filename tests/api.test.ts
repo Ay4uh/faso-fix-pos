@@ -7,8 +7,8 @@ import assert from 'node:assert/strict';
 import { buildReceiptHtml } from '../src/utils/receipt';
 
 const API = process.env.API_URL || 'http://localhost:4000';
-const TECH = { usernameOrEmail: 'tech', password: 'Tech@ApexFix2026!' };
-const ADMIN = { usernameOrEmail: 'admin', password: 'Admin@ApexFix2026!' };
+const TECH = { usernameOrEmail: 'tech', password: 'Tech@FasoFix2026!' };
+const ADMIN = { usernameOrEmail: 'admin', password: 'Admin@FasoFix2026!' };
 
 async function call(path: string, opts: { method?: string; token?: string; body?: unknown } = {}) {
   const res = await fetch(API + path, {

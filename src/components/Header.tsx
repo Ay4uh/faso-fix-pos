@@ -107,7 +107,7 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-xs shrink-0">
             <Wrench className="w-4 h-4" />
           </div>
-          <span className="font-bold text-slate-900 hidden sm:inline">ApexFix POS</span>
+          <span className="font-bold text-slate-900 hidden sm:inline">Faso Fix POS</span>
           <span className="text-slate-300 hidden sm:inline">/</span>
           <span className="text-slate-900 font-semibold capitalize truncate max-w-[100px] sm:max-w-none">
             {currentTab.replace('-', ' ')}

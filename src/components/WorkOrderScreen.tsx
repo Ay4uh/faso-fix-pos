@@ -93,7 +93,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
   // SMS
   const [smsText, setSmsText] = useState(
-    `Hi ${ticket.customer.fullName}, ApexFix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) status is: ${ticket.status.toLowerCase().replace('_', ' ')}.`
+    `Hi ${ticket.customer.fullName}, Faso Fix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) status is: ${ticket.status.toLowerCase().replace('_', ' ')}.`
   );
   const [isSendingSms, setIsSendingSms] = useState(false);
   const [smsSuccess, setSmsSuccess] = useState(false);

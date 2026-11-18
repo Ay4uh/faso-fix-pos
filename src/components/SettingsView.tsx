@@ -71,7 +71,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // User Profile & Account State
   const [fullName, setFullName] = useState(currentUser?.name || 'Alex Mercer');
-  const [userEmail, setUserEmail] = useState(currentUser?.email || 'alex@apexfix.ca');
+  const [userEmail, setUserEmail] = useState(currentUser?.email || 'alex@fasofix.ca');
   const [userPhone, setUserPhone] = useState(currentUser?.phone || '(647) 740-0566');
   const [userBench, setUserBench] = useState(currentUser?.bench || 'Bench #04');
   const [userBio, setUserBio] = useState(currentUser?.bio || 'Hardware & microsoldering specialist');
@@ -133,9 +133,9 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         const data: ShopSettings = json.data;
         setSettings(data);
 
-        setShopName(data.shopName || 'ApexFix Repair Center');
+        setShopName(data.shopName || 'Faso Fix Repair Center');
         setPhone(data.phone || '(647) 740-0566');
-        setEmail(data.email || 'service@apexfix.ca');
+        setEmail(data.email || 'service@fasofix.ca');
         setAddress(data.address || '123 Tech Boulevard, Suite 400');
         setReceiptFooter(data.receiptFooter || 'Standard 90-day warranty on parts and labor. Devices left unclaimed for 30 days are subject to storage fees.');
         setTaxLabel(data.taxLabel || 'HST');
@@ -496,7 +496,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       required
                       value={userEmail}
                       onChange={(e) => setUserEmail(e.target.value)}
-                      placeholder="alex@apexfix.ca"
+                      placeholder="alex@fasofix.ca"
                       className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 transition"
                     />
                   </div>
@@ -914,7 +914,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         required
                         value={shopName}
                         onChange={(e) => setShopName(e.target.value)}
-                        placeholder="ApexFix Repair Center"
+                        placeholder="Faso Fix Repair Center"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white"
                       />
                     </div>
@@ -938,7 +938,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="service@apexfix.ca"
+                        placeholder="service@fasofix.ca"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white"
                       />
                     </div>

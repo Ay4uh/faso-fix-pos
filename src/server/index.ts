@@ -578,7 +578,7 @@ app.delete('/api/inventory/:id', requireAdmin, wrap(async (req, res) => {
 app.get('/api/export/tickets', requireAuth, wrap(async (_req, res) => {
   const csv = await exportTicketsCsv();
   res.setHeader('Content-Type', 'text/csv');
-  res.setHeader('Content-Disposition', 'attachment; filename="ApexFix-WorkOrders.csv"');
+  res.setHeader('Content-Disposition', 'attachment; filename="FasoFix-WorkOrders.csv"');
   res.send(csv);
 }));
 
@@ -621,7 +621,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 });
 
 app.listen(PORT, async () => {
-  console.log(`[ApexFix API] Running on http://localhost:${PORT}`);
+  console.log(`[Faso Fix API] Running on http://localhost:${PORT}`);
   try {
     await configureSqlite();
     await ensureAdminProvisioning();

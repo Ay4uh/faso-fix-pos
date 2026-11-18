@@ -139,7 +139,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
             <PenTool className="w-3 h-3 text-slate-400" />
             Customer Authorization Signature Line (Touch or Mouse)
           </span>
-          <span className="font-mono text-[9px] uppercase tracking-wider">ApexFix Legal Waiver</span>
+          <span className="font-mono text-[9px] uppercase tracking-wider">Faso Fix Legal Waiver</span>
         </div>
 
         {/* Clear Action Button */}

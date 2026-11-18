@@ -133,8 +133,8 @@ export async function ensureAdminProvisioning(): Promise<void> {
 
   if (adminCount === 0) {
     const adminUser = process.env.ADMIN_USERNAME || 'admin';
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@apexfix.ca';
-    const adminPass = process.env.ADMIN_PASSWORD || 'Admin@ApexFix2026!';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@fasofix.ca';
+    const adminPass = process.env.ADMIN_PASSWORD || 'Admin@FasoFix2026!';
     const adminName = 'Lead Shop Administrator';
 
     const hashedPassword = hashPassword(adminPass);
@@ -168,7 +168,7 @@ export async function ensureAdminProvisioning(): Promise<void> {
     });
 
     console.log('------------------------------------------------------------');
-    console.log('[ApexFix Security] Initial Administrator Account Provisioned:');
+    console.log('[Faso Fix Security] Initial Administrator Account Provisioned:');
     console.log(`  Username: ${adminUser}`);
     console.log(`  Email:    ${adminEmail}`);
     console.log(`  Password: ${adminPass}`);
@@ -185,9 +185,9 @@ export async function ensureAdminProvisioning(): Promise<void> {
     await prisma.user.create({
       data: {
         username: 'tech',
-        email: 'alex@apexfix.ca',
+        email: 'alex@fasofix.ca',
         name: 'Alex Mercer',
-        passwordHash: hashPassword('Tech@ApexFix2026!'),
+        passwordHash: hashPassword('Tech@FasoFix2026!'),
         role: 'USER',
         status: 'ACTIVE',
         bench: 'Bench #04 (Alex Mercer)',

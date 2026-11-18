@@ -61,7 +61,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
                 Live SQLite Telemetry
               </span>
             </div>
-            <h2 className="text-xl font-bold text-slate-900 tracking-tight">ApexFix Bench Diagnostics & Velocity</h2>
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">Faso Fix Bench Diagnostics & Velocity</h2>
             <p className="text-xs text-slate-500 mt-1 max-w-xl leading-relaxed">
               Real-time repair pipeline metrics, technician throughput, and component lead time indicators computed directly from database records.
             </p>
@@ -72,7 +72,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
             <div className="flex items-center gap-2">
               <a
                 href="/api/export/tickets"
-                download="ApexFix-WorkOrders.csv"
+                download="FasoFix-WorkOrders.csv"
                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               >
                 <Download className="w-3.5 h-3.5 text-slate-600" />

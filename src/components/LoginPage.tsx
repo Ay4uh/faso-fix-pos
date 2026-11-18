@@ -70,14 +70,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const handleFillStandardTech = () => {
     setIsAdminMode(false);
     setUsernameOrEmail('tech');
-    if (import.meta.env.DEV) setPassword('Tech@ApexFix2026!');
+    if (import.meta.env.DEV) setPassword('Tech@FasoFix2026!');
     setErrorMessage(null);
   };
 
   const handleFillAdmin = () => {
     setIsAdminMode(true);
     setUsernameOrEmail('admin');
-    if (import.meta.env.DEV) setPassword('Admin@ApexFix2026!');
+    if (import.meta.env.DEV) setPassword('Admin@FasoFix2026!');
     setErrorMessage(null);
   };
 
@@ -102,7 +102,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               <Cpu className="w-6 h-6" />
             </div>
             <div className="text-left">
-              <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none">ApexFix POS</h1>
+              <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none">Faso Fix POS</h1>
               <p className="text-xs text-slate-500 font-medium mt-1">Repair &amp; Retail Operations CRM</p>
             </div>
           </div>
@@ -205,7 +205,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   autoCorrect="off"
                   value={usernameOrEmail}
                   onChange={(e) => setUsernameOrEmail(e.target.value)}
-                  placeholder={isAdminMode ? 'admin or admin@apexfix.ca' : 'tech or tech@apexfix.ca'}
+                  placeholder={isAdminMode ? 'admin or admin@fasofix.ca' : 'tech or tech@fasofix.ca'}
                   className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
                 />
               </div>

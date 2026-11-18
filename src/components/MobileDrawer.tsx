@@ -67,7 +67,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                 <Wrench className="w-4 h-4" />
               </div>
               <div>
-                <h3 className="font-extrabold text-sm text-slate-900">ApexFix POS</h3>
+                <h3 className="font-extrabold text-sm text-slate-900">Faso Fix POS</h3>
                 <p className="text-[10px] text-slate-500 font-medium">Terminal v3.4.2</p>
               </div>
             </div>

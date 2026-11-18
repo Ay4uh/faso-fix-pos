@@ -14,7 +14,7 @@ export const SendSmsModal: React.FC<SendSmsModalProps> = ({ ticket, onClose, onS
   if (!ticket) return null;
 
   const [message, setMessage] = useState(
-    `Hello ${ticket.customer.fullName}, ApexFix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) is currently ${ticket.status.toLowerCase().replace('_', ' ')}.`
+    `Hello ${ticket.customer.fullName}, Faso Fix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) is currently ${ticket.status.toLowerCase().replace('_', ' ')}.`
   );
   const [isSending, setIsSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);

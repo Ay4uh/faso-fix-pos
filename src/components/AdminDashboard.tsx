@@ -197,7 +197,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-extrabold tracking-tight text-slate-900">ApexFix Master Admin Console</h1>
+              <h1 className="text-lg font-extrabold tracking-tight text-slate-900">Faso Fix Master Admin Console</h1>
               <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-bold uppercase tracking-wider">
                 Production Guard Active
               </span>
@@ -632,7 +632,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               Role-Based Access Control (RBAC) Specification
             </h3>
             <p className="text-xs text-slate-500 mt-1">
-              ApexFix enforces strict server-side authentication and authorization guards. Frontend controls adapt automatically to the verified JWT session.
+              Faso Fix enforces strict server-side authentication and authorization guards. Frontend controls adapt automatically to the verified JWT session.
             </p>
           </div>
 
@@ -976,7 +976,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="marcus@apexfix.ca"
+                placeholder="marcus@fasofix.ca"
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               />
             </div>
