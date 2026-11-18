@@ -92,6 +92,7 @@ export function App() {
   }, [currentUser, currentTab]);
 
   const handleLogout = () => {
+    const tokenToRevoke = localStorage.getItem('apexfix_session_token');
     // 1. Immediately wipe local auth credentials
     removeToken();
     localStorage.removeItem('apexfix_session_token');
@@ -113,7 +114,11 @@ export function App() {
     // 4. Background fire-and-forget notification to server (never blocks UI)
     fetch('/api/auth/logout', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(tokenToRevoke ? { Authorization: `Bearer ${tokenToRevoke}` } : {}),
+      },
+      keepalive: true,
     }).catch(() => {});
   };
 
