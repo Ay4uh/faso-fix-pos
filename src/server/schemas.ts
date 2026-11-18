@@ -27,9 +27,13 @@ export const createTicketSchema = z.object({
     pattern: optionalText,
     condition: optionalText,
   }),
-  faultDescription: trimmed.min(1, 'Fault description is required').max(2000),
+  faultDescription: trimmed.max(2000).optional().default('Device Diagnostic & Repair'),
   laborCents: cents.default(0),
-  dueDate: dateString,
+  dueDate: z.string().optional().default(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    return d.toISOString().split('T')[0];
+  }),
   priority: z.enum(PRIORITIES).default('STANDARD'),
   technician: optionalText,
   bench: optionalText,
