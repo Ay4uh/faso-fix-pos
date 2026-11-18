@@ -1,13 +1,13 @@
 {
-  "name": "apexfix-pos",
+  "name": "faso-fix-pos",
   "version": "1.0.0",
-  "description": "ApexFix POS/CRM Dashboard for Device Repair Shops",
+  "description": "Faso Fix POS/CRM Dashboard for Device Repair Shops",
   "type": "module",
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:server": "tsx watch src/server/index.ts",
     "dev:client": "vite",
-    "build": "vite build",
+    "build": "prisma generate && vite build",
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",

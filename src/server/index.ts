@@ -620,13 +620,18 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   return res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
-app.listen(PORT, async () => {
-  console.log(`[Faso Fix API] Running on http://localhost:${PORT}`);
-  try {
-    await configureSqlite();
-    await ensureAdminProvisioning();
-    if (process.env.NODE_ENV !== 'test') startBackupSchedule();
-  } catch (err) {
-    console.error('[Startup Error]', err);
-  }
-});
+export { app };
+export default app;
+
+if (!process.env.VERCEL) {
+  app.listen(PORT, async () => {
+    console.log(`[Faso Fix API] Running on http://localhost:${PORT}`);
+    try {
+      await configureSqlite();
+      await ensureAdminProvisioning();
+      if (process.env.NODE_ENV !== 'test') startBackupSchedule();
+    } catch (err) {
+      console.error('[Startup Error]', err);
+    }
+  });
+}
