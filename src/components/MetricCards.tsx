@@ -1,11 +1,6 @@
 import React from 'react';
 import { DashboardStats } from '../types';
-import {
-  Wrench,
-  Clock,
-  Package,
-  CheckCircle2,
-} from 'lucide-react';
+import { Cpu, Loader, Package, BadgeDollarSign } from 'lucide-react';
 
 interface MetricCardsProps {
   stats: DashboardStats | null;
@@ -15,69 +10,55 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ stats }) => {
   const activeCount = stats?.totalActive ?? stats?.open ?? 0;
   const inProgress = stats?.inProgress ?? 0;
   const waitingParts = stats?.waitingOnParts ?? 0;
-  const completed = stats?.completed ?? 0;
+  const pipelineDollars = stats?.openValueCents ? (stats.openValueCents / 100).toFixed(2) : '0.00';
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
-      {/* 1. Active Queue */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-colors">
-        <div className="flex items-center justify-between text-slate-500 mb-2">
-          <span className="text-xs font-bold uppercase tracking-wider">Active Queue</span>
-          <div className="w-7 h-7 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
-            <Wrench className="w-4 h-4" />
-          </div>
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 1. Active Work Orders */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-slate-500">Active Work Orders</p>
+          <h3 className="text-2xl font-bold text-slate-900 mt-1 font-mono">{activeCount}</h3>
+          <p className="text-[11px] text-slate-500 mt-0.5">Across all workstations</p>
         </div>
-        <div className="flex items-baseline justify-between">
-          <span className="text-2xl lg:text-3xl font-extrabold font-mono text-slate-900">{activeCount}</span>
-          <span className="text-xs font-semibold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full">
-            Open Tickets
-          </span>
+        <div className="w-10 h-10 rounded-lg bg-indigo-50 text-indigo-600 flex items-center justify-center">
+          <Cpu className="w-5 h-5" />
         </div>
       </div>
 
       {/* 2. In Progress */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-colors">
-        <div className="flex items-center justify-between text-slate-500 mb-2">
-          <span className="text-xs font-bold uppercase tracking-wider">In-Progress</span>
-          <div className="w-7 h-7 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
-            <Clock className="w-4 h-4" />
-          </div>
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-slate-500">In Progress</p>
+          <h3 className="text-2xl font-bold text-blue-600 mt-1 font-mono">{inProgress}</h3>
+          <p className="text-[11px] text-blue-700/80 mt-0.5">Under technician active work</p>
         </div>
-        <div className="flex items-baseline justify-between">
-          <span className="text-2xl lg:text-3xl font-extrabold font-mono text-blue-700">{inProgress}</span>
-          <span className="text-xs font-semibold text-slate-500">Under Repair</span>
+        <div className="w-10 h-10 rounded-lg bg-blue-50 text-blue-600 flex items-center justify-center">
+          <Loader className="w-5 h-5" />
         </div>
       </div>
 
       {/* 3. Waiting on Parts */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-colors">
-        <div className="flex items-center justify-between text-slate-500 mb-2">
-          <span className="text-xs font-bold uppercase tracking-wider">Waiting Parts</span>
-          <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
-            <Package className="w-4 h-4" />
-          </div>
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-slate-500">Waiting on Parts</p>
+          <h3 className="text-2xl font-bold text-amber-600 mt-1 font-mono">{waitingParts}</h3>
+          <p className="text-[11px] text-amber-700/80 mt-0.5">Components in transit</p>
         </div>
-        <div className="flex items-baseline justify-between">
-          <span className="text-2xl lg:text-3xl font-extrabold font-mono text-amber-700">{waitingParts}</span>
-          <span className="text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full">
-            Awaiting Stock
-          </span>
+        <div className="w-10 h-10 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+          <Package className="w-5 h-5" />
         </div>
       </div>
 
-      {/* 4. Ready / Completed */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200/90 shadow-xs flex flex-col justify-between hover:border-slate-300 transition-colors">
-        <div className="flex items-center justify-between text-slate-500 mb-2">
-          <span className="text-xs font-bold uppercase tracking-wider">Completed / Ready</span>
-          <div className="w-7 h-7 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
-            <CheckCircle2 className="w-4 h-4" />
-          </div>
+      {/* 4. Estimated Pipeline */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex items-center justify-between">
+        <div>
+          <p className="text-xs font-medium text-slate-500">Estimated Pipeline</p>
+          <h3 className="text-2xl font-bold text-emerald-600 mt-1 font-mono">${pipelineDollars}</h3>
+          <p className="text-[11px] text-emerald-700/80 mt-0.5">Repairs value (Inc. Tax)</p>
         </div>
-        <div className="flex items-baseline justify-between">
-          <span className="text-2xl lg:text-3xl font-extrabold font-mono text-emerald-700">{completed}</span>
-          <span className="text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
-            Ready for Pickup
-          </span>
+        <div className="w-10 h-10 rounded-lg bg-emerald-50 text-emerald-600 flex items-center justify-center">
+          <BadgeDollarSign className="w-5 h-5" />
         </div>
       </div>
     </div>

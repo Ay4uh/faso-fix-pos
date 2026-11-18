@@ -16,9 +16,10 @@ import { posAudio } from './utils/audio';
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<'repairs' | 'customers' | 'inventory' | 'analytics' | 'settings'>('repairs');
+  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('ALL');
-  const [selectedBench, setSelectedBench] = useState('ALL');
+  const [selectedBench] = useState('ALL');
 
   const [tickets, setTickets] = useState<Ticket[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -174,10 +175,11 @@ export function App() {
 
       {/* Sticky Top Header */}
       <Header
+        currentTab={currentTab}
+        viewMode={viewMode}
+        setViewMode={setViewMode}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
-        selectedBench={selectedBench}
-        setSelectedBench={setSelectedBench}
         openCreateModal={() => setIsCreateModalOpen(true)}
       />
 
@@ -208,6 +210,7 @@ export function App() {
                 totalTicketsCount={stats?.totalActive ? stats.totalActive + (stats.completed || 0) : tickets.length}
                 activeFilter={activeFilter}
                 setActiveFilter={setActiveFilter}
+                viewMode={viewMode}
                 onSelectTicket={handleSelectTicket}
                 onUpdateStatus={handleUpdateStatus}
                 onQuickComplete={handleQuickComplete}
@@ -225,6 +228,9 @@ export function App() {
               onOpenCreateWithCustomer={(_c) => {
                 setIsCreateModalOpen(true);
               }}
+              onSelectTicket={handleSelectTicket}
+              onPrintTicket={(t) => setPrintTicket(t)}
+              onOpenSmsModal={(t) => setSmsTicket(t)}
             />
           )}
 
