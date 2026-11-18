@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, List, Kanban, ArrowRight, LogOut } from 'lucide-react';
+import { Search, Plus, Wrench, List, Kanban, ArrowRight, LogOut, Menu } from 'lucide-react';
 import { Ticket, User } from '../types';
 
 interface HeaderProps {
@@ -13,6 +13,7 @@ interface HeaderProps {
   onSelectTicket?: (ticket: Ticket) => void;
   currentUser?: User | null;
   onLogout?: () => void;
+  onOpenMobileMenu?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -26,6 +27,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectTicket,
   currentUser,
   onLogout,
+  onOpenMobileMenu,
 }) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -87,22 +89,33 @@ export const Header: React.FC<HeaderProps> = ({
   };
 
   return (
-    <header className="h-16 bg-white border-b border-slate-200/90 px-4 sm:px-6 md:px-8 flex items-center justify-between z-30 sticky top-0 shadow-xs">
+    <header className="h-16 bg-white border-b border-slate-200/90 px-3 sm:px-6 md:px-8 flex items-center justify-between z-30 sticky top-0 shadow-xs gap-2">
       {/* Brand & Breadcrumb & View Mode Switcher */}
-      <div className="flex items-center space-x-3 sm:space-x-4">
+      <div className="flex items-center space-x-2 sm:space-x-4 min-w-0 shrink-0">
+        {onOpenMobileMenu && (
+          <button
+            type="button"
+            onClick={onOpenMobileMenu}
+            className="md:hidden p-2 -ml-1 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
+            title="Open navigation menu"
+          >
+            <Menu className="w-5 h-5" />
+          </button>
+        )}
+
         <div className="flex items-center text-sm font-medium text-slate-500 space-x-2">
-          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-xs">
+          <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-xs shrink-0">
             <Wrench className="w-4 h-4" />
           </div>
           <span className="font-bold text-slate-900 hidden sm:inline">ApexFix POS</span>
           <span className="text-slate-300 hidden sm:inline">/</span>
-          <span className="text-slate-900 font-semibold capitalize">
+          <span className="text-slate-900 font-semibold capitalize truncate max-w-[100px] sm:max-w-none">
             {currentTab.replace('-', ' ')}
           </span>
         </div>
 
         {currentTab === 'repairs' && (
-          <div className="hidden sm:flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/60 text-xs">
+          <div className="hidden lg:flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/60 text-xs">
             <button
               onClick={() => setViewMode('list')}
               className={`px-2.5 py-1 rounded-md font-medium transition flex items-center space-x-1.5 cursor-pointer ${
@@ -112,7 +125,7 @@ export const Header: React.FC<HeaderProps> = ({
               }`}
             >
               <List className="w-3.5 h-3.5" />
-              <span>Data Grid</span>
+              <span>Grid</span>
             </button>
             <button
               onClick={() => setViewMode('kanban')}
@@ -130,13 +143,13 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* God Mode Search Area */}
-      <div className="flex items-center space-x-3" ref={dropdownRef}>
-        <div className="relative w-64 sm:w-80 md:w-[420px] lg:w-[480px]">
+      <div className="flex items-center space-x-2 sm:space-x-3 flex-1 justify-end min-w-0" ref={dropdownRef}>
+        <div className="relative flex-1 max-w-[180px] sm:max-w-[280px] md:max-w-[420px]">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             ref={searchInputRef}
             type="text"
-            placeholder='God Mode: Search "John", "iPad", phone #, ticket... (Press /)'
+            placeholder='Search (Press /)'
             value={searchQuery}
             onFocus={() => setIsDropdownOpen(true)}
             onChange={(e) => {

@@ -40,6 +40,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         body: JSON.stringify({
           usernameOrEmail: usernameOrEmail.trim(),
           password,
+          adminMode: true,
         }),
       });
 
@@ -67,31 +68,31 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
       <div
-        className="bg-white rounded-2xl shadow-2xl border border-slate-200/80 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150"
+        className="bg-white rounded-2xl shadow-xl border border-slate-200/90 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Top Header Banner */}
-        <div className="bg-slate-900 px-6 py-5 text-white flex items-center justify-between border-b border-slate-800">
+        {/* Top Header Banner — Bright Clean Design */}
+        <div className="bg-slate-50 px-6 py-4.5 text-slate-900 flex items-center justify-between border-b border-slate-200/90">
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-600/30 border border-indigo-500/40 text-indigo-400 flex items-center justify-center shadow-inner">
+            <div className="w-10 h-10 rounded-xl bg-purple-100 border border-purple-200/60 text-purple-700 flex items-center justify-center shadow-xs">
               <ShieldAlert className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-white tracking-tight flex items-center gap-1.5">
+              <h2 className="text-sm font-bold text-slate-900 tracking-tight flex items-center gap-1.5">
                 Admin Console Login
               </h2>
-              <p className="text-xs text-slate-400">
+              <p className="text-xs text-slate-500 font-medium">
                 Restricted to authorized system administrators
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="text-slate-400 hover:text-white p-1 rounded-lg hover:bg-slate-800 transition cursor-pointer"
+            className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition cursor-pointer"
           >
-            <X className="w-5 h-5" />
+            <X className="w-4 h-4" />
           </button>
         </div>
 
@@ -100,7 +101,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           {errorMessage && (
             <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-700 flex items-start space-x-2.5 animate-in fade-in">
               <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-red-600" />
-              <div className="leading-relaxed">{errorMessage}</div>
+              <div className="leading-relaxed font-medium">{errorMessage}</div>
             </div>
           )}
 
@@ -115,7 +116,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
               value={usernameOrEmail}
               onChange={(e) => setUsernameOrEmail(e.target.value)}
               placeholder="e.g. admin or admin@apexfix.ca"
-              className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition"
+              className="w-full px-3.5 py-2.5 text-xs bg-slate-50/80 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition"
               required
             />
           </div>
@@ -133,7 +134,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="Enter administrator password"
-                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 pr-10 transition"
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50/80 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 pr-10 transition font-mono"
                 required
               />
               <button
@@ -147,24 +148,26 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           </div>
 
           {/* Quick Default Admin Credentials Tip — dev only */}
-          {import.meta.env.DEV && (<div className="p-3 bg-indigo-50/70 border border-indigo-100/90 rounded-xl text-xs text-indigo-900 flex items-center justify-between">
-            <div className="space-y-0.5">
-              <span className="font-bold flex items-center gap-1 text-[11px] text-indigo-800">
-                <KeyRound className="w-3.5 h-3.5" />
-                Provisioned Admin Account:
-              </span>
-              <p className="text-[11px] text-indigo-600 font-mono">
-                admin &bull; Admin@ApexFix2026!
-              </p>
+          {import.meta.env.DEV && (
+            <div className="p-3 bg-purple-50/70 border border-purple-100 rounded-xl text-xs text-purple-900 flex items-center justify-between">
+              <div className="space-y-0.5">
+                <span className="font-bold flex items-center gap-1 text-[11px] text-purple-800">
+                  <KeyRound className="w-3.5 h-3.5" />
+                  Provisioned Admin Account:
+                </span>
+                <p className="text-[11px] text-purple-600 font-mono">
+                  admin &bull; Admin@ApexFix2026!
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleFillDemoAdmin}
+                className="px-2 py-1 bg-white border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold shadow-2xs hover:bg-purple-50 cursor-pointer"
+              >
+                Fill
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={handleFillDemoAdmin}
-              className="px-2 py-1 bg-white border border-indigo-200 text-indigo-700 rounded-lg text-[10px] font-bold shadow-2xs hover:bg-indigo-50 cursor-pointer"
-            >
-              Fill Credentials
-            </button>
-          </div>)}
+          )}
 
           <div className="pt-2 flex items-center justify-end space-x-2.5">
             <button
@@ -177,7 +180,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             <button
               type="submit"
               disabled={isLoading}
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-md shadow-indigo-600/25 transition flex items-center space-x-2 cursor-pointer disabled:opacity-50"
+              className="px-5 py-2 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white rounded-xl text-xs font-bold shadow-md shadow-purple-600/25 transition flex items-center space-x-2 cursor-pointer disabled:opacity-50"
             >
               {isLoading ? (
                 <>

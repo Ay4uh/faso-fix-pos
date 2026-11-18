@@ -46,7 +46,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
   const woBarcode = `WO-${String(ticket.ticketNumber).padStart(4, '0')}`;
 
   return (
-    <div data-print-root className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white print:overflow-visible">
+    <div data-print-root className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white print:overflow-visible">
       <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto print:border-none print:shadow-none print:max-w-none print:rounded-none">
         {/* Interactive Top Control Bar (Hidden during window.print) */}
         <div className="px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50 print:hidden">
@@ -93,7 +93,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               type="button"
               onClick={() => printReceipt(ticket, '80mm')}
               title="Print 80mm thermal receipt"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 text-white rounded-lg text-xs font-bold hover:bg-slate-800 shadow-xs cursor-pointer transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-xs cursor-pointer transition"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Receipt 80mm</span>

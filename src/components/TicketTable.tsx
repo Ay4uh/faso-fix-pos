@@ -136,7 +136,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
               onClick={() => setActiveFilter(item.id)}
               className={`px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer whitespace-nowrap ${
                 activeFilter === item.id
-                  ? 'bg-slate-900 text-white shadow-xs font-bold'
+                  ? 'bg-indigo-600 text-white shadow-xs font-bold'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
@@ -160,7 +160,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
       {/* ===================== LIST VIEW (HIGH DENSITY DATA GRID) ===================== */}
       {viewMode === 'list' && (
         <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs overflow-visible">
-          <div className="overflow-x-auto overflow-y-visible">
+          {/* Desktop/Tablet Data Grid */}
+          <div className="hidden sm:block overflow-x-auto overflow-y-visible">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
@@ -449,6 +450,100 @@ export const TicketTable: React.FC<TicketTableProps> = ({
               </tbody>
             </table>
           </div>
+
+          {/* Mobile Stacked Cards List (< sm viewports) */}
+          <div className="sm:hidden divide-y divide-slate-100">
+            {filteredTickets.length === 0 ? (
+              <div className="text-center py-10 px-4 text-slate-400">
+                <Inbox className="w-8 h-8 mx-auto text-slate-300 mb-2" />
+                <p className="font-semibold text-xs text-slate-600">No tickets found</p>
+                <button
+                  onClick={() => setActiveFilter('ALL')}
+                  className="text-indigo-600 text-xs font-bold hover:underline mt-1 cursor-pointer"
+                >
+                  Show all
+                </button>
+              </div>
+            ) : (
+              filteredTickets.map((ticket) => {
+                const totalCents = ticket.totals ? ticket.totals.totalCents : ticket.laborCents;
+                const isPaid = ticket.totals?.balanceCents === 0;
+
+                return (
+                  <div
+                    key={ticket.id}
+                    onClick={() => onSelectTicket(ticket)}
+                    className="p-3.5 hover:bg-slate-50 active:bg-slate-100 transition cursor-pointer space-y-2"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2">
+                        <span className="font-mono font-bold text-xs text-indigo-600">
+                          #{ticket.ticketNumber}
+                        </span>
+                        {ticket.priority === 'URGENT' && (
+                          <span className="px-1.5 py-0.5 rounded text-[9px] bg-red-100 text-red-700 font-bold">
+                            URGENT
+                          </span>
+                        )}
+                      </div>
+                      {statusBadge(ticket.status)}
+                    </div>
+
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <h4 className="font-bold text-xs text-slate-900 truncate">{ticket.customer.fullName}</h4>
+                        <div className="text-[11px] text-slate-500 font-mono flex items-center gap-1 mt-0.5">
+                          <Phone className="w-3 h-3 text-slate-400 shrink-0" />
+                          <span>{ticket.customer.phone}</span>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="font-mono font-bold text-xs text-slate-900">
+                          ${(totalCents / 100).toFixed(2)}
+                        </div>
+                        <div className="text-[10px] text-slate-400">
+                          {isPaid ? <span className="text-emerald-600 font-bold">Paid</span> : 'Balance Due'}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="text-[11px] text-slate-600 bg-slate-50 p-2 rounded-lg border border-slate-100 flex items-center justify-between gap-2">
+                      <span className="font-semibold text-slate-800 shrink-0">{ticket.device?.name || 'Device'}</span>
+                      <span className="truncate text-slate-500 text-[10px]">{ticket.faultDescription}</span>
+                    </div>
+
+                    <div className="flex items-center justify-end space-x-1.5 pt-1" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenSmsModal(ticket)}
+                        className="px-2.5 py-1 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-100 text-xs font-semibold flex items-center gap-1 cursor-pointer min-h-[32px]"
+                      >
+                        <MessageSquare className="w-3 h-3 text-blue-600" />
+                        <span>SMS</span>
+                      </button>
+                      {ticket.status !== 'COMPLETED' && (
+                        <button
+                          type="button"
+                          onClick={() => onQuickComplete(ticket.id)}
+                          className="px-2.5 py-1 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold flex items-center gap-1 cursor-pointer min-h-[32px]"
+                        >
+                          <Check className="w-3 h-3 text-emerald-600" />
+                          <span>Complete</span>
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => onSelectTicket(ticket)}
+                        className="px-3 py-1 rounded-lg bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 cursor-pointer min-h-[32px]"
+                      >
+                        Open &rarr;
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </div>
       )}
 
@@ -542,8 +637,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
 
       {/* Confirmation Modal for Admin Ticket Deletion */}
       {deletingTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-red-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-xl border border-red-200 animate-in zoom-in-95 duration-150">
             <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
             </div>

@@ -551,7 +551,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
       <div className="bg-slate-100 rounded-2xl w-full max-w-7xl h-[94vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* ========================================================
             TOP BAR
@@ -655,7 +655,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             <div className="space-y-3">
               <div className="flex items-start justify-between">
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-sm shadow-sm">
+                  <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center font-bold text-sm shadow-xs">
                     {ticket.customer.fullName.charAt(0).toUpperCase()}
                   </div>
                   <div>
@@ -1177,7 +1177,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             onClick={() => setNoteFilter(f.id as any)}
                             className={`px-2.5 py-1 rounded text-xs font-semibold transition cursor-pointer ${
                               noteFilter === f.id
-                                ? 'bg-slate-900 text-white'
+                                ? 'bg-indigo-600 text-white shadow-xs'
                                 : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                             }`}
                           >
@@ -1471,7 +1471,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           ATTACH PART / INVENTORY ITEM MODAL
          ======================================================== */}
       {isAddItemModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
@@ -1597,7 +1597,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           COLLECT PAYMENT MODAL
          ======================================================== */}
       {isPaymentModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
@@ -1675,7 +1675,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           ONE-CLICK PART DEPOSIT MODAL (Frictionless Invoicing)
          ======================================================== */}
       {isDepositModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
@@ -1776,7 +1776,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           ADJUST DISCOUNT MODAL
          ======================================================== */}
       {isDiscountModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900">Adjust Discount</h3>
@@ -1828,7 +1828,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           EMAIL INVOICE MODAL
          ======================================================== */}
       {isEmailModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
@@ -1887,7 +1887,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
       {/* Confirmation Modal for Admin Ticket Deletion */}
       {isDeleteConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-red-200">
             <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />

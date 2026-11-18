@@ -183,27 +183,27 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     <div className="space-y-5 animate-in fade-in duration-150 pb-12">
       {/* Toast Notification */}
       {toast && (
-        <div className="fixed bottom-5 right-5 z-50 bg-slate-900 text-white px-4 py-3 rounded-xl shadow-2xl border border-slate-700 flex items-center space-x-2 text-xs font-semibold animate-in slide-in-from-bottom-5">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+        <div className="fixed bottom-5 right-5 z-50 bg-white text-slate-900 px-4 py-3 rounded-xl shadow-xl border border-slate-200 flex items-center space-x-2 text-xs font-semibold animate-in slide-in-from-bottom-5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           <span>{toast}</span>
         </div>
       )}
 
-      {/* Header Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 p-6 rounded-2xl border border-slate-800 text-white shadow-xl flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Header Banner — Bright Clean Design */}
+      <div className="bg-white p-6 rounded-2xl border border-slate-200 text-slate-900 shadow-sm flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center space-x-4">
-          <div className="w-12 h-12 rounded-2xl bg-indigo-600/30 border border-indigo-500/40 text-indigo-400 flex items-center justify-center shadow-inner">
+          <div className="w-12 h-12 rounded-2xl bg-purple-50 border border-purple-200 text-purple-700 flex items-center justify-center shadow-xs">
             <ShieldAlert className="w-6 h-6" />
           </div>
           <div>
             <div className="flex items-center gap-2">
-              <h1 className="text-lg font-extrabold tracking-tight">ApexFix Master Admin Console</h1>
-              <span className="px-2 py-0.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 rounded-full text-[10px] font-bold uppercase tracking-wider">
+              <h1 className="text-lg font-extrabold tracking-tight text-slate-900">ApexFix Master Admin Console</h1>
+              <span className="px-2.5 py-0.5 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-full text-[10px] font-bold uppercase tracking-wider">
                 Production Guard Active
               </span>
             </div>
-            <p className="text-xs text-slate-300 mt-0.5">
-              Logged in as <strong className="text-white">{currentUser.name}</strong> ({currentUser.username}) &bull; Role: {currentUser.role}
+            <p className="text-xs text-slate-500 mt-0.5">
+              Logged in as <strong className="text-slate-800">{currentUser.name}</strong> ({currentUser.username}) &bull; Role: {currentUser.role}
             </p>
           </div>
         </div>
@@ -212,7 +212,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           {onNavigateToTab && (
             <button
               onClick={() => onNavigateToTab('repairs')}
-              className="px-3.5 py-2 bg-indigo-600/80 hover:bg-indigo-600 text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-sm"
+              className="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
             >
               <span>Back to POS</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -221,14 +221,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           <button
             onClick={() => loadAll()}
             disabled={isLoading}
-            className="px-3.5 py-2 bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer"
+            className="px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-2xs"
           >
             <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
             <span>Refresh Data</span>
           </button>
           <button
             onClick={onLogout}
-            className="px-4 py-2 bg-red-600/90 hover:bg-red-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm shadow-red-600/30 cursor-pointer"
+            className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition flex items-center space-x-1.5 shadow-sm shadow-rose-600/25 cursor-pointer"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Sign Out</span>
@@ -834,7 +834,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           MODAL: DELETE USER CONFIRMATION
          ======================================================== */}
       {deletingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
           <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-red-200">
             <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
@@ -923,14 +923,14 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
-        <div className="bg-slate-900 px-6 py-4 text-white flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+        <div className="bg-slate-50 px-6 py-4 text-slate-900 flex items-center justify-between border-b border-slate-200">
           <div className="flex items-center space-x-2.5">
-            <UserPlus className="w-5 h-5 text-indigo-400" />
-            <h3 className="text-sm font-bold text-white">Provision New Staff User</h3>
+            <UserPlus className="w-5 h-5 text-indigo-600" />
+            <h3 className="text-sm font-bold text-slate-900">Provision New Staff User</h3>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition cursor-pointer">
             &times;
           </button>
         </div>
@@ -1116,14 +1116,14 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-md overflow-hidden">
-        <div className="bg-slate-900 px-6 py-4 text-white flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-150">
+        <div className="bg-slate-50 px-6 py-4 text-slate-900 flex items-center justify-between border-b border-slate-200">
           <div className="flex items-center space-x-2.5">
-            <Edit3 className="w-5 h-5 text-indigo-400" />
-            <h3 className="text-sm font-bold text-white">Edit User: {user.username}</h3>
+            <Edit3 className="w-5 h-5 text-indigo-600" />
+            <h3 className="text-sm font-bold text-slate-900">Edit User: {user.username}</h3>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition cursor-pointer">
             &times;
           </button>
         </div>
@@ -1277,14 +1277,14 @@ const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({ user, onClose, 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/70 backdrop-blur-xs">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden">
-        <div className="bg-slate-900 px-6 py-4 text-white flex items-center justify-between">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
+      <div className="bg-white rounded-2xl shadow-xl border border-slate-200 w-full max-w-sm overflow-hidden animate-in zoom-in-95 duration-150">
+        <div className="bg-slate-50 px-6 py-4 text-slate-900 flex items-center justify-between border-b border-slate-200">
           <div className="flex items-center space-x-2.5">
-            <KeyRound className="w-5 h-5 text-amber-400" />
-            <h3 className="text-sm font-bold text-white">Reset Password: {user.username}</h3>
+            <KeyRound className="w-5 h-5 text-amber-600" />
+            <h3 className="text-sm font-bold text-slate-900">Reset Password: {user.username}</h3>
           </div>
-          <button onClick={onClose} className="text-slate-400 hover:text-white cursor-pointer">
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1.5 rounded-lg hover:bg-slate-200/60 transition cursor-pointer">
             &times;
           </button>
         </div>

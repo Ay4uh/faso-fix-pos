@@ -49,45 +49,45 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
 
   return (
     <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 rounded-2xl p-6 text-white shadow-lg">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+      {/* Top Banner - Clean, Bright, Modern */}
+      <div className="bg-white rounded-2xl p-5 sm:p-6 text-slate-900 border border-slate-200/90 shadow-xs">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-5">
           <div>
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-[10px] font-bold tracking-widest uppercase text-indigo-400">
+            <div className="flex items-center gap-2 mb-1.5">
+              <span className="text-[11px] font-bold tracking-wider uppercase text-indigo-600">
                 Operations & Performance
               </span>
-              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-500/20 text-indigo-300 border border-indigo-400/30">
+              <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
                 Live SQLite Telemetry
               </span>
             </div>
-            <h2 className="text-xl font-bold">ApexFix Bench Diagnostics & Velocity</h2>
-            <p className="text-xs text-slate-300 mt-1 max-w-xl">
+            <h2 className="text-xl font-bold text-slate-900 tracking-tight">ApexFix Bench Diagnostics & Velocity</h2>
+            <p className="text-xs text-slate-500 mt-1 max-w-xl leading-relaxed">
               Real-time repair pipeline metrics, technician throughput, and component lead time indicators computed directly from database records.
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             {/* Days Span Selector & CSV Export */}
             <div className="flex items-center gap-2">
               <a
                 href="/api/export/tickets"
                 download="ApexFix-WorkOrders.csv"
-                className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg border border-white/15 text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer"
+                className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               >
-                <Download className="w-3.5 h-3.5" />
+                <Download className="w-3.5 h-3.5 text-slate-600" />
                 <span>Export CSV</span>
               </a>
 
-              <div className="flex items-center bg-white/10 rounded-lg p-0.5 border border-white/15 text-xs font-semibold">
+              <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200 text-xs font-semibold">
                 {[7, 30, 90].map((d) => (
                   <button
                     key={d}
                     onClick={() => setDays(d)}
                     className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
                       days === d
-                        ? 'bg-white text-slate-900 shadow-sm'
-                        : 'text-slate-300 hover:text-white'
+                        ? 'bg-white text-indigo-600 shadow-xs font-bold'
+                        : 'text-slate-500 hover:text-slate-900'
                     }`}
                   >
                     {d} Days
@@ -96,17 +96,17 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
               </div>
             </div>
 
-            <div className="flex items-center gap-4 bg-white/10 backdrop-blur-xs p-3.5 rounded-xl border border-white/10">
+            <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-xl border border-slate-200">
               <div>
-                <p className="text-[10px] text-slate-300 uppercase">Gross Volume</p>
-                <p className="text-lg font-bold font-mono text-emerald-400">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Gross Volume</p>
+                <p className="text-lg font-bold font-mono text-emerald-600">
                   ${totalValue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                 </p>
               </div>
-              <div className="h-8 w-px bg-white/20"></div>
+              <div className="h-8 w-px bg-slate-200"></div>
               <div>
-                <p className="text-[10px] text-slate-300 uppercase">Avg Work Order</p>
-                <p className="text-lg font-bold font-mono text-indigo-200">
+                <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Avg Work Order</p>
+                <p className="text-lg font-bold font-mono text-indigo-600">
                   ${avgTicket.toFixed(2)}
                 </p>
               </div>

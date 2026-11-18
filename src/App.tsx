@@ -14,6 +14,8 @@ import { SettingsView } from './components/SettingsView';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { LoginPage } from './components/LoginPage';
+import { MobileDrawer } from './components/MobileDrawer';
+import { MobileBottomNav } from './components/MobileBottomNav';
 import { Ticket, Customer, DashboardStats, User } from './types';
 import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
@@ -37,6 +39,7 @@ export function App() {
   const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
 
   // Modals / Screens
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [printTicket, setPrintTicket] = useState<Ticket | null>(null);
@@ -372,12 +375,12 @@ export function App() {
   // 1. Initial Session Verification Splash
   if (isVerifyingSession) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4 select-none">
-        <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center animate-pulse shadow-lg shadow-indigo-600/40">
+      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center text-slate-800 space-y-4 select-none">
+        <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30">
           <Cpu className="w-6 h-6 text-white" />
         </div>
-        <div className="flex items-center space-x-2 text-xs font-mono text-slate-400">
-          <div className="w-3.5 h-3.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        <div className="flex items-center space-x-2 text-xs font-mono text-slate-500">
+          <div className="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
           <span>Verifying Terminal Security...</span>
         </div>
       </div>
@@ -403,7 +406,7 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F4F5F7] text-slate-800 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col font-sans">
       {/* Top Loading Progress Line */}
       {isLoading && (
         <div className="fixed top-0 left-0 right-0 h-0.5 bg-indigo-600 z-50 animate-pulse" />
@@ -411,8 +414,8 @@ export function App() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-6 right-6 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-xl flex items-center gap-2 text-xs font-semibold animate-in slide-in-from-bottom-5">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+        <div className="fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-50 bg-white text-slate-900 px-4 py-2.5 rounded-xl shadow-xl border border-slate-200 flex items-center gap-2 text-xs font-semibold animate-in slide-in-from-bottom-5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
           <span>{toastMessage}</span>
         </div>
       )}
@@ -429,6 +432,7 @@ export function App() {
         onSelectTicket={handleSelectTicket}
         currentUser={currentUser}
         onLogout={handleLogout}
+        onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
       />
 
       {/* Main Layout Area */}
@@ -447,7 +451,7 @@ export function App() {
         </div>
 
         {/* Dynamic Content Workspace */}
-        <main className="flex-1 p-4 md:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-5">
+        <main className="flex-1 p-3 sm:p-5 md:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-5 pb-24 md:pb-8 min-w-0 overflow-x-hidden">
           {/* 1. Primary Tab: Repairs Queue */}
           {currentTab === 'repairs' && (
             <div className="space-y-5">
@@ -534,7 +538,7 @@ export function App() {
                 </div>
                 <button
                   onClick={() => setIsAdminLoginModalOpen(true)}
-                  className="px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition shadow-md inline-flex items-center space-x-2 cursor-pointer"
+                  className="px-5 py-2.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white rounded-xl text-xs font-bold transition shadow-md shadow-indigo-600/25 inline-flex items-center space-x-2 cursor-pointer"
                 >
                   <Lock className="w-4 h-4" />
                   <span>Administrator Authentication</span>
@@ -544,6 +548,27 @@ export function App() {
           )}
         </main>
       </div>
+
+      {/* Mobile Navigation Drawer */}
+      <MobileDrawer
+        isOpen={isMobileMenuOpen}
+        onClose={() => setIsMobileMenuOpen(false)}
+        currentTab={currentTab}
+        setCurrentTab={setCurrentTab}
+        stats={stats}
+        currentUser={currentUser}
+        onLogout={handleLogout}
+        openCreateModal={() => setIsCreateModalOpen(true)}
+      />
+
+      {/* Mobile Fixed Bottom Navigation Bar */}
+      <MobileBottomNav
+        currentTab={currentTab}
+        setCurrentTab={setCurrentTab}
+        openCreateModal={() => setIsCreateModalOpen(true)}
+        openMobileMenu={() => setIsMobileMenuOpen(true)}
+        stats={stats}
+      />
 
       {/* ========================================================
           FULL-SCREEN WORK ORDER DETAIL SCREEN
