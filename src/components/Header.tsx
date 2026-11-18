@@ -1,11 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, List, Kanban, ArrowRight, LogOut, Menu } from 'lucide-react';
+import { Search, Plus, Wrench, ArrowRight, LogOut, Menu } from 'lucide-react';
 import { Ticket, User } from '../types';
 
 interface HeaderProps {
   currentTab: string;
-  viewMode: 'list' | 'kanban';
-  setViewMode: (mode: 'list' | 'kanban') => void;
   searchQuery: string;
   setSearchQuery: (q: string) => void;
   openCreateModal: () => void;
@@ -18,8 +16,6 @@ interface HeaderProps {
 
 export const Header: React.FC<HeaderProps> = ({
   currentTab,
-  viewMode,
-  setViewMode,
   searchQuery,
   setSearchQuery,
   openCreateModal,
@@ -113,33 +109,6 @@ export const Header: React.FC<HeaderProps> = ({
             {currentTab.replace('-', ' ')}
           </span>
         </div>
-
-        {currentTab === 'repairs' && (
-          <div className="hidden lg:flex items-center bg-slate-100 p-0.5 rounded-lg border border-slate-200/60 text-xs">
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-2.5 py-1 rounded-md font-medium transition flex items-center space-x-1.5 cursor-pointer ${
-                viewMode === 'list'
-                  ? 'bg-white text-slate-900 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <List className="w-3.5 h-3.5" />
-              <span>Grid</span>
-            </button>
-            <button
-              onClick={() => setViewMode('kanban')}
-              className={`px-2.5 py-1 rounded-md font-medium transition flex items-center space-x-1.5 cursor-pointer ${
-                viewMode === 'kanban'
-                  ? 'bg-white text-slate-900 shadow-xs font-semibold'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <Kanban className="w-3.5 h-3.5" />
-              <span>Kanban</span>
-            </button>
-          </div>
-        )}
       </div>
 
       {/* God Mode Search Area */}

@@ -23,7 +23,6 @@ import { fetchWithAuth, removeToken } from './utils/auth';
 
 export function App() {
   const [currentTab, setCurrentTab] = useState<'repairs' | 'customers' | 'inventory' | 'analytics' | 'settings' | 'admin'>('repairs');
-  const [viewMode, setViewMode] = useState<'list' | 'kanban'>('list');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('ALL');
   const [selectedBench] = useState('ALL');
@@ -423,8 +422,6 @@ export function App() {
       {/* Sticky Top Header with God Mode Search */}
       <Header
         currentTab={currentTab}
-        viewMode={viewMode}
-        setViewMode={setViewMode}
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         openCreateModal={() => setIsCreateModalOpen(true)}
@@ -464,7 +461,6 @@ export function App() {
                 totalTicketsCount={stats?.totalActive ? stats.totalActive + (stats.completed || 0) : tickets.length}
                 activeFilter={activeFilter}
                 setActiveFilter={setActiveFilter}
-                viewMode={viewMode}
                 currentUser={currentUser}
                 onSelectTicket={handleSelectTicket}
                 onUpdateStatus={handleUpdateStatus}
