@@ -29,5 +29,10 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     ...getAuthHeaders(),
     ...(options.headers || {}),
   };
-  return fetch(url, { ...options, headers });
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401 && !url.includes('/api/auth/')) {
+    removeToken();
+    window.dispatchEvent(new CustomEvent('apexfix_auth_unauthorized'));
+  }
+  return res;
 }

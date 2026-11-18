@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Ticket, DashboardStats, ReportData } from '../types';
+import { fetchWithAuth } from '../utils/auth';
 import {
   BarChart3,
   TrendingUp,
@@ -21,7 +22,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
   const [report, setReport] = useState<ReportData | null>(null);
 
   useEffect(() => {
-    fetch(`/api/reports?days=${days}`)
+    fetchWithAuth(`/api/reports?days=${days}`)
       .then((res) => res.json())
       .then((json) => {
         if (json.success && json.data) {

@@ -127,7 +127,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const fetchSettings = async () => {
     try {
       setIsLoading(true);
-      const res = await fetch('/api/settings');
+      const res = await fetchWithAuth('/api/settings');
       if (res.ok) {
         const json = await res.json();
         const data: ShopSettings = json.data;

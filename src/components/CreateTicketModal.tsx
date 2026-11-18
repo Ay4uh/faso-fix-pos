@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { Customer } from '../types';
 import { posAudio } from '../utils/audio';
+import { fetchWithAuth } from '../utils/auth';
 
 interface CreateTicketModalProps {
   isOpen: boolean;
@@ -115,7 +116,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
 
     try {
       setIsSubmitting(true);
-      const res = await fetch('/api/tickets', {
+      const res = await fetchWithAuth('/api/tickets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

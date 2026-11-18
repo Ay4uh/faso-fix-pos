@@ -13,8 +13,9 @@ import { AnalyticsView } from './components/AnalyticsView';
 import { SettingsView } from './components/SettingsView';
 import { AdminDashboard } from './components/AdminDashboard';
 import { AdminLoginModal } from './components/AdminLoginModal';
+import { LoginPage } from './components/LoginPage';
 import { Ticket, Customer, DashboardStats, User } from './types';
-import { CheckCircle2, ShieldAlert, Lock } from 'lucide-react';
+import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
 import { fetchWithAuth, removeToken } from './utils/auth';
 
@@ -32,6 +33,7 @@ export function App() {
 
   // Authentication & Session
   const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isVerifyingSession, setIsVerifyingSession] = useState(true);
   const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
 
   // Modals / Screens
@@ -55,14 +57,39 @@ export function App() {
           const json = await res.json();
           if (json.authenticated && json.user) {
             setCurrentUser(json.user);
+          } else {
+            setCurrentUser(null);
           }
+        } else {
+          setCurrentUser(null);
         }
       } catch (err) {
         console.error('[Session Check Error]', err);
+        setCurrentUser(null);
+      } finally {
+        setIsVerifyingSession(false);
       }
     };
     verifySession();
   }, []);
+
+  // Listen for unauthorized events to kick back to LoginPage immediately
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      setCurrentUser(null);
+      showToast('Session expired or unauthorized. Please sign in.');
+    };
+    window.addEventListener('apexfix_auth_unauthorized', handleUnauthorized);
+    return () => window.removeEventListener('apexfix_auth_unauthorized', handleUnauthorized);
+  }, []);
+
+  // Ensure standard users can never view admin tab
+  useEffect(() => {
+    if (currentUser && currentUser.role !== 'ADMIN' && currentTab === 'admin') {
+      setCurrentTab('repairs');
+      showToast('Administrator privileges required');
+    }
+  }, [currentUser, currentTab]);
 
   const handleLogout = async () => {
     try {
@@ -130,9 +157,9 @@ export function App() {
       if (selectedBench !== 'ALL') params.set('bench', selectedBench);
 
       const [ticketsRes, statsRes, customersRes] = await Promise.all([
-        fetch(`/api/tickets?${params.toString()}`),
-        fetch(`/api/stats?${selectedBench !== 'ALL' ? `bench=${selectedBench}` : ''}`),
-        fetch('/api/customers'),
+        fetchWithAuth(`/api/tickets?${params.toString()}`),
+        fetchWithAuth(`/api/stats?${selectedBench !== 'ALL' ? `bench=${selectedBench}` : ''}`),
+        fetchWithAuth('/api/customers'),
       ]);
 
       if (ticketsRes.ok) {
@@ -249,7 +276,7 @@ export function App() {
   const handleSelectTicket = async (t: Ticket) => {
     try {
       setSelectedTicket(t);
-      const res = await fetch(`/api/tickets/${t.id}`);
+      const res = await fetchWithAuth(`/api/tickets/${t.id}`);
       if (res.ok) {
         const full = await res.json();
         if (full.data) setSelectedTicket(full.data);
@@ -271,7 +298,7 @@ export function App() {
         setSelectedTicket((prev) => (prev ? { ...prev, status: newStatus } : null));
       }
 
-      const res = await fetch(`/api/tickets/${ticketId}`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticketId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status: newStatus }),
@@ -307,7 +334,7 @@ export function App() {
         setSelectedTicket((prev) => (prev ? { ...prev, status: 'COMPLETED' } : null));
       }
 
-      const res = await fetch(`/api/tickets/${ticketId}/quick-complete`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticketId}/quick-complete`, {
         method: 'POST',
       });
       if (res.ok) {
@@ -328,6 +355,39 @@ export function App() {
       fetchData(true);
     }
   };
+
+  // 1. Initial Session Verification Splash
+  if (isVerifyingSession) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center text-white space-y-4 select-none">
+        <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center animate-pulse shadow-lg shadow-indigo-600/40">
+          <Cpu className="w-6 h-6 text-white" />
+        </div>
+        <div className="flex items-center space-x-2 text-xs font-mono text-slate-400">
+          <div className="w-3.5 h-3.5 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+          <span>Verifying Terminal Security...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. Strict Entry Gate: Unauthenticated users MUST log in first
+  if (!currentUser) {
+    return (
+      <LoginPage
+        onLoginSuccess={(user, targetView) => {
+          setCurrentUser(user);
+          if (user.role === 'ADMIN' && targetView === 'admin') {
+            setCurrentTab('admin');
+          } else {
+            setCurrentTab('repairs');
+          }
+          showToast(`Welcome back, ${user.name}`);
+          fetchData(true);
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#F4F5F7] text-slate-800 flex flex-col font-sans">

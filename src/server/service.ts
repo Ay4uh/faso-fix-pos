@@ -756,7 +756,7 @@ export async function exportTicketsCsv() {
 // ---------------------------------------------------------------------------
 
 export async function loginUser(input: unknown, ipAddress?: string) {
-  const { usernameOrEmail, password } = loginSchema.parse(input);
+  const { usernameOrEmail, password, adminMode } = loginSchema.parse(input);
 
   const user = await prisma.user.findFirst({
     where: {
@@ -780,6 +780,18 @@ export async function loginUser(input: unknown, ipAddress?: string) {
     throw new HttpError(401, 'Invalid username/email or password');
   }
 
+  // Reject standard accounts trying to access Admin Mode
+  if (adminMode && user.role !== 'ADMIN') {
+    await recordAudit({
+      userId: user.id,
+      actorName: user.name,
+      action: 'ADMIN_ACCESS_REJECTED',
+      details: `User ${user.username} was denied access to Admin Mode (role: ${user.role})`,
+      ipAddress,
+    });
+    throw new HttpError(403, 'Access Denied: Administrator role required. Standard technicians must use Technician Login.');
+  }
+
   // Update last login
   await prisma.user.update({
     where: { id: user.id },
@@ -791,13 +803,17 @@ export async function loginUser(input: unknown, ipAddress?: string) {
   await recordAudit({
     userId: user.id,
     actorName: user.name,
-    action: 'LOGIN',
-    details: `User logged in from ${ipAddress || 'local'}`,
+    action: adminMode ? 'ADMIN_LOGIN' : 'LOGIN',
+    details: `${adminMode ? 'Administrator' : 'User'} signed in from ${ipAddress || 'local'}`,
     ipAddress,
   });
 
   const { passwordHash: _, ...safeUser } = user;
-  return { token, user: safeUser };
+  return { 
+    token, 
+    user: safeUser, 
+    redirectTo: (user.role === 'ADMIN' && adminMode) ? 'admin' : 'repairs' 
+  };
 }
 
 export async function logoutUser(token: string, actorName?: string) {

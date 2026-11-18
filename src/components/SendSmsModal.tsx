@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Ticket } from '../types';
 import { X, MessageSquare, Send } from 'lucide-react';
 import { posAudio } from '../utils/audio';
+import { fetchWithAuth } from '../utils/auth';
 
 interface SendSmsModalProps {
   ticket: Ticket | null;
@@ -25,7 +26,7 @@ export const SendSmsModal: React.FC<SendSmsModalProps> = ({ ticket, onClose, onS
     setIsSending(true);
     setErrorMsg(null);
     try {
-      const res = await fetch(`/api/tickets/${ticket.id}/notify`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

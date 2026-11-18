@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Package, AlertTriangle, CheckCircle2, Search, Plus, X, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
 import { posAudio } from '../utils/audio';
+import { fetchWithAuth } from '../utils/auth';
 
 export interface InventoryItem {
   id: string;
@@ -34,7 +35,7 @@ export const InventoryView: React.FC = () => {
 
   const fetchInventory = () => {
     setLoading(true);
-    fetch('/api/inventory')
+    fetchWithAuth('/api/inventory')
       .then((res) => res.json())
       .then((data) => {
         const raw = data.data || [];
@@ -67,7 +68,7 @@ export const InventoryView: React.FC = () => {
     setIsSubmitting(true);
     setActionError(null);
     try {
-      const res = await fetch('/api/inventory', {
+      const res = await fetchWithAuth('/api/inventory', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -102,7 +103,7 @@ export const InventoryView: React.FC = () => {
 
   const handleAdjustStock = async (partId: string, delta: number) => {
     try {
-      const res = await fetch(`/api/inventory/${partId}/adjust`, {
+      const res = await fetchWithAuth(`/api/inventory/${partId}/adjust`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ delta }),
@@ -121,7 +122,7 @@ export const InventoryView: React.FC = () => {
   const handleDeletePart = async (partId: string, partName: string) => {
     if (!window.confirm(`Delete ${partName} from inventory catalog?`)) return;
     try {
-      const res = await fetch(`/api/inventory/${partId}`, { method: 'DELETE' });
+      const res = await fetchWithAuth(`/api/inventory/${partId}`, { method: 'DELETE' });
       if (!res.ok) {
         const json = await res.json();
         throw new Error(json.error || 'Delete failed');

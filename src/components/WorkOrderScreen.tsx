@@ -22,6 +22,7 @@ import {
   Pencil,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
+import { fetchWithAuth } from '../utils/auth';
 import { SignaturePad } from './SignaturePad';
 
 interface InventoryItem {
@@ -132,7 +133,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
   // Load Inventory
   useEffect(() => {
-    fetch('/api/inventory')
+    fetchWithAuth('/api/inventory')
       .then((res) => res.json())
       .then((data) => {
         const raw = data.data || [];
@@ -169,7 +170,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const handleSaveSecurity = async () => {
     setIsSavingSecurity(true);
     try {
-      const res = await fetch(`/api/tickets/${ticket.id}`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -197,7 +198,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
     setIsSubmittingNote(true);
     try {
-      const res = await fetch(`/api/tickets/${ticket.id}/notes`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -224,7 +225,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
     setIsRecordingDeposit(true);
     try {
-      const res = await fetch(`/api/tickets/${ticket.id}/payments`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -260,7 +261,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     if (!editingNoteText.trim()) return;
     try {
       setIsUpdatingNote(true);
-      const res = await fetch(`/api/tickets/${ticket.id}/notes/${noteId}`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/notes/${noteId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ message: editingNoteText.trim() }),
@@ -281,7 +282,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     if (!window.confirm('Are you sure you want to delete this note?')) return;
     try {
       setIsDeletingNoteId(noteId);
-      const res = await fetch(`/api/tickets/${ticket.id}/notes/${noteId}`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/notes/${noteId}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error('Failed to delete note');
@@ -300,7 +301,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
     setIsSendingSms(true);
     try {
-      const res = await fetch(`/api/tickets/${ticket.id}/notify`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/notify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -327,7 +328,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
     setIsRecordingPayment(true);
     try {
-      const res = await fetch(`/api/tickets/${ticket.id}/payments`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -373,7 +374,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
     try {
       setIsAttachingPart(true);
-      const res = await fetch(`/api/tickets/${ticket.id}/items`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/items`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -409,7 +410,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     if (!window.confirm(`Remove "${itemDesc}" from work order?`)) return;
 
     try {
-      const res = await fetch(`/api/tickets/${ticket.id}/items/${itemId}`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/items/${itemId}`, {
         method: 'DELETE',
       });
       if (res.ok) {
@@ -431,7 +432,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
     setIsSavingDiscount(true);
     try {
-      const res = await fetch(`/api/tickets/${ticket.id}`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -451,7 +452,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
   const handleSaveSignature = async (dataUrl: string) => {
     try {
-      const res = await fetch(`/api/tickets/${ticket.id}`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -472,7 +473,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     if (!emailTo.trim()) return;
     setIsSendingEmail(true);
     try {
-      await fetch(`/api/tickets/${ticket.id}/notes`, {
+      await fetchWithAuth(`/api/tickets/${ticket.id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -919,7 +920,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     type="button"
                     onClick={async () => {
                       try {
-                        const res = await fetch(`/api/tickets/${ticket.id}/items`, {
+                        const res = await fetchWithAuth(`/api/tickets/${ticket.id}/items`, {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           body: JSON.stringify({
