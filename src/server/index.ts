@@ -175,13 +175,35 @@ app.get('/api/live/stream', (req: Request, res: Response) => {
 // Authentication & Current User Profile Routes
 // ---------------------------------------------------------------------------
 
+function getClientIp(req: Request): string {
+  try {
+    const forwarded = req.headers['x-forwarded-for'];
+    if (typeof forwarded === 'string') {
+      return forwarded.split(',')[0].trim();
+    }
+    if (Array.isArray(forwarded) && forwarded.length > 0) {
+      return forwarded[0].trim();
+    }
+    const realIp = req.headers['x-real-ip'];
+    if (typeof realIp === 'string') {
+      return realIp.trim();
+    }
+    if (req.socket && req.socket.remoteAddress) {
+      return req.socket.remoteAddress;
+    }
+    return req.ip || '127.0.0.1';
+  } catch {
+    return '127.0.0.1';
+  }
+}
+
 // Brute-force protection: max 5 failed attempts per IP+username per 15 minutes
 const LOGIN_WINDOW_MS = 15 * 60_000;
 const LOGIN_MAX_FAILS = 5;
 const loginFails = new Map<string, { count: number; first: number }>();
 
 app.post('/api/auth/login', wrap(async (req, res) => {
-  const ip = req.ip || req.socket.remoteAddress || 'unknown';
+  const ip = getClientIp(req);
   const who = String(req.body?.usernameOrEmail || '').trim().toLowerCase();
   const key = `${ip}|${who}`;
   const now = Date.now();
