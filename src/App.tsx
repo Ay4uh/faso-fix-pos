@@ -77,6 +77,27 @@ export function App() {
     }
   };
 
+  const handleDeleteTicket = async (ticketId: string) => {
+    try {
+      const res = await fetchWithAuth(`/api/tickets/${ticketId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete work order');
+      }
+      posAudio.playSuccessChime();
+      showToast('Work order successfully deleted');
+      if (selectedTicket && selectedTicket.id === ticketId) {
+        setSelectedTicket(null);
+      }
+      fetchData(true);
+    } catch (err: any) {
+      posAudio.playWarningBeep();
+      showToast(err.message || 'Error deleting work order');
+    }
+  };
+
   // Global ESC key listener to close modals
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -293,11 +314,13 @@ export function App() {
                 activeFilter={activeFilter}
                 setActiveFilter={setActiveFilter}
                 viewMode={viewMode}
+                currentUser={currentUser}
                 onSelectTicket={handleSelectTicket}
                 onUpdateStatus={handleUpdateStatus}
                 onQuickComplete={handleQuickComplete}
                 onOpenSmsModal={(t) => setSmsTicket(t)}
                 onPrintTicket={(t) => setPrintTicket(t)}
+                onDeleteTicket={handleDeleteTicket}
               />
             </div>
           )}
@@ -380,6 +403,7 @@ export function App() {
       {selectedTicket && (
         <WorkOrderScreen
           ticket={selectedTicket}
+          currentUser={currentUser}
           onClose={() => {
             setSelectedTicket(null);
             fetchData(true);
@@ -396,6 +420,7 @@ export function App() {
           onPrint={(t) => {
             setPrintTicket(t);
           }}
+          onDeleteTicket={handleDeleteTicket}
         />
       )}
 

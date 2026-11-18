@@ -42,7 +42,7 @@ import {
   listAuditLogs,
   getAdminOverview,
 } from './service';
-import { authenticateSession, ensureAdminProvisioning } from './auth';
+import { authenticateSession, ensureAdminProvisioning, recordAudit } from './auth';
 
 declare global {
   namespace Express {
@@ -293,8 +293,18 @@ app.put('/api/tickets/:id', wrap(async (req, res) => {
   res.json({ success: true, data: ticket });
 }));
 
-app.delete('/api/tickets/:id', wrap(async (req, res) => {
-  const result = await deleteTicket(getParam(req, 'id'));
+app.delete('/api/tickets/:id', requireAdmin, wrap(async (req, res) => {
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const ticketId = getParam(req, 'id');
+  const result = await deleteTicket(ticketId);
+
+  await recordAudit({
+    userId: actor.id,
+    actorName: actor.name,
+    action: 'TICKET_DELETE',
+    details: `Administrator deleted work order ${ticketId}`,
+  });
+
   res.json({ success: true, data: result });
 }));
 
