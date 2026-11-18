@@ -503,6 +503,30 @@ describe('Faso Fix POS - Complete Pre-Release Testing Suite', () => {
       assert.equal(csv.status, 200);
       assert.match(csv.text, /WO #/);
     });
+
+    test('Technician performance, turnaround hours, and repair profitability', async () => {
+      const rep = await call('/api/reports?days=30', { token: techToken });
+      assert.equal(rep.status, 200);
+      assert.ok('avgTurnaroundHours' in rep.json.data);
+      assert.ok('onTimeRate' in rep.json.data);
+      assert.ok('partsRevenueCents' in rep.json.data);
+      assert.ok('partsCostCents' in rep.json.data);
+      const profit = rep.json.data.partsRevenueCents - rep.json.data.partsCostCents;
+      assert.ok(typeof profit === 'number');
+    });
+
+    test('Outstanding payments & inventory valuation metrics', async () => {
+      const stats = await call('/api/stats', { token: techToken });
+      assert.equal(stats.status, 200);
+      assert.ok(stats.json.data.awaitingPickupCents >= 0);
+
+      const partsRes = await call('/api/inventory', { token: techToken });
+      assert.equal(partsRes.status, 200);
+      const totalCostValuation = partsRes.json.data.reduce((acc: number, p: any) => acc + (p.stock * p.costCents), 0);
+      const totalRetailValuation = partsRes.json.data.reduce((acc: number, p: any) => acc + (p.stock * p.priceCents), 0);
+      assert.ok(totalCostValuation >= 0);
+      assert.ok(totalRetailValuation >= totalCostValuation);
+    });
   });
 
   // =========================================================================
@@ -697,6 +721,78 @@ describe('Faso Fix POS - Complete Pre-Release Testing Suite', () => {
       });
       assert.equal(notify.status, 200);
       assert.ok(notify.json.data.events.some((e: any) => e.kind === 'MESSAGE' && e.message.includes('[SMS to')));
+    });
+
+    test('Scenario: Two employees edit same ticket -> No data overwritten', async () => {
+      const ticket = await call('/api/tickets', {
+        method: 'POST',
+        token: techToken,
+        body: {
+          customer: { fullName: 'Concurrent Editor', phone: `(555) 777-${Math.floor(1000 + Math.random() * 9000)}` },
+          device: { name: 'MacBook Air M2' },
+          faultDescription: 'Battery swap',
+        },
+      });
+      const tId = ticket.json.data.id;
+
+      // Employee 1 updates bench
+      const e1 = await call(`/api/tickets/${tId}`, {
+        method: 'PUT',
+        token: techToken,
+        body: { bench: 'Bench #03' },
+      });
+      assert.equal(e1.status, 200);
+
+      // Employee 2 updates storageBin without passing bench
+      const e2 = await call(`/api/tickets/${tId}`, {
+        method: 'PUT',
+        token: techToken,
+        body: { storageBin: 'BIN-Z44' },
+      });
+      assert.equal(e2.status, 200);
+
+      // Verify both fields persist cleanly without data clobbering
+      const fresh = await call(`/api/tickets/${tId}`, { token: techToken });
+      assert.equal(fresh.json.data.bench, 'Bench #03');
+      assert.equal(fresh.json.data.storageBin, 'BIN-Z44');
+    });
+
+    test('Scenario: Refund issued -> Sales report updates', async () => {
+      // Create ticket and payment
+      const ticket = await call('/api/tickets', {
+        method: 'POST',
+        token: techToken,
+        body: {
+          customer: { fullName: 'Refund Sales Test', phone: `(555) 333-${Math.floor(1000 + Math.random() * 9000)}` },
+          device: { name: 'iPad Air' },
+          faultDescription: 'Glass replace',
+          laborCents: 15000,
+        },
+      });
+      const tId = ticket.json.data.id;
+
+      const payRes = await call(`/api/tickets/${tId}/payments`, {
+        method: 'POST',
+        token: techToken,
+        body: { amountCents: 5000, method: 'CASH', note: 'Deposit for refund test' },
+      });
+      assert.equal(payRes.status, 201);
+      const payId = payRes.json.data.payments[0].id;
+
+      // Check report revenue before void
+      const repBefore = await call('/api/reports?days=1', { token: techToken });
+      const revBefore = repBefore.json.data.revenueCents;
+
+      // Void / refund payment
+      const voidRes = await call(`/api/tickets/${tId}/payments/${payId}`, {
+        method: 'DELETE',
+        token: techToken,
+      });
+      assert.equal(voidRes.status, 200);
+
+      // Check report revenue after void -> must drop by 5000 cents
+      const repAfter = await call('/api/reports?days=1', { token: techToken });
+      assert.equal(repAfter.json.data.revenueCents, revBefore - 5000);
     });
   });
 
