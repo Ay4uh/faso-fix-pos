@@ -38,15 +38,33 @@ interface WorkOrderScreenProps {
   onUpdateStatus: (id: string, status: Ticket['status']) => Promise<void>;
   onRefresh: () => void;
   onPrint: (ticket: Ticket) => void;
+  onTicketUpdated?: (ticket: Ticket) => void;
 }
 
 export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
-  ticket,
+  ticket: initialTicket,
   onClose,
   onUpdateStatus,
   onRefresh,
   onPrint,
+  onTicketUpdated,
 }) => {
+  const [ticket, setTicket] = useState<Ticket>(initialTicket);
+
+  useEffect(() => {
+    setTicket(initialTicket);
+    setPasscode(initialTicket.device?.passcode || '');
+    setDiscountInput(
+      ((initialTicket.totals ? initialTicket.totals.discountCents : initialTicket.discountCents) / 100).toFixed(2)
+    );
+  }, [initialTicket]);
+
+  const applyTicketUpdate = (freshTicket: Ticket) => {
+    setTicket(freshTicket);
+    if (onTicketUpdated) onTicketUpdated(freshTicket);
+    onRefresh();
+  };
+
   const [activeTab, setActiveTab] = useState<
     'notes' | 'sms' | 'payments' | 'signature' | 'history'
   >('notes');
@@ -139,7 +157,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const handleSaveSecurity = async () => {
     setIsSavingSecurity(true);
     try {
-      await fetch(`/api/tickets/${ticket.id}`, {
+      const res = await fetch(`/api/tickets/${ticket.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -148,9 +166,12 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           },
         }),
       });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) applyTicketUpdate(json.data);
+      }
       setSecuritySaved(true);
       setTimeout(() => setSecuritySaved(false), 2000);
-      onRefresh();
     } catch {
       alert('Failed to save device PIN');
     } finally {
@@ -164,7 +185,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
     setIsSubmittingNote(true);
     try {
-      await fetch(`/api/tickets/${ticket.id}/notes`, {
+      const res = await fetch(`/api/tickets/${ticket.id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -172,8 +193,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           message: newNote.trim(),
         }),
       });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) applyTicketUpdate(json.data);
+      }
       setNewNote('');
-      onRefresh();
     } catch {
       alert('Failed to save note');
     } finally {
@@ -201,9 +225,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         body: JSON.stringify({ message: editingNoteText.trim() }),
       });
       if (!res.ok) throw new Error('Failed to update note');
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
       setEditingNoteId(null);
       setEditingNoteText('');
-      onRefresh();
     } catch (err: any) {
       alert(err.message || 'Error updating note');
     } finally {
@@ -219,7 +244,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         method: 'DELETE',
       });
       if (!res.ok) throw new Error('Failed to delete note');
-      onRefresh();
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
     } catch (err: any) {
       alert(err.message || 'Error deleting note');
     } finally {
@@ -270,10 +296,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         }),
       });
       if (!res.ok) throw new Error('Payment failed');
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
       posAudio.playCashChime();
       setIsPaymentModalOpen(false);
       setPaymentAmount('');
-      onRefresh();
     } catch {
       alert('Could not process payment');
     } finally {
@@ -322,13 +349,14 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         throw new Error(errJson.error || 'Failed to attach item');
       }
 
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
       posAudio.playScanBeep();
       setIsAddItemModalOpen(false);
       setSelectedPartId('');
       setCustomItemDesc('');
       setCustomItemPrice('');
       setItemQuantity(1);
-      onRefresh();
     } catch (err: any) {
       setAddItemError(err.message || 'Error attaching line item');
     } finally {
@@ -340,10 +368,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     if (!window.confirm(`Remove "${itemDesc}" from work order?`)) return;
 
     try {
-      await fetch(`/api/tickets/${ticket.id}/items/${itemId}`, {
+      const res = await fetch(`/api/tickets/${ticket.id}/items/${itemId}`, {
         method: 'DELETE',
       });
-      onRefresh();
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) applyTicketUpdate(json.data);
+      }
     } catch {
       alert('Could not remove line item');
     }
@@ -367,8 +398,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         }),
       });
       if (!res.ok) throw new Error('Failed to apply discount');
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
       setIsDiscountModalOpen(false);
-      onRefresh();
     } catch (err: any) {
       alert(err.message || 'Error updating discount');
     } finally {
@@ -378,14 +410,17 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
   const handleSaveSignature = async (dataUrl: string) => {
     try {
-      await fetch(`/api/tickets/${ticket.id}`, {
+      const res = await fetch(`/api/tickets/${ticket.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           signature: dataUrl,
         }),
       });
-      onRefresh();
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) applyTicketUpdate(json.data);
+      }
     } catch {
       alert('Could not save customer signature');
     }

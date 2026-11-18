@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { Ticket } from '../types';
 import {
   Calendar,
@@ -9,6 +9,9 @@ import {
   Inbox,
   ExternalLink,
   MessageSquare,
+  MoreVertical,
+  Printer,
+  Pencil,
 } from 'lucide-react';
 
 interface TicketTableProps {
@@ -34,28 +37,37 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   onUpdateStatus,
   onQuickComplete,
   onOpenSmsModal,
-  onPrintTicket: _onPrintTicket,
+  onPrintTicket,
 }) => {
+  const [openMenuTicketId, setOpenMenuTicketId] = useState<string | null>(null);
+
+  // Close kebab menu on outside click
+  useEffect(() => {
+    const handleGlobalClick = () => setOpenMenuTicketId(null);
+    window.addEventListener('click', handleGlobalClick);
+    return () => window.removeEventListener('click', handleGlobalClick);
+  }, []);
+
   // Status Badge Configuration matching Stitch Design System
   const getStatusBadge = (status: Ticket['status']) => {
     switch (status) {
       case 'IN_PROGRESS':
         return (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200 ring-1 ring-blue-600/10">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200 ring-1 ring-blue-600/10">
             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse mr-1.5"></span>
             In Progress
           </span>
         );
       case 'WAITING_ON_PARTS':
         return (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200 ring-1 ring-amber-600/10">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 ring-1 ring-amber-600/10">
             <span className="w-1.5 h-1.5 rounded-full bg-amber-500 mr-1.5"></span>
             Waiting on Parts
           </span>
         );
       case 'COMPLETED':
         return (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 ring-1 ring-emerald-600/10">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 ring-1 ring-emerald-600/10">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
             Completed
           </span>
@@ -63,7 +75,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
       case 'PENDING':
       default:
         return (
-          <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200 ring-1 ring-slate-600/10">
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200 ring-1 ring-slate-600/10">
             <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-1.5"></span>
             Pending
           </span>
@@ -72,11 +84,11 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   };
 
   return (
-    <div className="space-y-4">
-      {/* Filter Toolbar Matching Stitch Design */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs">
+    <div className="space-y-3.5">
+      {/* Filter Toolbar with subtle shadow */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200/90 shadow-xs">
         <div className="flex items-center space-x-2 overflow-x-auto">
-          <span className="text-xs font-medium text-slate-500 mr-1 whitespace-nowrap">Filter by Status:</span>
+          <span className="text-xs font-semibold text-slate-500 mr-1 whitespace-nowrap">Filter by Status:</span>
           {[
             { id: 'ALL', label: 'All' },
             { id: 'PENDING', label: 'Pending' },
@@ -89,13 +101,13 @@ export const TicketTable: React.FC<TicketTableProps> = ({
               onClick={() => setActiveFilter(item.id)}
               className={`px-3 py-1 rounded-md text-xs font-medium transition cursor-pointer whitespace-nowrap ${
                 activeFilter === item.id
-                  ? 'bg-slate-900 text-white shadow-xs'
+                  ? 'bg-slate-900 text-white shadow-xs font-semibold'
                   : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
               }`}
             >
               {item.label}
               {item.id !== 'ALL' && (
-                <span className="ml-1.5 opacity-70">
+                <span className="ml-1.5 opacity-80 font-bold">
                   ({tickets.filter((t) => t.status === item.id).length})
                 </span>
               )}
@@ -103,33 +115,33 @@ export const TicketTable: React.FC<TicketTableProps> = ({
           ))}
         </div>
 
-        <div className="flex items-center space-x-2 text-xs text-slate-500 whitespace-nowrap">
+        <div className="flex items-center space-x-2 text-xs text-slate-600 font-medium whitespace-nowrap">
           <span>
-            Showing <strong>{tickets.length}</strong> of {totalTicketsCount} tickets
+            Showing <strong className="text-slate-900">{tickets.length}</strong> of {totalTicketsCount} tickets
           </span>
         </div>
       </div>
 
-      {/* ===================== LIST VIEW (DATA GRID) ===================== */}
+      {/* ===================== LIST VIEW (HIGH DENSITY DATA GRID) ===================== */}
       {viewMode === 'list' && (
-        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="overflow-x-auto">
+        <div className="bg-white rounded-xl border border-slate-200/90 shadow-xs overflow-visible">
+          <div className="overflow-x-auto overflow-y-visible">
             <table className="w-full text-left border-collapse text-xs">
               <thead>
-                <tr className="bg-slate-50/80 border-b border-slate-200 text-slate-500 font-medium uppercase tracking-wider text-[11px]">
-                  <th className="py-3 px-4">Ticket ID</th>
-                  <th className="py-3 px-4">Customer Name</th>
-                  <th className="py-3 px-4">Device Info</th>
-                  <th className="py-3 px-4">Fault Description</th>
-                  <th className="py-3 px-4">Due Date</th>
-                  <th className="py-3 px-4">
+                <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+                  <th className="py-2.5 px-3.5">Ticket ID</th>
+                  <th className="py-2.5 px-3.5">Customer Name</th>
+                  <th className="py-2.5 px-3.5">Device Info</th>
+                  <th className="py-2.5 px-3.5">Fault Description</th>
+                  <th className="py-2.5 px-3.5">Due Date</th>
+                  <th className="py-2.5 px-3.5">
                     <div className="flex flex-col">
                       <span>Total (Inc. Tax)</span>
-                      <span className="text-[9px] text-slate-400 normal-case font-normal">Pre-tax subtotal</span>
+                      <span className="text-[10px] text-slate-500 normal-case font-medium">Pre-tax subtotal</span>
                     </div>
                   </th>
-                  <th className="py-3 px-4">Status</th>
-                  <th className="py-3 px-4 text-right">Actions</th>
+                  <th className="py-2.5 px-3.5">Status</th>
+                  <th className="py-2.5 px-3.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -138,10 +150,10 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     <td colSpan={8} className="text-center py-12 text-slate-400">
                       <div className="flex flex-col items-center justify-center space-y-2">
                         <Inbox className="w-8 h-8 text-slate-300" />
-                        <p className="font-medium text-sm">No repair tickets found matching your filter</p>
+                        <p className="font-semibold text-sm text-slate-600">No repair tickets found matching your filter</p>
                         <button
                           onClick={() => setActiveFilter('ALL')}
-                          className="text-indigo-600 text-xs font-semibold hover:underline cursor-pointer"
+                          className="text-indigo-600 text-xs font-bold hover:underline cursor-pointer"
                         >
                           Clear filters
                         </button>
@@ -158,10 +170,10 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                       <tr
                         key={ticket.id}
                         onClick={() => onSelectTicket(ticket)}
-                        className="hover:bg-slate-50/70 transition-colors group cursor-pointer"
+                        className="hover:bg-slate-50/80 transition-colors group cursor-pointer"
                       >
                         {/* Ticket ID */}
-                        <td className="py-2.5 px-4 font-mono font-semibold text-indigo-600">
+                        <td className="py-2 px-3.5 font-mono font-bold text-indigo-600 whitespace-nowrap">
                           <div className="flex items-center space-x-1.5">
                             <span>#{ticket.ticketNumber}</span>
                             {ticket.priority === 'URGENT' && (
@@ -171,54 +183,54 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                         </td>
 
                         {/* Customer */}
-                        <td className="py-2.5 px-4">
-                          <div className="font-semibold text-slate-900">{ticket.customer.fullName}</div>
-                          <div className="text-[11px] text-slate-400 font-mono flex items-center gap-1">
-                            <Phone className="w-2.5 h-2.5" />
-                            {ticket.customer.phone}
+                        <td className="py-2 px-3.5">
+                          <div className="font-bold text-slate-900 leading-tight">{ticket.customer.fullName}</div>
+                          <div className="text-[11px] text-slate-600 font-mono font-medium flex items-center gap-1 mt-0.5">
+                            <Phone className="w-3 h-3 text-slate-500 shrink-0" />
+                            <span>{ticket.customer.phone}</span>
                           </div>
                         </td>
 
                         {/* Device */}
-                        <td className="py-2.5 px-4">
-                          <div className="font-bold text-slate-900">{ticket.device?.name || 'Device'}</div>
+                        <td className="py-2 px-3.5">
+                          <div className="font-bold text-slate-900 leading-tight">{ticket.device?.name || 'Device'}</div>
                           {ticket.device?.serialNumber && (
-                            <div className="text-[11px] font-mono text-slate-400 truncate max-w-[130px]">
+                            <div className="text-[11px] font-mono text-slate-600 font-medium truncate max-w-[130px] mt-0.5">
                               SN: {ticket.device.serialNumber}
                             </div>
                           )}
                         </td>
 
                         {/* Fault */}
-                        <td className="py-2.5 px-4 max-w-xs">
-                          <p className="text-slate-600 font-normal line-clamp-2 leading-tight" title={ticket.faultDescription}>
+                        <td className="py-2 px-3.5 max-w-xs">
+                          <p className="text-slate-700 font-normal line-clamp-1 leading-snug" title={ticket.faultDescription}>
                             {ticket.faultDescription}
                           </p>
                         </td>
 
                         {/* Due Date */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
-                          <div className="flex items-center space-x-1.5 text-slate-700">
-                            <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                        <td className="py-2 px-3.5 whitespace-nowrap">
+                          <div className="flex items-center space-x-1.5 text-slate-700 font-medium text-xs">
+                            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
                             <span>
                               {ticket.dueDate ? new Date(ticket.dueDate).toLocaleDateString() : 'Pending'}
                             </span>
                           </div>
                         </td>
 
-                        {/* Price: Explicit Before-Tax vs After-Tax */}
-                        <td className="py-2.5 px-4 whitespace-nowrap">
+                        {/* Price: Explicit Before-Tax vs After-Tax with dark readable contrast */}
+                        <td className="py-2 px-3.5 whitespace-nowrap">
                           <div className="flex flex-col">
                             <span className="font-bold text-slate-900 font-mono text-xs">
                               ${(totalCents / 100).toFixed(2)}
                             </span>
-                            <span className="text-[10px] text-slate-400 font-mono">
+                            <span className="text-[11px] text-slate-600 font-mono font-medium">
                               Pre-tax: ${(subtotalCents / 100).toFixed(2)}
                             </span>
                             {isPaid ? (
-                              <span className="text-[9px] font-bold text-emerald-600">Paid in full</span>
+                              <span className="text-[10px] font-bold text-emerald-700">Paid in full</span>
                             ) : (
-                              <span className="text-[9px] font-bold text-amber-600">
+                              <span className="text-[10px] font-bold text-amber-700">
                                 Bal: ${((ticket.totals?.balanceCents ?? totalCents) / 100).toFixed(2)}
                               </span>
                             )}
@@ -226,50 +238,130 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                         </td>
 
                         {/* Status Badge */}
-                        <td className="py-2.5 px-4 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        <td className="py-2 px-3.5 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <div className="relative inline-block">{getStatusBadge(ticket.status)}</div>
                         </td>
 
-                        {/* Actions & Quick Icons */}
-                        <td className="py-2.5 px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                        {/* Actions: Quick Icon Buttons + 3-Dot (Kebab) Menu */}
+                        <td className="py-2 px-3.5 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center justify-end space-x-1">
+                            {/* 1. Quick Complete Checkmark */}
                             {ticket.status !== 'COMPLETED' ? (
                               <button
                                 onClick={() => onQuickComplete(ticket.id)}
-                                className="p-1 text-slate-400 hover:text-emerald-600 rounded hover:bg-emerald-50 transition cursor-pointer"
+                                className="p-1.5 text-slate-500 hover:text-emerald-600 rounded-md hover:bg-emerald-50 transition cursor-pointer"
                                 title="Quick mark Complete"
                               >
-                                <Check className="w-4 h-4" />
+                                <Check className="w-3.5 h-3.5" />
                               </button>
                             ) : (
-                              <span className="p-1 text-emerald-600" title="Completed">
-                                <CheckCircle2 className="w-4 h-4" />
+                              <span className="p-1.5 text-emerald-600" title="Completed">
+                                <CheckCircle2 className="w-3.5 h-3.5" />
                               </span>
                             )}
+
+                            {/* 2. Message Customer Quick Action */}
                             <button
                               onClick={() => onOpenSmsModal(ticket)}
-                              className="p-1 text-slate-400 hover:text-blue-600 rounded hover:bg-blue-50 transition cursor-pointer"
-                              title="Quick send message"
+                              className="p-1.5 text-slate-500 hover:text-blue-600 rounded-md hover:bg-blue-50 transition cursor-pointer"
+                              title="Message Customer (SMS)"
                             >
-                              <MessageSquare className="w-4 h-4" />
+                              <MessageSquare className="w-3.5 h-3.5" />
                             </button>
-                            <select
-                              value={ticket.status}
-                              onChange={(e) => onUpdateStatus(ticket.id, e.target.value as any)}
-                              className="text-[11px] bg-white border border-slate-200 rounded-md px-2 py-1 text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-500 font-medium cursor-pointer shadow-2xs"
-                            >
-                              <option value="PENDING">Pending</option>
-                              <option value="IN_PROGRESS">In Progress</option>
-                              <option value="WAITING_ON_PARTS">Waiting Parts</option>
-                              <option value="COMPLETED">Completed</option>
-                            </select>
+
+                            {/* 3. Edit / Open Details Quick Action */}
                             <button
                               onClick={() => onSelectTicket(ticket)}
-                              className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-indigo-50 transition cursor-pointer"
-                              title="View Ticket Details"
+                              className="p-1.5 text-slate-500 hover:text-indigo-600 rounded-md hover:bg-indigo-50 transition cursor-pointer"
+                              title="Edit / Open Work Order"
                             >
-                              <ExternalLink className="w-4 h-4" />
+                              <Pencil className="w-3.5 h-3.5" />
                             </button>
+
+                            {/* 4. 3-Dot (Kebab) Menu for Secondary Tasks */}
+                            <div className="relative inline-block text-left">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuTicketId(openMenuTicketId === ticket.id ? null : ticket.id);
+                                }}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 rounded-md hover:bg-slate-100 transition cursor-pointer"
+                                title="More options"
+                              >
+                                <MoreVertical className="w-3.5 h-3.5" />
+                              </button>
+
+                              {openMenuTicketId === ticket.id && (
+                                <div className="absolute right-0 mt-1 w-44 bg-white rounded-lg shadow-xl border border-slate-200 py-1 z-50 text-left animate-in fade-in duration-100">
+                                  <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                                    Set Status
+                                  </div>
+                                  <button
+                                    onClick={() => {
+                                      onUpdateStatus(ticket.id, 'PENDING');
+                                      setOpenMenuTicketId(null);
+                                    }}
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                  >
+                                    <span className="w-2 h-2 rounded-full bg-slate-400"></span>
+                                    Pending
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      onUpdateStatus(ticket.id, 'IN_PROGRESS');
+                                      setOpenMenuTicketId(null);
+                                    }}
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                  >
+                                    <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                                    In Progress
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      onUpdateStatus(ticket.id, 'WAITING_ON_PARTS');
+                                      setOpenMenuTicketId(null);
+                                    }}
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                  >
+                                    <span className="w-2 h-2 rounded-full bg-amber-500"></span>
+                                    Waiting on Parts
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      onUpdateStatus(ticket.id, 'COMPLETED');
+                                      setOpenMenuTicketId(null);
+                                    }}
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                  >
+                                    <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+                                    Completed
+                                  </button>
+
+                                  <div className="border-t border-slate-100 my-1"></div>
+
+                                  <button
+                                    onClick={() => {
+                                      onPrintTicket(ticket);
+                                      setOpenMenuTicketId(null);
+                                    }}
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                  >
+                                    <Printer className="w-3.5 h-3.5 text-slate-400" />
+                                    Print Work Order
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      onSelectTicket(ticket);
+                                      setOpenMenuTicketId(null);
+                                    }}
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                  >
+                                    <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                                    Open Full Ticket
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </td>
                       </tr>
@@ -332,7 +424,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                               <span className="text-xs font-mono font-bold text-slate-900 block">
                                 ${(totalCents / 100).toFixed(2)}
                               </span>
-                              <span className="text-[10px] font-mono text-slate-400 block">
+                              <span className="text-[11px] font-mono text-slate-600 font-medium block">
                                 Pre-tax: ${(subtotalCents / 100).toFixed(2)}
                               </span>
                             </div>

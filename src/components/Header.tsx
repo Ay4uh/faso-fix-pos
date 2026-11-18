@@ -65,20 +65,21 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Action Area & Quick Search */}
       <div className="flex items-center space-x-3">
-        <div className="relative w-56 sm:w-72 md:w-80">
-          <Search className="w-4 h-4 text-indigo-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+        <div className="relative w-72 sm:w-96 md:w-[440px] lg:w-[480px]">
+          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             ref={searchInputRef}
             type="text"
-            placeholder="Search ticket, customer, IMEI..."
+            placeholder="Search ticket, customer, phone, IMEI..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-7 py-2 text-xs bg-slate-50 border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition shadow-xs"
+            className="w-full pl-10 pr-8 py-2 text-xs bg-slate-50/90 border border-slate-300/90 rounded-lg text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition shadow-xs"
           />
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-xs font-bold cursor-pointer"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 text-sm font-bold cursor-pointer w-5 h-5 flex items-center justify-center rounded-full hover:bg-slate-200 transition"
+              title="Clear search"
             >
               ×
             </button>
@@ -87,7 +88,7 @@ export const Header: React.FC<HeaderProps> = ({
 
         <button
           onClick={openCreateModal}
-          className="inline-flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-md shadow-indigo-600/30 transition cursor-pointer"
+          className="inline-flex items-center space-x-2 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-4 py-2 rounded-lg text-xs font-bold shadow-sm shadow-indigo-600/30 transition cursor-pointer shrink-0"
         >
           <Plus className="w-4 h-4" />
           <span className="hidden md:inline">Create Ticket</span>

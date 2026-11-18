@@ -52,9 +52,9 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedTicket, printTicket, smsTicket, isCreateModalOpen]);
 
-  const fetchData = async () => {
+  const fetchData = async (silent = false) => {
     try {
-      setIsLoading(true);
+      if (!silent) setIsLoading(true);
       const params = new URLSearchParams();
       if (activeFilter === 'ALL') {
         params.set('view', 'ALL');
@@ -72,7 +72,16 @@ export function App() {
 
       if (ticketsRes.ok) {
         const data = await ticketsRes.json();
-        setTickets(data.data || []);
+        const freshList: Ticket[] = data.data || [];
+        setTickets(freshList);
+
+        // Keep selectedTicket in sync if open
+        if (selectedTicket) {
+          const matched = freshList.find((t) => t.id === selectedTicket.id);
+          if (matched && JSON.stringify(matched) !== JSON.stringify(selectedTicket)) {
+            setSelectedTicket(matched);
+          }
+        }
       }
 
       if (statsRes.ok) {
@@ -87,13 +96,23 @@ export function App() {
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
   useEffect(() => {
     fetchData();
-  }, [activeFilter, searchQuery, selectedBench]);
+    const interval = setInterval(() => {
+      fetchData(true);
+    }, 2500);
+    return () => clearInterval(interval);
+  }, [activeFilter, searchQuery, selectedBench, selectedTicket?.id]);
+
+  useEffect(() => {
+    const handleFocus = () => fetchData(true);
+    window.addEventListener('focus', handleFocus);
+    return () => window.removeEventListener('focus', handleFocus);
+  }, []);
 
   const handleSelectTicket = async (t: Ticket) => {
     try {
@@ -101,7 +120,7 @@ export function App() {
       const res = await fetch(`/api/tickets/${t.id}`);
       if (res.ok) {
         const full = await res.json();
-        setSelectedTicket(full.data);
+        if (full.data) setSelectedTicket(full.data);
       }
     } catch (err) {
       console.error(err);
@@ -127,12 +146,21 @@ export function App() {
       });
 
       if (!res.ok) throw new Error('Failed to update status');
+      const json = await res.json();
+      if (json.data) {
+        setTickets((prev) =>
+          prev.map((t) => (t.id === ticketId ? json.data : t))
+        );
+        if (selectedTicket && selectedTicket.id === ticketId) {
+          setSelectedTicket(json.data);
+        }
+      }
 
       showToast(`Work order status updated to ${newStatus}`);
-      fetchData();
+      fetchData(true);
     } catch (err) {
       console.error(err);
-      fetchData();
+      fetchData(true);
     }
   };
 
@@ -143,23 +171,34 @@ export function App() {
       setTickets((prev) =>
         prev.map((t) => (t.id === ticketId ? { ...t, status: 'COMPLETED' } : t))
       );
+      if (selectedTicket && selectedTicket.id === ticketId) {
+        setSelectedTicket((prev) => (prev ? { ...prev, status: 'COMPLETED' } : null));
+      }
 
       const res = await fetch(`/api/tickets/${ticketId}/quick-complete`, {
         method: 'POST',
       });
-
-      if (!res.ok) throw new Error('Failed to quick-complete ticket');
-
-      showToast('Work order marked completed & QA verified!');
-      fetchData();
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) {
+          setTickets((prev) =>
+            prev.map((t) => (t.id === ticketId ? json.data : t))
+          );
+          if (selectedTicket && selectedTicket.id === ticketId) {
+            setSelectedTicket(json.data);
+          }
+        }
+      }
+      showToast('Work order marked Completed');
+      fetchData(true);
     } catch (err) {
       console.error(err);
-      fetchData();
+      fetchData(true);
     }
   };
 
   return (
-    <div className="min-h-screen bg-[#f8fafc] text-slate-800 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F4F5F7] text-slate-800 flex flex-col font-sans">
       {/* Top Loading Progress Line */}
       {isLoading && (
         <div className="fixed top-0 left-0 right-0 h-0.5 bg-indigo-600 z-50 animate-pulse" />
@@ -301,9 +340,19 @@ export function App() {
       {selectedTicket && (
         <WorkOrderScreen
           ticket={selectedTicket}
-          onClose={() => setSelectedTicket(null)}
+          onClose={() => {
+            setSelectedTicket(null);
+            fetchData(true);
+          }}
           onUpdateStatus={handleUpdateStatus}
-          onRefresh={() => handleSelectTicket(selectedTicket)}
+          onRefresh={() => {
+            if (selectedTicket) handleSelectTicket(selectedTicket);
+          }}
+          onTicketUpdated={(updated) => {
+            setSelectedTicket(updated);
+            setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+            fetchData(true);
+          }}
           onPrint={(t) => {
             setPrintTicket(t);
           }}
@@ -314,7 +363,7 @@ export function App() {
       <CreateTicketModal
         isOpen={isCreateModalOpen}
         onClose={() => setIsCreateModalOpen(false)}
-        onSuccess={fetchData}
+        onSuccess={() => fetchData(true)}
         existingCustomers={customers}
       />
 
@@ -323,7 +372,7 @@ export function App() {
         onClose={() => setSmsTicket(null)}
         onSuccess={() => {
           showToast('Customer SMS alert dispatched.');
-          fetchData();
+          fetchData(true);
         }}
       />
 
