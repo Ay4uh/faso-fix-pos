@@ -199,8 +199,12 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                 ) : (
                   filteredTickets.map((ticket) => {
                     const totalCents = ticket.totals ? ticket.totals.totalCents : ticket.laborCents;
+                    const paidCents = ticket.totals ? ticket.totals.paidCents : 0;
+                    const balanceCents = ticket.totals ? ticket.totals.balanceCents : totalCents;
                     const subtotalCents = ticket.totals ? ticket.totals.subtotalCents : ticket.laborCents;
-                    const isPaid = ticket.totals?.balanceCents === 0;
+                    const isPaid = totalCents > 0 && paidCents >= totalCents;
+                    const isUnbilled = totalCents === 0 && paidCents === 0;
+                    const hasDeposit = totalCents === 0 && paidCents > 0;
 
                     return (
                       <tr
@@ -265,9 +269,13 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                             </span>
                             {isPaid ? (
                               <span className="text-[10px] font-bold text-emerald-700">Paid in full</span>
+                            ) : hasDeposit ? (
+                              <span className="text-[10px] font-bold text-indigo-700">Deposit: ${(paidCents / 100).toFixed(2)}</span>
+                            ) : isUnbilled ? (
+                              <span className="text-[10px] font-medium text-slate-500">Unbilled</span>
                             ) : (
                               <span className="text-[10px] font-bold text-amber-700">
-                                Bal: ${((ticket.totals?.balanceCents ?? totalCents) / 100).toFixed(2)}
+                                Bal: ${(balanceCents / 100).toFixed(2)}
                               </span>
                             )}
                           </div>
@@ -467,7 +475,11 @@ export const TicketTable: React.FC<TicketTableProps> = ({
             ) : (
               filteredTickets.map((ticket) => {
                 const totalCents = ticket.totals ? ticket.totals.totalCents : ticket.laborCents;
-                const isPaid = ticket.totals?.balanceCents === 0;
+                const paidCents = ticket.totals ? ticket.totals.paidCents : 0;
+                const balanceCents = ticket.totals ? ticket.totals.balanceCents : totalCents;
+                const isPaid = totalCents > 0 && paidCents >= totalCents;
+                const isUnbilled = totalCents === 0 && paidCents === 0;
+                const hasDeposit = totalCents === 0 && paidCents > 0;
 
                 return (
                   <div
@@ -502,7 +514,15 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                           ${(totalCents / 100).toFixed(2)}
                         </div>
                         <div className="text-[10px] text-slate-400">
-                          {isPaid ? <span className="text-emerald-600 font-bold">Paid</span> : 'Balance Due'}
+                          {isPaid ? (
+                            <span className="text-emerald-600 font-bold">Paid</span>
+                          ) : hasDeposit ? (
+                            <span className="text-indigo-600 font-bold">Deposit ${(paidCents / 100).toFixed(2)}</span>
+                          ) : isUnbilled ? (
+                            <span className="text-slate-400 font-normal">Unbilled</span>
+                          ) : (
+                            <span>Bal: ${(balanceCents / 100).toFixed(2)}</span>
+                          )}
                         </div>
                       </div>
                     </div>

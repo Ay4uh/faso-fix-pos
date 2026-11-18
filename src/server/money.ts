@@ -34,8 +34,11 @@ export function computeTotals(t: MoneyInputs): Totals {
   const balanceCents = totalCents - paidCents;
 
   let paymentStatus: Totals['paymentStatus'] = 'UNPAID';
-  if (paidCents > 0) paymentStatus = balanceCents <= 0 ? 'PAID' : 'PARTIAL';
-  if (totalCents === 0 && paidCents === 0) paymentStatus = 'PAID';
+  if (paidCents > 0) {
+    paymentStatus = balanceCents <= 0 ? 'PAID' : 'PARTIAL';
+  } else {
+    paymentStatus = 'UNPAID';
+  }
 
   return {
     laborCents: t.laborCents,

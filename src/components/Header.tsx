@@ -196,7 +196,10 @@ export const Header: React.FC<HeaderProps> = ({
               ) : (
                 <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto">
                   {searchResults.map((t, idx) => {
-                    const balance = t.totals ? t.totals.balanceCents / 100 : t.laborCents / 100;
+                    const total = t.totals ? t.totals.totalCents / 100 : t.laborCents / 100;
+                    const paid = t.totals ? t.totals.paidCents / 100 : 0;
+                    const balance = t.totals ? t.totals.balanceCents / 100 : total;
+                    const isPaid = total > 0 && paid >= total;
                     return (
                       <button
                         key={t.id}
@@ -231,8 +234,12 @@ export const Header: React.FC<HeaderProps> = ({
                               {t.status.replace(/_/g, ' ')}
                             </span>
                             <div className="font-mono text-xs font-bold text-slate-900 mt-0.5">
-                              {balance === 0 ? (
+                              {isPaid ? (
                                 <span className="text-emerald-600">Paid</span>
+                              ) : total === 0 && paid === 0 ? (
+                                <span className="text-slate-400 font-normal">$0.00</span>
+                              ) : paid > 0 && total === 0 ? (
+                                <span className="text-indigo-600 font-bold">Dep: ${paid.toFixed(2)}</span>
                               ) : (
                                 <span>${balance.toFixed(2)}</span>
                               )}

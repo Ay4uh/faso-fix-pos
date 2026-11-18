@@ -165,7 +165,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   };
 
   const balanceOwing = totals.balanceCents / 100;
-  const isPaidInFull = totals.balanceCents === 0;
+  const totalPaid = totals.paidCents / 100;
+  const isPaidInFull = totals.totalCents > 0 && totals.paidCents >= totals.totalCents;
+  const hasDepositCredit = totals.totalCents === 0 && totals.paidCents > 0;
 
   const handleSaveSecurity = async () => {
     setIsSavingSecurity(true);
@@ -608,10 +610,19 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 <CreditCard className="w-3.5 h-3.5" />
                 <span>Pay Balance (${balanceOwing.toFixed(2)})</span>
               </button>
-            ) : (
+            ) : isPaidInFull ? (
               <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                 Paid in Full
+              </span>
+            ) : hasDepositCredit ? (
+              <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+                Deposit Credited (${totalPaid.toFixed(2)})
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                Unbilled ($0.00)
               </span>
             )}
 
@@ -803,10 +814,19 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     <span>+ Take Part Deposit</span>
                   </button>
                 </div>
-              ) : (
+              ) : isPaidInFull ? (
                 <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-center text-xs font-bold text-emerald-800 flex items-center justify-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   <span>Invoice Paid in Full</span>
+                </div>
+              ) : hasDepositCredit ? (
+                <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-center text-xs font-bold text-indigo-800 flex items-center justify-center gap-1.5">
+                  <CheckCircle2 className="w-4 h-4 text-indigo-600" />
+                  <span>Deposit Credit: ${totalPaid.toFixed(2)}</span>
+                </div>
+              ) : (
+                <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-center text-xs font-medium text-slate-500 flex items-center justify-center gap-1.5">
+                  <span>No Charges Added Yet</span>
                 </div>
               )}
             </div>

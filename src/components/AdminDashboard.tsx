@@ -757,8 +757,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                         );
                       })
                       .map((ticket) => {
-                        const balanceCents = ticket.totals ? ticket.totals.balanceCents : ticket.laborCents;
-                        const isPaid = balanceCents === 0;
+                        const totalCents = ticket.totals ? ticket.totals.totalCents : ticket.laborCents;
+                        const paidCents = ticket.totals ? ticket.totals.paidCents : 0;
+                        const balanceCents = ticket.totals ? ticket.totals.balanceCents : (ticket.laborCents - paidCents);
+                        const isPaid = totalCents > 0 && paidCents >= totalCents;
+                        const isUnbilled = totalCents === 0 && paidCents === 0;
 
                         return (
                           <tr key={ticket.id} className="hover:bg-slate-50/80 transition-colors">
@@ -786,6 +789,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
                               {isPaid ? (
                                 <span className="text-emerald-600 text-[11px] font-bold">Paid</span>
+                              ) : isUnbilled ? (
+                                <span className="text-slate-400 text-[11px] font-medium">Unbilled</span>
+                              ) : paidCents > 0 && balanceCents <= 0 ? (
+                                <span className="text-teal-600 text-[11px] font-bold">Deposit ${(paidCents / 100).toFixed(2)}</span>
                               ) : (
                                 <span>${(balanceCents / 100).toFixed(2)}</span>
                               )}

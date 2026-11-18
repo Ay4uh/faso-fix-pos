@@ -1,6 +1,6 @@
 import React from 'react';
 import { DashboardStats } from '../types';
-import { Cpu, Loader, Package, BadgeDollarSign } from 'lucide-react';
+import { Cpu, Loader, Package, CheckCircle2 } from 'lucide-react';
 
 interface MetricCardsProps {
   stats: DashboardStats | null;
@@ -10,7 +10,7 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ stats }) => {
   const activeCount = stats?.totalActive ?? stats?.open ?? 0;
   const inProgress = stats?.inProgress ?? 0;
   const waitingParts = stats?.waitingOnParts ?? 0;
-  const pipelineDollars = stats?.openValueCents ? (stats.openValueCents / 100).toFixed(2) : '0.00';
+  const readyPickup = stats?.awaitingPickupCount ?? stats?.completed ?? 0;
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -50,15 +50,15 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ stats }) => {
         </div>
       </div>
 
-      {/* 4. Estimated Pipeline */}
+      {/* 4. Ready for Pickup */}
       <div className="bg-white p-4.5 rounded-xl border border-slate-200/90 shadow-xs hover:shadow-sm transition-shadow flex items-center justify-between">
         <div>
-          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider text-[11px]">Estimated Pipeline</p>
-          <h3 className="text-3xl font-extrabold text-emerald-600 mt-1 font-mono tracking-tight">${pipelineDollars}</h3>
-          <p className="text-[11px] text-emerald-700 font-medium mt-0.5">Repairs value (Inc. Tax)</p>
+          <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider text-[11px]">Ready for Pickup</p>
+          <h3 className="text-3xl font-extrabold text-teal-600 mt-1 font-mono tracking-tight">{readyPickup}</h3>
+          <p className="text-[11px] text-teal-700 font-medium mt-0.5">Awaiting customer collection</p>
         </div>
-        <div className="w-11 h-11 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shadow-xs">
-          <BadgeDollarSign className="w-5 h-5" />
+        <div className="w-11 h-11 rounded-xl bg-teal-50 border border-teal-100 text-teal-600 flex items-center justify-center shadow-xs">
+          <CheckCircle2 className="w-5 h-5" />
         </div>
       </div>
     </div>
