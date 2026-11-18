@@ -486,7 +486,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                           </span>
                         )}
                       </div>
-                      {statusBadge(ticket.status)}
+                      {getStatusBadge(ticket.status)}
                     </div>
 
                     <div className="flex items-start justify-between gap-2">

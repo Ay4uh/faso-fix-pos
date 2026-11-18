@@ -10,7 +10,6 @@ import {
   ShieldAlert,
   LogOut,
   Wrench,
-  CheckCircle2,
 } from 'lucide-react';
 import { DashboardStats, User as UserType } from '../types';
 
