@@ -8,13 +8,11 @@ import {
   Lock,
   AlertCircle,
   Hash,
-  ShieldCheck,
   Check,
   Search,
 } from 'lucide-react';
 import { Customer } from '../types';
 import { posAudio } from '../utils/audio';
-import { SignaturePad } from './SignaturePad';
 
 interface CreateTicketModalProps {
   isOpen: boolean;
@@ -22,27 +20,6 @@ interface CreateTicketModalProps {
   onSuccess: () => void;
   existingCustomers: Customer[];
 }
-
-const COMMON_DEVICES = [
-  'iPhone 15 Pro',
-  'iPhone 14 / 13',
-  'Samsung Galaxy S24',
-  'MacBook Pro / Air',
-  'iPad Pro / Air',
-  'Google Pixel 8',
-  'Windows Laptop',
-];
-
-const PRE_CONDITIONS = [
-  'Cracked Glass',
-  'Touch Not Working',
-  'Housing Bent',
-  'Liquid Damage',
-  'No Power / Dead',
-  'Camera Scratched',
-  'Missing Screws',
-  'Clean / No Defects',
-];
 
 export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   isOpen,
@@ -52,21 +29,19 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
 }) => {
   if (!isOpen) return null;
 
-  // Customer
+  // 1. Customer Details
   const [phoneNumber, setPhoneNumber] = useState('');
   const [fullName, setFullName] = useState('');
   const [customerSuggestions, setCustomerSuggestions] = useState<Customer[]>([]);
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
-  // Device
+  // 2. Essential Device Data
   const [deviceName, setDeviceName] = useState('');
-  const [serialNumber, setSerialNumber] = useState('');
   const [passcode, setPasscode] = useState('');
-  const [selectedConditions, setSelectedConditions] = useState<string[]>([]);
+  const [serialNumber, setSerialNumber] = useState('');
 
-  // Issue & Signature
+  // 3. Reported Issue
   const [issue, setIssue] = useState('');
-  const [signatureData, setSignatureData] = useState<string | null>(null);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -84,7 +59,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
     return () => window.removeEventListener('click', handleClick);
   }, []);
 
-  // Quick Customer Search by phone or name
+  // Customer search by phone or name
   const handlePhoneOrNameSearch = (val: string, field: 'phone' | 'name') => {
     if (field === 'phone') {
       setPhoneNumber(val);
@@ -117,26 +92,6 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
     posAudio.playScanBeep();
   };
 
-  const toggleCondition = (item: string) => {
-    if (item === 'Clean / No Defects') {
-      if (selectedConditions.includes(item)) {
-        setSelectedConditions([]);
-      } else {
-        setSelectedConditions(['Clean / No Defects']);
-      }
-      return;
-    }
-
-    setSelectedConditions((prev) => {
-      const filtered = prev.filter((c) => c !== 'Clean / No Defects');
-      if (filtered.includes(item)) {
-        return filtered.filter((c) => c !== item);
-      } else {
-        return [...filtered, item];
-      }
-    });
-  };
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg(null);
@@ -152,7 +107,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
     }
 
     if (!deviceName.trim()) {
-      setErrorMsg('Please enter or select device make/model');
+      setErrorMsg('Please enter device make & model');
       return;
     }
 
@@ -168,13 +123,11 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
           },
           device: {
             name: deviceName.trim(),
-            serialNumber: serialNumber.trim() || undefined,
             passcode: passcode.trim() || undefined,
-            condition: selectedConditions.length > 0 ? selectedConditions.join(', ') : undefined,
+            serialNumber: serialNumber.trim() || undefined,
           },
-          faultDescription: issue.trim() || 'General Inspection & Repair',
+          faultDescription: issue.trim() || 'Device Diagnostics & Inspection',
           laborCents: 0,
-          signature: signatureData || undefined,
         }),
       });
 
@@ -195,16 +148,16 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-      <div className="bg-white rounded-2xl max-w-2xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
+      <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden my-auto animate-in fade-in zoom-in-95 duration-150">
         {/* Modal Header */}
-        <div className="px-6 py-3.5 border-b border-slate-200/90 flex items-center justify-between bg-slate-50/90">
+        <div className="px-5 py-3.5 border-b border-slate-200/90 flex items-center justify-between bg-slate-50/90">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
               <Wrench className="w-4 h-4" />
             </div>
             <div>
-              <h2 className="text-sm font-bold text-slate-900 leading-tight">60-Second Device Intake</h2>
-              <p className="text-[11px] text-slate-500 font-medium">Quick customer, hardware profile &amp; liability sign-off</p>
+              <h2 className="text-sm font-bold text-slate-900 leading-tight">Quick Device Intake</h2>
+              <p className="text-[11px] text-slate-500 font-medium">Customer contact, hardware details &amp; reported issue</p>
             </div>
           </div>
           <button
@@ -216,7 +169,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
         </div>
 
         {/* Modal Form */}
-        <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-4 max-h-[85vh] overflow-y-auto">
+        <form onSubmit={handleSubmit} className="p-5 sm:p-6 space-y-4">
           {errorMsg && (
             <div className="p-3 bg-red-50 border border-red-200 text-red-700 rounded-xl text-xs flex items-center gap-2">
               <AlertCircle className="w-4 h-4 shrink-0" />
@@ -224,16 +177,16 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
             </div>
           )}
 
-          {/* Section 1: Customer Quick-Search & Profile */}
-          <div className="space-y-2.5" ref={searchBoxRef}>
+          {/* 1. Customer Contact */}
+          <div className="space-y-2" ref={searchBoxRef}>
             <div className="flex items-center justify-between">
               <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
                 <User className="w-3.5 h-3.5 text-indigo-600" />
-                1. Customer Quick-Search
+                1. Customer Information
               </span>
               {selectedCustomerId && (
                 <span className="text-[11px] font-bold text-emerald-600 flex items-center gap-1">
-                  <Check className="w-3 h-3" /> Returning Client Selected
+                  <Check className="w-3 h-3" /> Returning Client
                 </span>
               )}
             </div>
@@ -272,12 +225,12 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                 />
               </div>
 
-              {/* Live Customer Suggestions Dropdown */}
+              {/* Suggestions Dropdown */}
               {customerSuggestions.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-xl shadow-xl z-50 divide-y divide-slate-100 overflow-hidden">
                   <div className="px-3 py-1.5 bg-slate-50 text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
                     <Search className="w-3 h-3 text-indigo-600" />
-                    Matching Existing Customers (Click to auto-fill)
+                    Matching Existing Clients (Click to auto-fill)
                   </div>
                   {customerSuggestions.map((cust) => (
                     <button
@@ -300,67 +253,34 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
             </div>
           </div>
 
-          {/* Section 2: Essential Device Data */}
+          {/* 2. Device Make, Model, Password & Optional Serial */}
           <div className="space-y-2.5 pt-2 border-t border-slate-100">
             <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
               <Smartphone className="w-3.5 h-3.5 text-indigo-600" />
-              2. Essential Device Data
+              2. Device Details &amp; Passcode
             </span>
 
-            {/* Quick Model Chips */}
-            <div className="flex flex-wrap gap-1.5">
-              {COMMON_DEVICES.map((d) => (
-                <button
-                  key={d}
-                  type="button"
-                  onClick={() => setDeviceName(d)}
-                  className={`text-[11px] px-2.5 py-1 rounded-md border transition cursor-pointer font-medium ${
-                    deviceName === d
-                      ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs font-bold'
-                      : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                  }`}
-                >
-                  {d}
-                </button>
-              ))}
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               {/* Make & Model */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700">
-                  Device Make / Model <span className="text-rose-500">*</span>
+                  Device Make &amp; Model <span className="text-rose-500">*</span>
                 </label>
                 <input
                   type="text"
                   required
                   value={deviceName}
                   onChange={(e) => setDeviceName(e.target.value)}
-                  placeholder="e.g. iPhone 15 Pro Max"
+                  placeholder="e.g. iPhone 15 Pro / MacBook Air"
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
                 />
               </div>
 
-              {/* IMEI / Serial */}
+              {/* Passcode / Password */}
               <div className="space-y-1">
                 <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                  <Hash className="w-3 h-3 text-slate-400" />
-                  IMEI / Serial (Optional)
-                </label>
-                <input
-                  type="text"
-                  value={serialNumber}
-                  onChange={(e) => setSerialNumber(e.target.value)}
-                  placeholder="354892019482910"
-                  className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 font-mono transition"
-                />
-              </div>
-
-              {/* Passcode / PIN */}
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                  <Lock className="w-3 h-3 text-slate-400" />
-                  Passcode / Pattern PIN
+                  <Lock className="w-3.5 h-3.5 text-slate-400" />
+                  Device Password / PIN
                 </label>
                 <input
                   type="text"
@@ -371,80 +291,41 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                 />
               </div>
             </div>
-          </div>
 
-          {/* Section 3: Pre-Condition Check & Fault Note */}
-          <div className="space-y-2 pt-2 border-t border-slate-100">
-            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-              <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-              3. Pre-Repair Physical Condition Checklist
-            </span>
-
-            {/* Fast Toggle Chips */}
-            <div className="flex flex-wrap gap-1.5">
-              {PRE_CONDITIONS.map((cond) => {
-                const isSelected = selectedConditions.includes(cond);
-                return (
-                  <button
-                    key={cond}
-                    type="button"
-                    onClick={() => toggleCondition(cond)}
-                    className={`text-xs px-2.5 py-1 rounded-md border transition cursor-pointer flex items-center gap-1.5 font-medium ${
-                      isSelected
-                        ? 'bg-slate-900 text-white border-slate-900 shadow-2xs font-bold'
-                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
-                    }`}
-                  >
-                    {isSelected ? (
-                      <Check className="w-3 h-3 text-emerald-400" />
-                    ) : (
-                      <span className="text-slate-400 text-xs">+</span>
-                    )}
-                    {cond}
-                  </button>
-                );
-              })}
-            </div>
-
-            <div className="space-y-1 pt-1">
-              <label className="text-xs font-semibold text-slate-700">
-                Reported Issue / Diagnostic Request
+            {/* Serial Number / IMEI (Optional) */}
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                <Hash className="w-3.5 h-3.5 text-slate-400" />
+                Serial Number / IMEI <span className="text-slate-400 font-normal">(Optional)</span>
               </label>
               <input
                 type="text"
-                value={issue}
-                onChange={(e) => setIssue(e.target.value)}
-                placeholder="e.g. Front glass broken, touch unresponsive in top left corner"
-                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
+                value={serialNumber}
+                onChange={(e) => setSerialNumber(e.target.value)}
+                placeholder="e.g. 354892019482910 or C02G..."
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 font-mono transition"
               />
             </div>
           </div>
 
-          {/* Section 4: Digital Waiver & E-Signature Pad */}
-          <div className="space-y-2 pt-2 border-t border-slate-100">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
-                <ShieldCheck className="w-3.5 h-3.5 text-indigo-600" />
-                4. Customer Digital Intake Waiver
-              </span>
-              <span className="text-[10px] text-slate-500 font-medium">Standard 90-Day Repair Warranty</span>
-            </div>
+          {/* 3. Reported Issue */}
+          <div className="space-y-1.5 pt-2 border-t border-slate-100">
+            <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+              <Wrench className="w-3.5 h-3.5 text-indigo-600" />
+              3. Reported Issue
+            </span>
 
-            <p className="text-[11px] text-slate-500 leading-tight">
-              Customer authorizes diagnostic inspection and acknowledges pre-existing physical defects noted above. ApexFix is not responsible for data loss or pre-existing liquid damage.
-            </p>
-
-            <div className="border border-slate-200 rounded-xl overflow-hidden bg-white">
-              <SignaturePad
-                height={85}
-                onSave={(dataUrl) => setSignatureData(dataUrl)}
-                onClear={() => setSignatureData(null)}
-              />
-            </div>
+            <textarea
+              rows={2}
+              value={issue}
+              onChange={(e) => setIssue(e.target.value)}
+              placeholder="e.g. Cracked screen, battery draining fast, liquid spill on keyboard..."
+              className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition resize-none"
+            />
           </div>
 
           {/* Footer Actions */}
-          <div className="pt-3 flex items-center justify-end gap-3 border-t border-slate-100">
+          <div className="pt-3 flex items-center justify-end gap-2.5 border-t border-slate-100">
             <button
               type="button"
               onClick={onClose}
@@ -456,10 +337,10 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition shadow-xs cursor-pointer flex items-center gap-2"
+              className="px-5 py-2 bg-indigo-600 text-white text-xs font-bold rounded-lg hover:bg-indigo-700 disabled:opacity-50 transition shadow-xs cursor-pointer flex items-center gap-1.5"
             >
               <Check className="w-3.5 h-3.5" />
-              <span>{isSubmitting ? 'Checking In...' : 'Complete Intake (60s)'}</span>
+              <span>{isSubmitting ? 'Creating...' : 'Create Work Order'}</span>
             </button>
           </div>
         </form>
