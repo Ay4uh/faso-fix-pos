@@ -171,6 +171,8 @@ export async function listTickets(params: { view?: string; search?: string; benc
   return tickets.map(withTotals);
 }
 
+const TX_OPTIONS = { maxWait: 15000, timeout: 20000 };
+
 export async function createTicket(input: unknown) {
   const data = createTicketSchema.parse(input);
   const phoneDigits = digitsOnly(data.customer.phone);
@@ -230,6 +232,7 @@ export async function createTicket(input: unknown) {
         deviceId: device.id,
         faultDescription: data.faultDescription,
         laborCents: data.laborCents,
+        discountCents: data.discountCents || 0,
         taxRateBps: settings.taxRateBps,
         priority: data.priority,
         technician: emptyToNull(data.technician) ?? null,
@@ -252,7 +255,7 @@ export async function createTicket(input: unknown) {
       await logEvent(tx, ticket.id, 'PAYMENT', `Deposit of ${money(data.depositCents)} received (${data.depositMethod || 'CASH'})`);
     }
     return ticket.id;
-  });
+  }, TX_OPTIONS);
 
   return getTicket(id);
 }

@@ -11,7 +11,7 @@ export const STATUSES = [
   'IN_PROGRESS',
 ] as const;
 export const PRIORITIES = ['LOW', 'STANDARD', 'URGENT'] as const;
-export const PAYMENT_METHODS = ['CASH', 'CARD', 'DEBIT', 'E_TRANSFER', 'OTHER'] as const;
+export const PAYMENT_METHODS = ['CASH', 'CARD', 'CREDIT', 'DEBIT', 'E_TRANSFER', 'OTHER'] as const;
 export const NOTE_KINDS = ['CUSTOMER_NOTE', 'INTERNAL_NOTE', 'MESSAGE'] as const;
 
 const trimmed = z.string().trim();
@@ -39,6 +39,7 @@ export const createTicketSchema = z.object({
   }),
   faultDescription: trimmed.max(2000).optional().default('Device Diagnostic & Repair'),
   laborCents: cents.default(0),
+  discountCents: cents.default(0),
   dueDate: z.string().optional().default(() => {
     const d = new Date();
     d.setDate(d.getDate() + 2);

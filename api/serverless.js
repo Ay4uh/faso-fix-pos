@@ -70,6 +70,7 @@ var PRIORITIES = [
 var PAYMENT_METHODS = [
 	"CASH",
 	"CARD",
+	"CREDIT",
 	"DEBIT",
 	"E_TRANSFER",
 	"OTHER"
@@ -100,6 +101,7 @@ var createTicketSchema = z.object({
 	}),
 	faultDescription: trimmed.max(2e3).optional().default("Device Diagnostic & Repair"),
 	laborCents: cents.default(0),
+	discountCents: cents.default(0),
 	dueDate: z.string().optional().default(() => {
 		const d = /* @__PURE__ */ new Date();
 		d.setDate(d.getDate() + 2);
@@ -591,6 +593,10 @@ async function listTickets(params) {
 		take: 500
 	})).map(withTotals);
 }
+var TX_OPTIONS = {
+	maxWait: 15e3,
+	timeout: 2e4
+};
 async function createTicket(input) {
 	const data = createTicketSchema.parse(input);
 	const phoneDigits = digitsOnly(data.customer.phone);
@@ -645,6 +651,7 @@ async function createTicket(input) {
 			deviceId: device.id,
 			faultDescription: data.faultDescription,
 			laborCents: data.laborCents,
+			discountCents: data.discountCents || 0,
 			taxRateBps: settings.taxRateBps,
 			priority: data.priority,
 			technician: emptyToNull(data.technician) ?? null,
@@ -670,7 +677,7 @@ async function createTicket(input) {
 			await logEvent(tx, ticket.id, "PAYMENT", `Deposit of ${money(data.depositCents)} received (${data.depositMethod || "CASH"})`);
 		}
 		return ticket.id;
-	}));
+	}, TX_OPTIONS));
 }
 async function updateTicket(id, input) {
 	const data = updateTicketSchema.parse(input);

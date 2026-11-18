@@ -44,9 +44,21 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         }),
       });
 
-      const data = await res.json();
+      const contentType = res.headers.get('content-type') || '';
+      let data: any = null;
+      if (contentType.includes('application/json')) {
+        data = await res.json();
+      } else {
+        const text = await res.text();
+        throw new Error(
+          res.status >= 500
+            ? 'Server is starting up or temporarily busy. Please wait a moment and try again.'
+            : (text.slice(0, 120) || `Server error (${res.status})`)
+        );
+      }
+
       if (!res.ok) {
-        throw new Error(data.error || 'Authentication failed. Please verify credentials.');
+        throw new Error(data?.error || 'Authentication failed. Please verify credentials.');
       }
 
       setToken(data.token);
