@@ -1913,6 +1913,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 onClick={() => {
                   if (onDeleteTicket) onDeleteTicket(ticket.id);
                   setIsDeleteConfirmOpen(false);
+                  onClose();
                 }}
                 className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold cursor-pointer"
               >

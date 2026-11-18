@@ -21,10 +21,12 @@ import {
   LogOut,
   UserCheck,
   UserX,
+  Wrench,
+  Phone,
 } from 'lucide-react';
 import { fetchWithAuth } from '../utils/auth';
 import { posAudio } from '../utils/audio';
-import { User, AdminOverview, AuditLog, UserRole, UserStatus } from '../types';
+import { User, AdminOverview, AuditLog, UserRole, UserStatus, Ticket } from '../types';
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -37,9 +39,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onLogout,
   onNavigateToTab,
 }) => {
-  const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'roles' | 'audit'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'tickets' | 'roles' | 'audit'>('overview');
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<User[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>([]);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
@@ -50,6 +53,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'ADMIN' | 'USER'>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'DISABLED'>('ALL');
 
+  // Ticket filters & search
+  const [ticketSearch, setTicketSearch] = useState('');
+
   // Audit filters & search
   const [auditSearch, setAuditSearch] = useState('');
   const [auditActionFilter, setAuditActionFilter] = useState('ALL');
@@ -59,6 +65,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [passwordResetUser, setPasswordResetUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
+  const [deletingTicket, setDeletingTicket] = useState<Ticket | null>(null);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -110,11 +117,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const fetchTicketsList = async () => {
+    try {
+      const res = await fetchWithAuth('/api/tickets?view=ALL');
+      if (res.ok) {
+        const json = await res.json();
+        setTickets(json.data || []);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
   const loadAll = async () => {
     setIsLoading(true);
     setErrorBanner(null);
     try {
-      await Promise.all([fetchOverview(), fetchUsersList(), fetchAuditList()]);
+      await Promise.all([fetchOverview(), fetchUsersList(), fetchAuditList(), fetchTicketsList()]);
     } catch (err: any) {
       setErrorBanner(err.message || 'Failed loading admin data');
     } finally {
@@ -131,6 +150,12 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       fetchUsersList();
     }
   }, [userSearch, roleFilter, statusFilter, activeSection]);
+
+  useEffect(() => {
+    if (activeSection === 'tickets') {
+      fetchTicketsList();
+    }
+  }, [activeSection]);
 
   useEffect(() => {
     if (activeSection === 'audit') {
@@ -172,6 +197,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       showToast(`User ${deletingUser.username} permanently deleted`);
       setDeletingUser(null);
       fetchUsersList();
+      fetchOverview();
+    } catch (err: any) {
+      posAudio.playWarningBeep();
+      showToast(`Delete Error: ${err.message}`);
+    }
+  };
+
+  const handleDeleteTicket = async () => {
+    if (!deletingTicket) return;
+    try {
+      const res = await fetchWithAuth(`/api/tickets/${deletingTicket.id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to delete work order');
+
+      posAudio.playSuccessChime();
+      showToast(`Work order #${deletingTicket.ticketNumber} permanently deleted`);
+      setDeletingTicket(null);
+      fetchTicketsList();
       fetchOverview();
     } catch (err: any) {
       posAudio.playWarningBeep();
@@ -248,6 +293,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {[
           { id: 'overview', label: 'Admin Overview', icon: Activity },
           { id: 'users', label: 'User & Staff Management', icon: Users, badge: overview?.users.total },
+          { id: 'tickets', label: 'Work Orders & Tickets', icon: Wrench, badge: tickets.length },
           { id: 'roles', label: 'Roles & RBAC Permissions', icon: ShieldCheck },
           { id: 'audit', label: 'System Audit Logs', icon: Clock, badge: auditLogs.length },
         ].map((tab) => {
@@ -622,6 +668,151 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* ========================================================
+          SECTION 2.5: WORK ORDERS & TICKETS DIRECTORY (ADMIN)
+         ======================================================== */}
+      {activeSection === 'tickets' && (
+        <div className="space-y-4">
+          <div className="bg-white p-5 rounded-2xl border border-slate-200/90 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[11px] font-bold text-indigo-600 uppercase tracking-wider">
+                  Admin Authority
+                </span>
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                  {tickets.length} Active Work Orders
+                </span>
+              </div>
+              <h3 className="text-base font-bold text-slate-900 tracking-tight">
+                Work Orders & Ticket Management
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Inspect, audit, or permanently delete repair tickets across all benches and statuses.
+              </p>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <div className="relative w-72">
+                <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={ticketSearch}
+                  onChange={(e) => setTicketSearch(e.target.value)}
+                  placeholder="Search by ticket #, client, phone, device..."
+                  className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 transition"
+                />
+              </div>
+              <button
+                type="button"
+                onClick={() => fetchTicketsList()}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Refresh</span>
+              </button>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-200/90 shadow-xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-slate-600 font-bold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-4">Ticket #</th>
+                    <th className="py-3 px-4">Customer</th>
+                    <th className="py-3 px-4">Device</th>
+                    <th className="py-3 px-4">Reported Issue</th>
+                    <th className="py-3 px-4">Status</th>
+                    <th className="py-3 px-4 text-right">Balance</th>
+                    <th className="py-3 px-4 text-right">Admin Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {tickets.filter((t) => {
+                    const q = ticketSearch.trim().toLowerCase();
+                    if (!q) return true;
+                    return (
+                      t.ticketNumber.toString().includes(q) ||
+                      t.customer.fullName.toLowerCase().includes(q) ||
+                      t.customer.phone.includes(q) ||
+                      (t.device?.name && t.device.name.toLowerCase().includes(q)) ||
+                      (t.faultDescription && t.faultDescription.toLowerCase().includes(q))
+                    );
+                  }).length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="text-center py-12 text-slate-400 italic">
+                        No work orders found matching your search.
+                      </td>
+                    </tr>
+                  ) : (
+                    tickets
+                      .filter((t) => {
+                        const q = ticketSearch.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          t.ticketNumber.toString().includes(q) ||
+                          t.customer.fullName.toLowerCase().includes(q) ||
+                          t.customer.phone.includes(q) ||
+                          (t.device?.name && t.device.name.toLowerCase().includes(q)) ||
+                          (t.faultDescription && t.faultDescription.toLowerCase().includes(q))
+                        );
+                      })
+                      .map((ticket) => {
+                        const balanceCents = ticket.totals ? ticket.totals.balanceCents : ticket.laborCents;
+                        const isPaid = balanceCents === 0;
+
+                        return (
+                          <tr key={ticket.id} className="hover:bg-slate-50/80 transition-colors">
+                            <td className="py-3 px-4 font-mono font-bold text-indigo-600">
+                              #{ticket.ticketNumber}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="font-bold text-slate-900 block">{ticket.customer.fullName}</span>
+                              <span className="text-[11px] text-slate-500 font-mono flex items-center gap-1">
+                                <Phone className="w-3 h-3 text-slate-400" />
+                                {ticket.customer.phone}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="font-semibold text-slate-800">{ticket.device?.name || 'Device'}</span>
+                            </td>
+                            <td className="py-3 px-4 max-w-xs truncate text-slate-600" title={ticket.faultDescription}>
+                              {ticket.faultDescription}
+                            </td>
+                            <td className="py-3 px-4">
+                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-slate-100 text-slate-700">
+                                {ticket.status.replace(/_/g, ' ')}
+                              </span>
+                            </td>
+                            <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
+                              {isPaid ? (
+                                <span className="text-emerald-600 text-[11px] font-bold">Paid</span>
+                              ) : (
+                                <span>${(balanceCents / 100).toFixed(2)}</span>
+                              )}
+                            </td>
+                            <td className="py-3 px-4 text-right">
+                              <button
+                                type="button"
+                                onClick={() => setDeletingTicket(ticket)}
+                                className="inline-flex items-center space-x-1.5 px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 rounded-lg text-xs font-bold transition cursor-pointer shadow-2xs"
+                                title="Delete Work Order Permanently"
+                              >
+                                <Trash2 className="w-3.5 h-3.5 text-red-600" />
+                                <span>Delete Ticket</span>
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
           SECTION 3: ROLES & RBAC PERMISSIONS
          ======================================================== */}
       {activeSection === 'roles' && (
@@ -857,6 +1048,42 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               <button
                 onClick={handleDeleteUser}
                 className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+              >
+                Confirm Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ========================================================
+          MODAL: DELETE TICKET CONFIRMATION (ADMIN)
+         ======================================================== */}
+      {deletingTicket && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
+          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-red-200 animate-in zoom-in-95 duration-150">
+            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div className="text-center space-y-1">
+              <h3 className="text-base font-bold text-slate-900">
+                Delete Work Order #{deletingTicket.ticketNumber}?
+              </h3>
+              <p className="text-xs text-slate-500 leading-relaxed">
+                Are you sure you want to delete this repair order for <strong className="text-slate-800">{deletingTicket.customer.fullName}</strong>? Any inventory parts will be returned to stock.
+              </p>
+            </div>
+            <div className="flex items-center space-x-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingTicket(null)}
+                className="flex-1 py-2 border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-semibold cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteTicket}
+                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs"
               >
                 Confirm Delete
               </button>

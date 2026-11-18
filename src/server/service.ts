@@ -334,15 +334,12 @@ export async function updateTicket(id: string, input: unknown) {
 export async function deleteTicket(id: string) {
   await prisma.$transaction(async (tx) => {
     const t = await loadTicket(tx, id);
-    if (t.payments.length) {
-      throw new HttpError(409, 'This work order has payments recorded. Void the payments before deleting it.');
-    }
     // Return any inventory parts to stock.
     for (const item of t.items) {
       if (item.partId) await tx.inventoryPart.update({ where: { id: item.partId }, data: { stock: { increment: item.quantity } } });
     }
     await tx.ticket.update({ where: { id }, data: { deletedAt: new Date() } });
-    await logEvent(tx, id, 'SYSTEM', 'Work order deleted');
+    await logEvent(tx, id, 'SYSTEM', 'Work order deleted by administrator');
   });
   return { ok: true };
 }
