@@ -617,25 +617,25 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               </div>
 
               <div className="flex justify-between text-slate-600">
-                <span>Subtotal</span>
-                <span>${(totals.subtotalCents / 100).toFixed(2)}</span>
+                <span>Subtotal (Pre-Tax)</span>
+                <span className="font-mono font-medium">${(totals.subtotalCents / 100).toFixed(2)}</span>
               </div>
 
               {totals.discountCents > 0 && (
-                <div className="flex justify-between text-red-600 font-semibold">
+                <div className="flex justify-between text-rose-600 font-semibold">
                   <span>Discounts</span>
-                  <span>-${(totals.discountCents / 100).toFixed(2)}</span>
+                  <span className="font-mono">-${(totals.discountCents / 100).toFixed(2)}</span>
                 </div>
               )}
 
               <div className="flex justify-between text-slate-500">
-                <span>Tax ({((totals.taxRateBps || 1300) / 100).toFixed(1)}%)</span>
-                <span>+${(totals.taxCents / 100).toFixed(2)}</span>
+                <span>HST ({((totals.taxRateBps || 1300) / 100).toFixed(1)}%)</span>
+                <span className="font-mono">+${(totals.taxCents / 100).toFixed(2)}</span>
               </div>
 
               <div className="pt-2 border-t border-slate-200 flex justify-between font-bold text-sm text-indigo-900">
-                <span>Total</span>
-                <span>${(totals.totalCents / 100).toFixed(2)}</span>
+                <span>Total (Inc. Tax)</span>
+                <span className="font-mono font-bold">${(totals.totalCents / 100).toFixed(2)}</span>
               </div>
 
               <div className="flex justify-between font-bold text-slate-800">
