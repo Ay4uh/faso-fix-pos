@@ -1,9 +1,9 @@
 {
   "framework": "vite",
-  "buildCommand": "prisma generate && vite build",
+  "buildCommand": "prisma generate && vite build && vite build --ssr src/server/serverless.ts --outDir api",
   "outputDirectory": "dist",
   "functions": {
-    "api/**/*.ts": {
+    "api/**/*.js": {
       "includeFiles": "prisma/**"
     }
   },

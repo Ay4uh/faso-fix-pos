@@ -1,7 +1,7 @@
-import app from '../src/server/index';
-import { ensureDatabaseSchema } from '../src/server/initDb';
-import { ensureAdminProvisioning } from '../src/server/auth';
-import { configureSqlite } from '../src/server/backup';
+import app from './index';
+import { ensureDatabaseSchema } from './initDb';
+import { ensureAdminProvisioning } from './auth';
+import { configureSqlite } from './backup';
 
 let initialized = false;
 
