@@ -10,8 +10,9 @@ import { SendSmsModal } from './components/SendSmsModal';
 import { CustomersView } from './components/CustomersView';
 import { InventoryView } from './components/InventoryView';
 import { AnalyticsView } from './components/AnalyticsView';
+import { SettingsView } from './components/SettingsView';
 import { Ticket, Customer, DashboardStats } from './types';
-import { SlidersHorizontal, CheckCircle2 } from 'lucide-react';
+import { CheckCircle2 } from 'lucide-react';
 import { posAudio } from './utils/audio';
 
 export function App() {
@@ -287,51 +288,7 @@ export function App() {
 
           {/* 5. Shop Settings */}
           {currentTab === 'settings' && (
-            <div className="bg-white rounded-xl border border-slate-200 p-6 shadow-sm space-y-4 max-w-2xl">
-              <h2 className="text-base font-bold text-slate-900 flex items-center gap-2">
-                <SlidersHorizontal className="w-5 h-5 text-indigo-600" />
-                ApexFix System Configuration
-              </h2>
-              <div className="space-y-3 text-xs text-slate-600">
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <div>
-                    <span className="font-bold text-slate-800 block">Active Selected Workstation</span>
-                    <span className="text-slate-500">{selectedBench === 'ALL' ? 'All Shop Workstations' : selectedBench}</span>
-                  </div>
-                  <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded font-semibold text-[10px]">
-                    Online &amp; Active
-                  </span>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <div>
-                    <span className="font-bold text-slate-800 block">Database Storage</span>
-                    <span className="text-slate-500">ACID Relational SQLite with Prisma ORM</span>
-                  </div>
-                  <span className="px-2 py-1 bg-indigo-100 text-indigo-800 rounded font-semibold text-[10px]">
-                    Synced
-                  </span>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <div>
-                    <span className="font-bold text-slate-800 block">Default Hourly Diagnostic Rate</span>
-                    <span className="text-slate-500">Standard diagnostic &amp; soldering labor rate</span>
-                  </div>
-                  <span className="font-mono font-bold text-indigo-600 text-sm">$85.00 / hr</span>
-                </div>
-
-                <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 flex justify-between items-center">
-                  <div>
-                    <span className="font-bold text-slate-800 block">Sound &amp; Audio Feedback</span>
-                    <span className="text-slate-500">Native Web Audio scanner beeps &amp; cash chimes</span>
-                  </div>
-                  <span className="px-2 py-1 bg-emerald-100 text-emerald-800 rounded font-semibold text-[10px]">
-                    Active
-                  </span>
-                </div>
-              </div>
-            </div>
+            <SettingsView onSettingsUpdated={() => fetchData(true)} />
           )}
         </main>
       </div>
