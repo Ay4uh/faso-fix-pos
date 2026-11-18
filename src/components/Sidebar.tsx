@@ -223,14 +223,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 onLogout();
               }}
               title="Sign out of current account"
-              className="w-full py-2 px-3 bg-red-50 hover:bg-red-100 active:bg-red-200 border border-red-200 text-red-700 hover:text-red-800 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-2xs group"
+              className="w-full py-2.5 px-3 bg-rose-600 hover:bg-rose-700 active:bg-rose-800 text-white rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-rose-600/25 group"
             >
-              <LogOut className="w-3.5 h-3.5 text-red-600 group-hover:scale-110 transition-transform" />
+              <LogOut className="w-4 h-4 text-white group-hover:-translate-x-0.5 transition-transform" />
               <span>Log Out</span>
             </button>
           </div>
         ) : (
           <div className="space-y-2">
+            <button
+              type="button"
+              onClick={onLogout}
+              className="w-full py-2 px-3 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>Exit to Login</span>
+            </button>
             {/* Guest / Offline Mode Note */}
             <div className="p-2 bg-slate-50 rounded-xl border border-slate-200/80 flex items-center justify-between">
               <div className="flex items-center space-x-2">

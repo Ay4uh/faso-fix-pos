@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, List, Kanban, ArrowRight } from 'lucide-react';
-import { Ticket } from '../types';
+import { Search, Plus, Wrench, List, Kanban, ArrowRight, LogOut } from 'lucide-react';
+import { Ticket, User } from '../types';
 
 interface HeaderProps {
   currentTab: string;
@@ -11,6 +11,8 @@ interface HeaderProps {
   openCreateModal: () => void;
   tickets?: Ticket[];
   onSelectTicket?: (ticket: Ticket) => void;
+  currentUser?: User | null;
+  onLogout?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -22,6 +24,8 @@ export const Header: React.FC<HeaderProps> = ({
   openCreateModal,
   tickets = [],
   onSelectTicket,
+  currentUser,
+  onLogout,
 }) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -240,6 +244,29 @@ export const Header: React.FC<HeaderProps> = ({
           <Plus className="w-4 h-4" />
           <span className="hidden md:inline">New Ticket</span>
         </button>
+
+        {/* User Profile & Direct Logout Button */}
+        {currentUser && onLogout && (
+          <div className="flex items-center space-x-2 pl-2 border-l border-slate-200">
+            <div className="hidden xl:flex items-center space-x-2 px-2.5 py-1 bg-slate-100 rounded-lg border border-slate-200/80">
+              <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-bold">
+                {currentUser.name.charAt(0)}
+              </div>
+              <span className="text-xs font-semibold text-slate-800 max-w-[100px] truncate">
+                {currentUser.name}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onLogout}
+              title={`Sign out of ${currentUser.name}`}
+              className="inline-flex items-center space-x-1.5 px-3 py-2 bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-700 hover:text-red-800 border border-red-200 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 shadow-2xs group"
+            >
+              <LogOut className="w-3.5 h-3.5 text-red-600 group-hover:scale-110 transition-transform" />
+              <span>Log Out</span>
+            </button>
+          </div>
+        )}
       </div>
     </header>
   );

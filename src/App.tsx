@@ -91,22 +91,30 @@ export function App() {
     }
   }, [currentUser, currentTab]);
 
-  const handleLogout = async () => {
-    try {
-      await fetchWithAuth('/api/auth/logout', { method: 'POST' });
-    } catch (err) {
-      console.warn('[Logout Error]', err);
-    }
+  const handleLogout = () => {
+    // 1. Immediately wipe local auth credentials
     removeToken();
     localStorage.removeItem('apexfix_session_token');
     sessionStorage.clear();
+
+    // 2. Synchronously clear active user state to render LoginPage immediately
     setCurrentUser(null);
-    posAudio.playBeep();
-    showToast('Logged out successfully');
+    setSelectedTicket(null);
+    setPrintTicket(null);
+    setSmsTicket(null);
     if (currentTab === 'admin') {
       setCurrentTab('repairs');
     }
-    await fetchData(true);
+
+    // 3. Audio & Toast feedback
+    posAudio.playBeep();
+    showToast('Logged out successfully');
+
+    // 4. Background fire-and-forget notification to server (never blocks UI)
+    fetch('/api/auth/logout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    }).catch(() => {});
   };
 
   const handleDeleteTicket = async (ticketId: string) => {
@@ -414,6 +422,8 @@ export function App() {
         openCreateModal={() => setIsCreateModalOpen(true)}
         tickets={tickets}
         onSelectTicket={handleSelectTicket}
+        currentUser={currentUser}
+        onLogout={handleLogout}
       />
 
       {/* Main Layout Area */}
