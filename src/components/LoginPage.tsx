@@ -70,14 +70,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
   const handleFillStandardTech = () => {
     setIsAdminMode(false);
     setUsernameOrEmail('tech');
-    setPassword('Tech@ApexFix2026!');
+    if (import.meta.env.DEV) setPassword('Tech@ApexFix2026!');
     setErrorMessage(null);
   };
 
   const handleFillAdmin = () => {
     setIsAdminMode(true);
     setUsernameOrEmail('admin');
-    setPassword('Admin@ApexFix2026!');
+    if (import.meta.env.DEV) setPassword('Admin@ApexFix2026!');
     setErrorMessage(null);
   };
 
@@ -260,9 +260,10 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
             </button>
           </form>
 
-          {/* Demo Account Fill Helper (For fast verification) */}
+          {/* Demo Account Fill Helper — dev builds only, stripped from production */}
+          {import.meta.env.DEV && (
           <div className="px-6 py-3 bg-slate-950/60 border-t border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
-            <span className="font-semibold text-slate-500">Fast Demo Fill:</span>
+            <span className="font-semibold text-slate-500">Dev Demo Fill:</span>
             <div className="flex items-center gap-2">
               <button
                 type="button"
@@ -280,6 +281,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
               </button>
             </div>
           </div>
+          )}
         </div>
 
         {/* Security & Access Policies Footnote */}

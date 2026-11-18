@@ -44,6 +44,7 @@ import {
   getAdminOverview,
 } from './service';
 import { authenticateSession, ensureAdminProvisioning, recordAudit } from './auth';
+import { configureSqlite, createBackup, listBackups, resolveBackup, startBackupSchedule } from './backup';
 
 declare global {
   namespace Express {
@@ -174,10 +175,35 @@ app.get('/api/live/stream', (req: Request, res: Response) => {
 // Authentication & Current User Profile Routes
 // ---------------------------------------------------------------------------
 
+// Brute-force protection: max 5 failed attempts per IP+username per 15 minutes
+const LOGIN_WINDOW_MS = 15 * 60_000;
+const LOGIN_MAX_FAILS = 5;
+const loginFails = new Map<string, { count: number; first: number }>();
+
 app.post('/api/auth/login', wrap(async (req, res) => {
   const ip = req.ip || req.socket.remoteAddress || 'unknown';
-  const result = await loginUser(req.body, ip);
-  res.json({ success: true, ...result });
+  const who = String(req.body?.usernameOrEmail || '').trim().toLowerCase();
+  const key = `${ip}|${who}`;
+  const now = Date.now();
+  const rec = loginFails.get(key);
+  if (rec && now - rec.first > LOGIN_WINDOW_MS) loginFails.delete(key);
+  const cur = loginFails.get(key);
+  if (cur && cur.count >= LOGIN_MAX_FAILS) {
+    const mins = Math.ceil((LOGIN_WINDOW_MS - (now - cur.first)) / 60_000);
+    return res.status(429).json({ success: false, error: `Too many failed attempts. Try again in ${mins} minute(s).` });
+  }
+  try {
+    const result = await loginUser(req.body, ip);
+    loginFails.delete(key);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 401) {
+      const r = loginFails.get(key) || { count: 0, first: now };
+      r.count += 1;
+      loginFails.set(key, r);
+    }
+    throw err;
+  }
 }));
 
 app.post('/api/auth/logout', wrap(async (req, res) => {
@@ -557,6 +583,27 @@ app.get('/api/export/tickets', requireAuth, wrap(async (_req, res) => {
 }));
 
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Database Backups (Admin only)
+// ---------------------------------------------------------------------------
+
+app.get('/api/admin/backups', requireAdmin, (_req, res) => {
+  res.json({ success: true, data: listBackups() });
+});
+
+app.post('/api/admin/backups', requireAdmin, wrap(async (req, res) => {
+  const info = await createBackup('manual');
+  await recordAudit({ userId: req.user!.id, actorName: req.user!.name, action: 'BACKUP_CREATED', details: info.file });
+  res.json({ success: true, data: info });
+}));
+
+app.get('/api/admin/backups/:file', requireAdmin, (req, res) => {
+  const full = resolveBackup(getParam(req, 'file'));
+  if (!full) return res.status(404).json({ success: false, error: 'Backup not found' });
+  res.download(full);
+});
+
+// ---------------------------------------------------------------------------
 // Central Error Handler
 // ---------------------------------------------------------------------------
 
@@ -570,14 +617,16 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     return res.status(400).json({ success: false, error: message || 'Invalid input', details: err.flatten() });
   }
   console.error('[API Error]', err);
-  return res.status(500).json({ success: false, error: err.message || 'Internal server error' });
+  return res.status(500).json({ success: false, error: 'Internal server error' });
 });
 
 app.listen(PORT, async () => {
   console.log(`[ApexFix API] Running on http://localhost:${PORT}`);
   try {
+    await configureSqlite();
     await ensureAdminProvisioning();
+    if (process.env.NODE_ENV !== 'test') startBackupSchedule();
   } catch (err) {
-    console.error('[Admin Provisioning Error]', err);
+    console.error('[Startup Error]', err);
   }
 });

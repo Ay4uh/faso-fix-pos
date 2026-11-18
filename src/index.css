@@ -22,3 +22,9 @@ body {
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+
+/* Letter/invoice print: hide the whole app, show only the print modal */
+@media print {
+  body.printing-modal #root > div > *:not(:has([data-print-root])):not([data-print-root]) { display: none !important; }
+  body.printing-modal [data-print-root] { position: static !important; inset: auto !important; }
+}

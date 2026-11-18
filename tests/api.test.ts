@@ -1,0 +1,165 @@
+/**
+ * ApexFix end-to-end API + unit tests.
+ * Run with the API server running on :4000:   npm test
+ */
+import { test, describe, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { buildReceiptHtml } from '../src/utils/receipt';
+
+const API = process.env.API_URL || 'http://localhost:4000';
+const TECH = { usernameOrEmail: 'tech', password: 'Tech@ApexFix2026!' };
+const ADMIN = { usernameOrEmail: 'admin', password: 'Admin@ApexFix2026!' };
+
+async function call(path: string, opts: { method?: string; token?: string; body?: unknown } = {}) {
+  const res = await fetch(API + path, {
+    method: opts.method || 'GET',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(opts.token ? { Authorization: `Bearer ${opts.token}` } : {}),
+    },
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  const text = await res.text();
+  let json: any = null;
+  try { json = JSON.parse(text); } catch {}
+  return { status: res.status, json };
+}
+
+async function login(creds: object, adminMode = false) {
+  const r = await call('/api/auth/login', { method: 'POST', body: { ...creds, adminMode } });
+  assert.equal(r.status, 200, `login failed: ${JSON.stringify(r.json)}`);
+  return r.json.token as string;
+}
+
+describe('Authentication & access control', () => {
+  test('unauthenticated requests to POS data are rejected', async () => {
+    for (const p of ['/api/tickets', '/api/customers', '/api/stats', '/api/settings', '/api/inventory']) {
+      assert.equal((await call(p)).status, 401, p);
+    }
+  });
+
+  test('wrong password returns 401 with a generic message', async () => {
+    const r = await call('/api/auth/login', { method: 'POST', body: { usernameOrEmail: 'tech', password: 'nope' } });
+    assert.equal(r.status, 401);
+    assert.match(r.json.error, /Invalid username\/email or password/);
+  });
+
+  test('brute-force lockout after 5 failures', async () => {
+    const user = `ghost_${Date.now()}`;
+    for (let i = 0; i < 5; i++) {
+      const r = await call('/api/auth/login', { method: 'POST', body: { usernameOrEmail: user, password: 'x' } });
+      assert.equal(r.status, 401);
+    }
+    const locked = await call('/api/auth/login', { method: 'POST', body: { usernameOrEmail: user, password: 'x' } });
+    assert.equal(locked.status, 429);
+  });
+
+  test('technician cannot use Admin Mode', async () => {
+    const r = await call('/api/auth/login', { method: 'POST', body: { ...TECH, adminMode: true } });
+    assert.equal(r.status, 403);
+  });
+
+  test('technician is blocked from admin endpoints', async () => {
+    const t = await login(TECH);
+    assert.equal((await call('/api/admin/users', { token: t })).status, 403);
+    assert.equal((await call('/api/admin/backups', { token: t })).status, 403);
+    assert.equal((await call('/api/settings', { method: 'PUT', token: t, body: { shopName: 'x' } })).status, 403);
+  });
+
+  test('logout revokes the session on the server', async () => {
+    const t = await login(TECH);
+    assert.equal((await call('/api/auth/me', { token: t })).json.authenticated, true);
+    await call('/api/auth/logout', { method: 'POST', token: t });
+    assert.equal((await call('/api/auth/me', { token: t })).json.authenticated, false);
+    assert.equal((await call('/api/tickets', { token: t })).status, 401);
+  });
+});
+
+describe('Tickets', () => {
+  let tech = '';
+  let admin = '';
+  let ticketId = '';
+
+  before(async () => {
+    tech = await login(TECH);
+    admin = await login(ADMIN, true);
+  });
+
+  test('technician creates a ticket with optional alt phone', async () => {
+    const r = await call('/api/tickets', {
+      method: 'POST',
+      token: tech,
+      body: {
+        customer: { fullName: 'Test Runner', phone: '(555) 000-1111', altPhone: '(555) 000-2222' },
+        device: { name: 'iPhone 13', passcode: '1234' },
+        faultDescription: 'Automated test ticket',
+        laborCents: 0,
+      },
+    });
+    assert.equal(r.status, 201, JSON.stringify(r.json));
+    ticketId = r.json.data.id;
+    assert.ok(ticketId);
+    assert.equal(r.json.data.customer.altPhone, '(555) 000-2222');
+  });
+
+  test('missing required fields are rejected', async () => {
+    const r = await call('/api/tickets', { method: 'POST', token: tech, body: { customer: {}, device: {} } });
+    assert.equal(r.status, 400);
+  });
+
+  test('technician cannot delete tickets', async () => {
+    assert.equal((await call(`/api/tickets/${ticketId}`, { method: 'DELETE', token: tech })).status, 403);
+  });
+
+  test('admin can delete tickets', async () => {
+    assert.equal((await call(`/api/tickets/${ticketId}`, { method: 'DELETE', token: admin })).status, 200);
+  });
+});
+
+describe('Database backups', () => {
+  test('admin can create and list backups', async () => {
+    const admin = await login(ADMIN, true);
+    const c = await call('/api/admin/backups', { method: 'POST', token: admin });
+    assert.equal(c.status, 200, JSON.stringify(c.json));
+    assert.ok(c.json.data.sizeBytes > 0);
+    const l = await call('/api/admin/backups', { token: admin });
+    assert.ok(l.json.data.some((b: any) => b.file === c.json.data.file));
+  });
+
+  test('backup download rejects path traversal', async () => {
+    const admin = await login(ADMIN, true);
+    const r = await call('/api/admin/backups/..%2F.env', { token: admin });
+    assert.equal(r.status, 404);
+  });
+});
+
+describe('Receipt builder (unit)', () => {
+  const ticket: any = {
+    ticketNumber: 42, laborCents: 5000, taxRateBps: 1300, faultDescription: 'Cracked <screen>',
+    customer: { fullName: 'Jane', phone: '555' }, device: { name: 'Pixel 8', passcode: 'SECRET-PIN' },
+    items: [{ description: 'Screen', quantity: 1, unitPriceCents: 10000 }],
+    payments: [{ method: 'CASH', amountCents: 2000, createdAt: new Date().toISOString() }],
+    events: [
+      { kind: 'CUSTOMER_NOTE', message: 'Replaced display' },
+      { kind: 'INTERNAL_NOTE', message: 'PRIVATE bench note' },
+    ],
+    totals: { subtotalCents: 15000, discountCents: 0, taxRateBps: 1300, taxCents: 1950, totalCents: 16950, paidCents: 2000, balanceCents: 14950 },
+  };
+  const html = buildReceiptHtml(ticket, { shopName: 'ApexFix', taxLabel: 'HST' });
+
+  test('includes totals and public notes', () => {
+    assert.match(html, /\$169\.50/);
+    assert.match(html, /\$149\.50/);
+    assert.match(html, /Replaced display/);
+    assert.match(html, /HST \(13\.00%\)/);
+  });
+
+  test('never leaks private bench notes or passcodes', () => {
+    assert.doesNotMatch(html, /PRIVATE bench note/);
+    assert.doesNotMatch(html, /SECRET-PIN/);
+  });
+
+  test('escapes HTML in user input', () => {
+    assert.match(html, /Cracked &lt;screen&gt;/);
+  });
+});

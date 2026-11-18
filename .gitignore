@@ -4,3 +4,4 @@ dist
 *.db-journal
 .env
 test-results
+backups/

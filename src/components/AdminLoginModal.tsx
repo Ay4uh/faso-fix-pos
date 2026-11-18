@@ -62,7 +62,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
   const handleFillDemoAdmin = () => {
     setUsernameOrEmail('admin');
-    setPassword('Admin@ApexFix2026!');
+    if (import.meta.env.DEV) setPassword('Admin@ApexFix2026!');
     setErrorMessage(null);
   };
 
@@ -146,8 +146,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             </div>
           </div>
 
-          {/* Quick Default Admin Credentials Tip */}
-          <div className="p-3 bg-indigo-50/70 border border-indigo-100/90 rounded-xl text-xs text-indigo-900 flex items-center justify-between">
+          {/* Quick Default Admin Credentials Tip — dev only */}
+          {import.meta.env.DEV && (<div className="p-3 bg-indigo-50/70 border border-indigo-100/90 rounded-xl text-xs text-indigo-900 flex items-center justify-between">
             <div className="space-y-0.5">
               <span className="font-bold flex items-center gap-1 text-[11px] text-indigo-800">
                 <KeyRound className="w-3.5 h-3.5" />
@@ -164,7 +164,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             >
               Fill Credentials
             </button>
-          </div>
+          </div>)}
 
           <div className="pt-2 flex items-center justify-end space-x-2.5">
             <button
