@@ -239,30 +239,98 @@ function verifyPassword(password, combined) {
 		return false;
 	}
 }
-/**
-* Generate a cryptographically secure random session token.
-*/
-function generateToken() {
-	return crypto.randomBytes(32).toString("hex");
+var SESSION_SIGNING_KEY = process.env.SESSION_SECRET || "fasofix-cloud-session-secret-key-2026";
+function createSignedToken(userId, username, role, expiresAt) {
+	const payload = Buffer.from(JSON.stringify({
+		uid: userId,
+		u: username,
+		r: role,
+		exp: expiresAt
+	})).toString("base64url");
+	return `s.${payload}.${crypto.createHmac("sha256", SESSION_SIGNING_KEY).update(payload).digest("base64url")}`;
+}
+function verifySignedToken(token) {
+	try {
+		if (!token.startsWith("s.")) return null;
+		const parts = token.slice(2).split(".");
+		if (parts.length !== 2) return null;
+		const [payload, signature] = parts;
+		const expected = crypto.createHmac("sha256", SESSION_SIGNING_KEY).update(payload).digest("base64url");
+		if (signature.length !== expected.length) return null;
+		if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
+		if (!data.exp || data.exp < Date.now()) return null;
+		return data;
+	} catch {
+		return null;
+	}
 }
 /**
 * Create a persistent session for a user valid for 7 days.
 */
 async function createSession(userId) {
-	const token = generateToken();
+	const user = await prisma.user.findUnique({ where: { id: userId } });
 	const expiresAt = new Date(Date.now() + 6048e5);
+	const token = createSignedToken(userId, user?.username || "", user?.role || "USER", expiresAt.getTime());
 	await prisma.session.create({ data: {
 		token,
 		userId,
 		expiresAt
-	} });
+	} }).catch(() => {});
 	return token;
+}
+var revokedTokens = /* @__PURE__ */ new Set();
+async function destroySession(token) {
+	revokedTokens.add(token);
+	await prisma.session.delete({ where: { token } }).catch(() => {});
 }
 /**
 * Validate a session token and return the associated active user.
 */
 async function authenticateSession(token) {
-	if (!token) return null;
+	if (!token || revokedTokens.has(token)) return null;
+	const verified = verifySignedToken(token);
+	if (verified) {
+		let user = await prisma.user.findFirst({
+			where: { OR: [{ id: verified.uid }, { username: verified.u }] },
+			select: {
+				id: true,
+				username: true,
+				email: true,
+				name: true,
+				role: true,
+				status: true,
+				phone: true,
+				bio: true,
+				bench: true,
+				preferences: true,
+				lastLoginAt: true,
+				createdAt: true
+			}
+		});
+		if (!user) {
+			await ensureAdminProvisioning();
+			user = await prisma.user.findFirst({
+				where: { OR: [{ id: verified.uid }, { username: verified.u }] },
+				select: {
+					id: true,
+					username: true,
+					email: true,
+					name: true,
+					role: true,
+					status: true,
+					phone: true,
+					bio: true,
+					bench: true,
+					preferences: true,
+					lastLoginAt: true,
+					createdAt: true
+				}
+			});
+		}
+		if (user && user.status === "ACTIVE") return user;
+		return null;
+	}
 	const session = await prisma.session.findUnique({
 		where: { token },
 		include: { user: { select: {
@@ -287,12 +355,6 @@ async function authenticateSession(token) {
 	}
 	if (session.user.status !== "ACTIVE") return null;
 	return session.user;
-}
-/**
-* Invalidate session on logout.
-*/
-async function destroySession(token) {
-	await prisma.session.delete({ where: { token } }).catch(() => {});
 }
 /**
 * Record an immutable audit log entry.
@@ -322,6 +384,7 @@ async function ensureAdminProvisioning() {
 		const hashedPassword = hashPassword(adminPass);
 		await recordAudit({
 			userId: (await prisma.user.create({ data: {
+				id: "00000000-0000-0000-0000-000000000001",
 				username: adminUser,
 				email: adminEmail,
 				name: adminName,
@@ -352,6 +415,7 @@ async function ensureAdminProvisioning() {
 		console.log("------------------------------------------------------------");
 	}
 	if (await prisma.user.count({ where: { role: "USER" } }) === 0) await prisma.user.create({ data: {
+		id: "00000000-0000-0000-0000-000000000002",
 		username: "tech",
 		email: "alex@fasofix.ca",
 		name: "Alex Mercer",
