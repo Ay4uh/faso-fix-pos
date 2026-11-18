@@ -10,10 +10,12 @@ import {
   Hash,
   Check,
   Search,
+  Grid3X3,
 } from 'lucide-react';
 import { Customer } from '../types';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
+import { PatternLockModal, PatternLockPreview } from './PatternLockModal';
 
 interface CreateTicketModalProps {
   isOpen: boolean;
@@ -40,6 +42,8 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   // 2. Essential Device Data
   const [deviceName, setDeviceName] = useState('');
   const [passcode, setPasscode] = useState('');
+  const [pattern, setPattern] = useState('');
+  const [isPatternModalOpen, setIsPatternModalOpen] = useState(false);
   const [serialNumber, setSerialNumber] = useState('');
 
   // 3. Reported Issue
@@ -128,6 +132,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
           device: {
             name: deviceName.trim(),
             passcode: passcode.trim() || undefined,
+            pattern: pattern.trim() || undefined,
             serialNumber: serialNumber.trim() || undefined,
           },
           faultDescription: issue.trim() || 'Device Diagnostics & Inspection',
@@ -295,12 +300,22 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                 />
               </div>
 
-              {/* Passcode / Password */}
+              {/* Passcode / Password & Pattern Lock */}
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
-                  <Lock className="w-3.5 h-3.5 text-slate-400" />
-                  Device Password / PIN
-                </label>
+                <div className="flex items-center justify-between">
+                  <label className="text-xs font-semibold text-slate-700 flex items-center gap-1">
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    PIN / Password
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setIsPatternModalOpen(true)}
+                    className="text-[11px] text-purple-600 hover:text-purple-800 font-semibold flex items-center gap-1 cursor-pointer transition"
+                  >
+                    <Grid3X3 className="w-3 h-3" />
+                    <span>{pattern ? 'Edit Pattern' : '+ Pattern Lock'}</span>
+                  </button>
+                </div>
                 <input
                   type="text"
                   value={passcode}
@@ -308,6 +323,23 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                   placeholder="e.g. 1234 or None"
                   className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 font-mono transition"
                 />
+                {pattern && (
+                  <div className="flex items-center justify-between px-2.5 py-1.5 bg-purple-50 border border-purple-200/90 rounded-lg text-xs text-purple-800 mt-1">
+                    <div className="flex items-center gap-2">
+                      <PatternLockPreview pattern={pattern} size={16} />
+                      <span className="font-medium text-[11px]">
+                        Pattern: <strong className="font-mono">{pattern}</strong>
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPattern('')}
+                      className="text-purple-500 hover:text-purple-800 text-[11px] font-semibold cursor-pointer"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -364,6 +396,14 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
           </div>
         </form>
       </div>
+
+      <PatternLockModal
+        isOpen={isPatternModalOpen}
+        initialPattern={pattern}
+        deviceName={deviceName.trim() || 'New Device'}
+        onClose={() => setIsPatternModalOpen(false)}
+        onSave={(newPat) => setPattern(newPat)}
+      />
     </div>
   );
 };

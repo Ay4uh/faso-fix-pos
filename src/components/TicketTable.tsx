@@ -230,11 +230,23 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                         {/* Device */}
                         <td className="py-2 px-3.5">
                           <div className="font-bold text-slate-900 leading-tight">{ticket.device?.name || 'Device'}</div>
-                          {ticket.device?.serialNumber && (
-                            <div className="text-[11px] font-mono text-slate-600 font-medium truncate max-w-[130px] mt-0.5">
-                              SN: {ticket.device.serialNumber}
-                            </div>
-                          )}
+                          <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
+                            {ticket.device?.serialNumber && (
+                              <span className="text-[11px] font-mono text-slate-600 font-medium truncate max-w-[120px]">
+                                SN: {ticket.device.serialNumber}
+                              </span>
+                            )}
+                            {ticket.device?.pattern && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-purple-50 text-purple-700 border border-purple-200/80" title={`Pattern: ${ticket.device.pattern}`}>
+                                Pattern: {ticket.device.pattern}
+                              </span>
+                            )}
+                            {ticket.device?.passcode && (
+                              <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-mono font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200/80" title="Device PIN available">
+                                PIN
+                              </span>
+                            )}
+                          </div>
                         </td>
 
                         {/* Fault */}

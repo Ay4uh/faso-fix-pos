@@ -20,10 +20,12 @@ import {
   Mail,
   PenTool,
   Pencil,
+  Grid3X3,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
 import { SignaturePad } from './SignaturePad';
+import { PatternLockModal, PatternLockPreview } from './PatternLockModal';
 
 interface InventoryItem {
   id: string;
@@ -60,6 +62,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   useEffect(() => {
     setTicket(initialTicket);
     setPasscode(initialTicket.device?.passcode || '');
+    setPattern(initialTicket.device?.pattern || '');
     setDiscountInput(
       ((initialTicket.totals ? initialTicket.totals.discountCents : initialTicket.discountCents) / 100).toFixed(2)
     );
@@ -100,6 +103,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
   // Security
   const [passcode, setPasscode] = useState(ticket.device?.passcode || '');
+  const [pattern, setPattern] = useState(ticket.device?.pattern || '');
+  const [isPatternModalOpen, setIsPatternModalOpen] = useState(false);
   const [isSavingSecurity, setIsSavingSecurity] = useState(false);
   const [securitySaved, setSecuritySaved] = useState(false);
 
@@ -169,7 +174,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const isPaidInFull = totals.totalCents > 0 && totals.paidCents >= totals.totalCents;
   const hasDepositCredit = totals.totalCents === 0 && totals.paidCents > 0;
 
-  const handleSaveSecurity = async () => {
+  const handleSaveSecurity = async (newPasscode = passcode, newPattern = pattern) => {
     setIsSavingSecurity(true);
     try {
       const res = await fetchWithAuth(`/api/tickets/${ticket.id}`, {
@@ -177,7 +182,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           device: {
-            passcode,
+            passcode: newPasscode,
+            pattern: newPattern,
           },
         }),
       });
@@ -188,7 +194,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       setSecuritySaved(true);
       setTimeout(() => setSecuritySaved(false), 2000);
     } catch {
-      alert('Failed to save device PIN');
+      alert('Failed to save device security details');
     } finally {
       setIsSavingSecurity(false);
     }
@@ -855,31 +861,57 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   )}
                 </div>
 
-                {/* Subtle Passcode Micro-Action */}
-                <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-100">
-                  <Lock className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="text-xs text-slate-500 font-medium">PIN / Password:</span>
-                  <input
-                    type="text"
-                    value={passcode}
-                    onChange={(e) => setPasscode(e.target.value)}
-                    onBlur={handleSaveSecurity}
-                    placeholder="None"
-                    className="w-24 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-indigo-600"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSaveSecurity}
-                    disabled={isSavingSecurity}
-                    className="p-1 text-slate-400 hover:text-emerald-600 rounded transition"
-                    title="Save PIN"
-                  >
-                    {securitySaved ? (
-                      <Check className="w-3.5 h-3.5 text-emerald-600" />
-                    ) : (
-                      <Check className="w-3.5 h-3.5" />
-                    )}
-                  </button>
+                {/* Security Credentials: PIN / Password & Pattern Lock */}
+                <div className="flex flex-wrap items-center gap-2">
+                  {/* Subtle Passcode Micro-Action */}
+                  <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200/80">
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    <span className="text-xs text-slate-600 font-medium">PIN / Password:</span>
+                    <input
+                      type="text"
+                      value={passcode}
+                      onChange={(e) => setPasscode(e.target.value)}
+                      onBlur={() => handleSaveSecurity(passcode, pattern)}
+                      placeholder="None"
+                      className="w-24 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-indigo-600"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleSaveSecurity(passcode, pattern)}
+                      disabled={isSavingSecurity}
+                      className="p-1 text-slate-400 hover:text-emerald-600 rounded transition cursor-pointer"
+                      title="Save PIN"
+                    >
+                      {securitySaved ? (
+                        <Check className="w-3.5 h-3.5 text-emerald-600" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Pattern Lock Micro-Trigger */}
+                  {pattern ? (
+                    <button
+                      type="button"
+                      onClick={() => setIsPatternModalOpen(true)}
+                      className="flex items-center gap-2 bg-purple-50 hover:bg-purple-100/90 text-purple-800 border border-purple-200/90 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
+                      title="Click to view or edit full 3x3 pattern swipe"
+                    >
+                      <PatternLockPreview pattern={pattern} size={18} />
+                      <span>Pattern: <strong className="font-mono">{pattern}</strong></span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsPatternModalOpen(true)}
+                      className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border border-slate-200/80 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
+                      title="Record 3x3 Android pattern lock"
+                    >
+                      <Grid3X3 className="w-3.5 h-3.5 text-slate-400" />
+                      <span>+ Pattern Lock</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1943,6 +1975,17 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           </div>
         </div>
       )}
+      {/* Interactive 3x3 Android Pattern Lock Modal */}
+      <PatternLockModal
+        isOpen={isPatternModalOpen}
+        initialPattern={pattern}
+        deviceName={ticket.device?.name || 'Device'}
+        onClose={() => setIsPatternModalOpen(false)}
+        onSave={(newPat) => {
+          setPattern(newPat);
+          handleSaveSecurity(passcode, newPat);
+        }}
+      />
     </div>
   );
 };

@@ -185,6 +185,37 @@ describe('Faso Fix POS - Complete Pre-Release Testing Suite', () => {
       assert.equal(res.json.data.device.passcode, 'VaultPass2026!');
     });
 
+    test('Device security: record and update 3x3 Android pattern lock and PIN', async () => {
+      // 1. Update pattern and PIN on ticket
+      const updatePat = await call(`/api/tickets/${ticketId}`, {
+        method: 'PUT',
+        token: techToken,
+        body: {
+          device: {
+            passcode: '4321',
+            pattern: '1-2-5-8-9',
+          },
+        },
+      });
+      assert.equal(updatePat.status, 200);
+      assert.equal(updatePat.json.data.device.passcode, '4321');
+      assert.equal(updatePat.json.data.device.pattern, '1-2-5-8-9');
+
+      // 2. Update to new pattern sequence and verify PIN is preserved
+      const updatePat2 = await call(`/api/tickets/${ticketId}`, {
+        method: 'PUT',
+        token: techToken,
+        body: {
+          device: {
+            pattern: '1-4-7-8-9',
+          },
+        },
+      });
+      assert.equal(updatePat2.status, 200);
+      assert.equal(updatePat2.json.data.device.pattern, '1-4-7-8-9');
+      assert.equal(updatePat2.json.data.device.passcode, '4321');
+    });
+
     test('Progress repair status through complete lifecycle flow', async () => {
       const stages = [
         'DIAGNOSING',
