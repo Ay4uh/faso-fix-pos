@@ -3735,7 +3735,8 @@ app.use((err, _req, res, _next) => {
 	console.error("[API Error]", err);
 	return res.status(500).json({
 		success: false,
-		error: "Internal server error"
+		error: err?.message || "Internal server error",
+		details: err?.stack || String(err)
 	});
 });
 if (!process.env.VERCEL) app.listen(PORT, async () => {

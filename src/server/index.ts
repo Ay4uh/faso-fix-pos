@@ -837,7 +837,11 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     return res.status(400).json({ success: false, error: message || 'Invalid input', details: err.flatten() });
   }
   console.error('[API Error]', err);
-  return res.status(500).json({ success: false, error: 'Internal server error' });
+  return res.status(500).json({
+    success: false,
+    error: err?.message || 'Internal server error',
+    details: err?.stack || String(err),
+  });
 });
 
 export { app };
