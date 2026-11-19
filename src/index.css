@@ -23,8 +23,62 @@ body {
   background: #94a3b8;
 }
 
-/* Letter/invoice print: hide the whole app, show only the print modal */
+/* Print styling: ensure instant, crisp preview generation without pagination freeze */
 @media print {
-  body.printing-modal #root > div > *:not(:has([data-print-root])):not([data-print-root]) { display: none !important; }
-  body.printing-modal [data-print-root] { position: static !important; inset: auto !important; }
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  /* Reset app container flex and min-h-screen which break print pagination */
+  #root,
+  #root > div {
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 0 !important;
+    display: block !important;
+    position: static !important;
+    background: #ffffff !important;
+  }
+
+  /* Hide app navigation, headers, and UI elements during modal print */
+  body.printing-modal #root > div > *:not(:has([data-print-root])):not([data-print-root]),
+  .print\:hidden {
+    display: none !important;
+  }
+
+  /* Unravel modal backdrop into flat printable page */
+  [data-print-root] {
+    position: static !important;
+    inset: auto !important;
+    overflow: visible !important;
+    background: transparent !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+    width: 100% !important;
+    max-width: none !important;
+    box-shadow: none !important;
+  }
+
+  [data-print-card] {
+    box-shadow: none !important;
+    border: none !important;
+    overflow: visible !important;
+    border-radius: 0 !important;
+    max-width: none !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+
+  @page {
+    size: auto;
+    margin: 10mm;
+  }
 }

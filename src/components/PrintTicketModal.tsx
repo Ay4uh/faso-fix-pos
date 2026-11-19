@@ -17,7 +17,7 @@ import {
   MapPin,
 } from 'lucide-react';
 import { Barcode } from './Barcode';
-import { printReceipt } from '../utils/receipt';
+import { printReceipt, printBenchSlip, printLetterInvoice } from '../utils/receipt';
 
 interface PrintTicketModalProps {
   ticket: Ticket | null;
@@ -45,9 +45,28 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
   const isPaid = totals.balanceCents <= 0;
   const woBarcode = `WO-${String(ticket.ticketNumber).padStart(4, '0')}`;
 
+  const handlePrint = async () => {
+    try {
+      if (paperFormat === 'letter') {
+        await printLetterInvoice(ticket);
+      } else {
+        await printBenchSlip(ticket);
+      }
+    } catch (err) {
+      console.error('[Print Failure Fallback to Window]', err);
+      document.body.classList.add('printing-modal');
+      const cleanup = () => {
+        document.body.classList.remove('printing-modal');
+        window.removeEventListener('afterprint', cleanup);
+      };
+      window.addEventListener('afterprint', cleanup);
+      window.print();
+    }
+  };
+
   return (
     <div data-print-root className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white print:overflow-visible">
-      <div className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto print:border-none print:shadow-none print:max-w-none print:rounded-none">
+      <div data-print-card className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto print:border-none print:shadow-none print:max-w-none print:rounded-none print:overflow-visible print:my-0">
         {/* Interactive Top Control Bar (Hidden during window.print) */}
         <div className="px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50 print:hidden">
           <div className="flex items-center gap-2">
@@ -108,15 +127,11 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             </button>
             <button
               type="button"
-              onClick={() => {
-                document.body.classList.add('printing-modal');
-                window.print();
-                setTimeout(() => document.body.classList.remove('printing-modal'), 500);
-              }}
+              onClick={handlePrint}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-xs cursor-pointer transition"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print</span>
+              <span>Print {paperFormat === 'letter' ? 'Letter' : 'Slip'}</span>
             </button>
 
             <button
