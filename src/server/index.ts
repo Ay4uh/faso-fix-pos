@@ -630,32 +630,32 @@ app.get('/api/admin/backups/:file', requireAdmin, (req, res) => {
 // Employee Time Clock & Paystub Routes
 // ---------------------------------------------------------------------------
 
-app.get('/api/timeclock/status', authenticateSession, wrap(async (req, res) => {
+app.get('/api/timeclock/status', requireAuth, wrap(async (req, res) => {
   const status = await payrollService.getTimeClockStatus(req.user!.id);
   res.json({ success: true, data: status });
 }));
 
-app.post('/api/timeclock/clock-in', authenticateSession, wrap(async (req, res) => {
+app.post('/api/timeclock/clock-in', requireAuth, wrap(async (req, res) => {
   const shift = await payrollService.clockIn(req.user!.id, req.body?.notes);
   res.json({ success: true, data: shift });
 }));
 
-app.post('/api/timeclock/clock-out', authenticateSession, wrap(async (req, res) => {
+app.post('/api/timeclock/clock-out', requireAuth, wrap(async (req, res) => {
   const shift = await payrollService.clockOut(req.user!.id, req.body?.notes);
   res.json({ success: true, data: shift });
 }));
 
-app.post('/api/timeclock/break-start', authenticateSession, wrap(async (req, res) => {
+app.post('/api/timeclock/break-start', requireAuth, wrap(async (req, res) => {
   const brk = await payrollService.startBreak(req.user!.id, req.body?.type);
   res.json({ success: true, data: brk });
 }));
 
-app.post('/api/timeclock/break-end', authenticateSession, wrap(async (req, res) => {
+app.post('/api/timeclock/break-end', requireAuth, wrap(async (req, res) => {
   const brk = await payrollService.endBreak(req.user!.id);
   res.json({ success: true, data: brk });
 }));
 
-app.get('/api/timeclock/my-shifts', authenticateSession, wrap(async (req, res) => {
+app.get('/api/timeclock/my-shifts', requireAuth, wrap(async (req, res) => {
   const shifts = await payrollService.getMyShifts(req.user!.id, {
     startDate: req.query.startDate as string,
     endDate: req.query.endDate as string,
@@ -664,18 +664,18 @@ app.get('/api/timeclock/my-shifts', authenticateSession, wrap(async (req, res) =
   res.json({ success: true, data: shifts });
 }));
 
-app.get('/api/timeclock/my-paystubs', authenticateSession, wrap(async (req, res) => {
+app.get('/api/timeclock/my-paystubs', requireAuth, wrap(async (req, res) => {
   const paystubs = await payrollService.getMyPaystubs(req.user!.id);
   res.json({ success: true, data: paystubs });
 }));
 
-app.get('/api/timeclock/my-paystubs/:id', authenticateSession, wrap(async (req, res) => {
+app.get('/api/timeclock/my-paystubs/:id', requireAuth, wrap(async (req, res) => {
   const isAdmin = req.user!.role === 'ADMIN';
   const paystub = await payrollService.getMyPaystub(req.user!.id, getParam(req, 'id'), isAdmin);
   res.json({ success: true, data: paystub });
 }));
 
-app.get('/api/timeclock/my-paystubs/:id/html', authenticateSession, wrap(async (req, res) => {
+app.get('/api/timeclock/my-paystubs/:id/html', requireAuth, wrap(async (req, res) => {
   const isAdmin = req.user!.role === 'ADMIN';
   const html = await payrollService.buildPaystubHtml(getParam(req, 'id'), isAdmin, req.user!.id);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
