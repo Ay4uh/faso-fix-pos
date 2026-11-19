@@ -46,6 +46,7 @@ import {
 import { authenticateSession, ensureAdminProvisioning, recordAudit } from './auth';
 import { configureSqlite, createBackup, listBackups, resolveBackup, startBackupSchedule } from './backup';
 import * as payrollService from './payrollService';
+import { prisma } from './prisma';
 
 declare global {
   namespace Express {
