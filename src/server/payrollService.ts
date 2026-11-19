@@ -83,7 +83,9 @@ export async function getTimeClockStatus(userId: string) {
   return {
     user,
     isClockedIn: Boolean(activeShift),
+    clockedIn: Boolean(activeShift),
     isOnBreak: activeShift?.status === 'ON_BREAK',
+    onBreak: activeShift?.status === 'ON_BREAK',
     activeShift: activeShift
       ? {
           id: activeShift.id,
@@ -115,7 +117,11 @@ export async function clockIn(userId: string, notes?: string) {
     },
   });
   if (existing) {
-    throw new HttpError(409, `You are already clocked in to a shift started at ${existing.clockIn.toLocaleTimeString()}`);
+    throw new HttpError(
+      409,
+      `You are already clocked in to a shift started at ${existing.clockIn.toLocaleTimeString()}`,
+      { activeShift: existing }
+    );
   }
 
   const shift = await prisma.shift.create({
@@ -140,8 +146,12 @@ export async function clockIn(userId: string, notes?: string) {
   return shift;
 }
 
-export async function clockOut(userId: string, notes?: string) {
-  const shift = await prisma.shift.findFirst({
+export async function clockOut(
+  userId: string,
+  notes?: string,
+  shiftData?: { id?: string; clockIn?: string | Date; breakMinutes?: number }
+) {
+  let shift = await prisma.shift.findFirst({
     where: {
       userId,
       status: { in: ['ACTIVE', 'ON_BREAK'] },
@@ -151,6 +161,31 @@ export async function clockOut(userId: string, notes?: string) {
       user: { select: { name: true } },
     },
   });
+
+  // Serverless failover: if active shift was started on another container, reconstruct it here
+  if (!shift && shiftData?.clockIn) {
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true },
+    });
+    if (user) {
+      shift = await prisma.shift.create({
+        data: {
+          ...(shiftData.id ? { id: shiftData.id } : {}),
+          userId,
+          clockIn: new Date(shiftData.clockIn),
+          status: 'ACTIVE',
+          breakMinutes: shiftData.breakMinutes || 0,
+          notes: notes?.trim() || null,
+        },
+        include: {
+          breaks: true,
+          user: { select: { name: true } },
+        },
+      });
+    }
+  }
+
   if (!shift) {
     throw new HttpError(400, 'No active shift found. You must clock in before clocking out.');
   }

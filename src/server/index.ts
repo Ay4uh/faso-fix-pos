@@ -641,8 +641,18 @@ app.post('/api/timeclock/clock-in', requireAuth, wrap(async (req, res) => {
 }));
 
 app.post('/api/timeclock/clock-out', requireAuth, wrap(async (req, res) => {
-  const shift = await payrollService.clockOut(req.user!.id, req.body?.notes);
+  const shift = await payrollService.clockOut(req.user!.id, req.body?.notes, req.body?.shiftData);
   res.json({ success: true, data: shift });
+}));
+
+app.post('/api/sync/tickets', requireAuth, wrap(async (req, res) => {
+  const { deletedIds } = req.body || {};
+  if (Array.isArray(deletedIds) && deletedIds.length > 0) {
+    await prisma.ticket.deleteMany({
+      where: { id: { in: deletedIds } },
+    }).catch(() => {});
+  }
+  res.json({ success: true });
 }));
 
 app.post('/api/timeclock/break-start', requireAuth, wrap(async (req, res) => {
@@ -829,7 +839,12 @@ app.get('/api/admin/payroll/paystubs/:id/html', requireAdmin, wrap(async (req, r
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   if (err instanceof HttpError) {
-    return res.status(err.status).json({ success: false, error: err.message });
+    return res.status(err.status).json({
+      success: false,
+      error: err.message,
+      ...(err.activeShift ? { activeShift: err.activeShift } : {}),
+      ...(err.details ? { details: err.details } : {}),
+    });
   }
   if (err instanceof ZodError) {
     const issues = err.issues || (err as any).errors || [];

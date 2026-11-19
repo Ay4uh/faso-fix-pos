@@ -23,7 +23,7 @@ if (process.env.VERCEL) {
 	}
 	process.env.DATABASE_URL = `file:${tmpDb}`;
 }
-var prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL || "file:./dev.db" } } });
+var prisma$1 = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL || "file:./dev.db" } } });
 // src/server/money.ts
 function computeTotals(t) {
 	const itemsCents = t.items.reduce((sum, i) => sum + i.quantity * i.unitPriceCents, 0);
@@ -271,10 +271,10 @@ function verifySignedToken(token) {
 * Create a persistent session for a user valid for 7 days.
 */
 async function createSession(userId) {
-	const user = await prisma.user.findUnique({ where: { id: userId } });
+	const user = await prisma$1.user.findUnique({ where: { id: userId } });
 	const expiresAt = new Date(Date.now() + 6048e5);
 	const token = createSignedToken(userId, user?.username || "", user?.role || "USER", expiresAt.getTime());
-	await prisma.session.create({ data: {
+	await prisma$1.session.create({ data: {
 		token,
 		userId,
 		expiresAt
@@ -284,7 +284,7 @@ async function createSession(userId) {
 var revokedTokens = /* @__PURE__ */ new Set();
 async function destroySession(token) {
 	revokedTokens.add(token);
-	await prisma.session.delete({ where: { token } }).catch(() => {});
+	await prisma$1.session.delete({ where: { token } }).catch(() => {});
 }
 /**
 * Validate a session token and return the associated active user.
@@ -293,7 +293,7 @@ async function authenticateSession(token) {
 	if (!token || revokedTokens.has(token)) return null;
 	const verified = verifySignedToken(token);
 	if (verified) {
-		let user = await prisma.user.findFirst({
+		let user = await prisma$1.user.findFirst({
 			where: { OR: [{ id: verified.uid }, { username: verified.u }] },
 			select: {
 				id: true,
@@ -312,7 +312,7 @@ async function authenticateSession(token) {
 		});
 		if (!user) {
 			await ensureAdminProvisioning();
-			user = await prisma.user.findFirst({
+			user = await prisma$1.user.findFirst({
 				where: { OR: [{ id: verified.uid }, { username: verified.u }] },
 				select: {
 					id: true,
@@ -333,7 +333,7 @@ async function authenticateSession(token) {
 		if (user && user.status === "ACTIVE") return user;
 		return null;
 	}
-	const session = await prisma.session.findUnique({
+	const session = await prisma$1.session.findUnique({
 		where: { token },
 		include: { user: { select: {
 			id: true,
@@ -352,7 +352,7 @@ async function authenticateSession(token) {
 	});
 	if (!session) return null;
 	if (session.expiresAt.getTime() < Date.now()) {
-		await prisma.session.delete({ where: { token } }).catch(() => {});
+		await prisma$1.session.delete({ where: { token } }).catch(() => {});
 		return null;
 	}
 	if (session.user.status !== "ACTIVE") return null;
@@ -363,7 +363,7 @@ async function authenticateSession(token) {
 */
 async function recordAudit(params) {
 	try {
-		return await prisma.auditLog.create({ data: {
+		return await prisma$1.auditLog.create({ data: {
 			userId: params.userId || null,
 			actorName: params.actorName,
 			action: params.action,
@@ -378,14 +378,14 @@ async function recordAudit(params) {
 * Ensure an initial administrator account exists in the database.
 */
 async function ensureAdminProvisioning() {
-	if (await prisma.user.count({ where: { role: "ADMIN" } }) === 0) {
+	if (await prisma$1.user.count({ where: { role: "ADMIN" } }) === 0) {
 		const adminUser = process.env.ADMIN_USERNAME || "admin";
 		const adminEmail = process.env.ADMIN_EMAIL || "admin@fasofix.ca";
 		const adminPass = process.env.ADMIN_PASSWORD || "Admin@FasoFix2026!";
 		const adminName = "Lead Shop Administrator";
 		const hashedPassword = hashPassword(adminPass);
 		await recordAudit({
-			userId: (await prisma.user.create({ data: {
+			userId: (await prisma$1.user.create({ data: {
 				id: "00000000-0000-0000-0000-000000000001",
 				username: adminUser,
 				email: adminEmail,
@@ -416,7 +416,7 @@ async function ensureAdminProvisioning() {
 		console.log("  Please log in and update your password if desired.");
 		console.log("------------------------------------------------------------");
 	}
-	if (await prisma.user.count({ where: { role: "USER" } }) === 0) await prisma.user.create({ data: {
+	if (await prisma$1.user.count({ where: { role: "USER" } }) === 0) await prisma$1.user.create({ data: {
 		id: "00000000-0000-0000-0000-000000000002",
 		username: "tech",
 		email: "alex@fasofix.ca",
@@ -440,9 +440,13 @@ async function ensureAdminProvisioning() {
 /** Error with an HTTP status, surfaced to the client as JSON by the error handler. */
 var HttpError = class extends Error {
 	status;
-	constructor(status, message) {
+	details;
+	activeShift;
+	constructor(status, message, extra) {
 		super(message);
 		this.status = status;
+		if (extra?.details) this.details = extra.details;
+		if (extra?.activeShift) this.activeShift = extra.activeShift;
 	}
 };
 var STATUS_LABEL = {
@@ -489,7 +493,7 @@ function withTotals(t) {
 		totals: computeTotals(t)
 	};
 }
-async function getSettings(tx = prisma) {
+async function getSettings(tx = prisma$1) {
 	return tx.setting.upsert({
 		where: { id: 1 },
 		update: {},
@@ -499,7 +503,7 @@ async function getSettings(tx = prisma) {
 async function updateSettings(input, actor) {
 	const data = settingsSchema.parse(input);
 	await getSettings();
-	const updated = await prisma.setting.update({
+	const updated = await prisma$1.setting.update({
 		where: { id: 1 },
 		data
 	});
@@ -534,7 +538,7 @@ async function loadTicket(tx, id) {
 	return t;
 }
 async function getTicket(id) {
-	const t = await prisma.ticket.findFirst({
+	const t = await prisma$1.ticket.findFirst({
 		where: {
 			id,
 			deletedAt: null
@@ -545,7 +549,7 @@ async function getTicket(id) {
 		}
 	});
 	if (!t) throw new HttpError(404, "Work order not found");
-	const otherTickets = await prisma.ticket.findMany({
+	const otherTickets = await prisma$1.ticket.findMany({
 		where: {
 			customerId: t.customerId,
 			deletedAt: null,
@@ -586,7 +590,7 @@ async function listTickets(params) {
 		if (digits.length >= 3) or.push({ customer: { phoneDigits: { contains: digits } } });
 		where.OR = or;
 	}
-	return (await prisma.ticket.findMany({
+	return (await prisma$1.ticket.findMany({
 		where,
 		include: ticketInclude,
 		orderBy: view === "COMPLETED" ? { completedAt: "desc" } : [{ dueDate: "asc" }, { ticketNumber: "asc" }],
@@ -600,7 +604,7 @@ var TX_OPTIONS = {
 async function createTicket(input) {
 	const data = createTicketSchema.parse(input);
 	const phoneDigits = digitsOnly(data.customer.phone);
-	return getTicket(await prisma.$transaction(async (tx) => {
+	return getTicket(await prisma$1.$transaction(async (tx) => {
 		const settings = await getSettings(tx);
 		const ticketNumber = (await tx.setting.update({
 			where: { id: 1 },
@@ -681,7 +685,7 @@ async function createTicket(input) {
 }
 async function updateTicket(id, input) {
 	const data = updateTicketSchema.parse(input);
-	await prisma.$transaction(async (tx) => {
+	await prisma$1.$transaction(async (tx) => {
 		const t = await loadTicket(tx, id);
 		const update = {};
 		const changes = [];
@@ -754,7 +758,7 @@ async function updateTicket(id, input) {
 	return getTicket(id);
 }
 async function deleteTicket(id) {
-	await prisma.$transaction(async (tx) => {
+	await prisma$1.$transaction(async (tx) => {
 		const t = await loadTicket(tx, id);
 		for (const item of t.items) if (item.partId) await tx.inventoryPart.update({
 			where: { id: item.partId },
@@ -770,7 +774,7 @@ async function deleteTicket(id) {
 }
 async function addItem(ticketId, input) {
 	const data = addItemSchema.parse(input);
-	await prisma.$transaction(async (tx) => {
+	await prisma$1.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
 		let description = data.description || "";
 		let unitPriceCents = data.unitPriceCents ?? 0;
@@ -800,7 +804,7 @@ async function addItem(ticketId, input) {
 	return getTicket(ticketId);
 }
 async function removeItem(ticketId, itemId) {
-	await prisma.$transaction(async (tx) => {
+	await prisma$1.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
 		const item = await tx.ticketItem.findFirst({ where: {
 			id: itemId,
@@ -818,7 +822,7 @@ async function removeItem(ticketId, itemId) {
 }
 async function addPayment(ticketId, input) {
 	const data = paymentSchema.parse(input);
-	await prisma.$transaction(async (tx) => {
+	await prisma$1.$transaction(async (tx) => {
 		const { balanceCents } = computeTotals(await loadTicket(tx, ticketId));
 		const isDeposit = data.note && /deposit/i.test(data.note);
 		if (!isDeposit) {
@@ -837,7 +841,7 @@ async function addPayment(ticketId, input) {
 	return getTicket(ticketId);
 }
 async function voidPayment(ticketId, paymentId) {
-	await prisma.$transaction(async (tx) => {
+	await prisma$1.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
 		const p = await tx.payment.findFirst({ where: {
 			id: paymentId,
@@ -851,14 +855,14 @@ async function voidPayment(ticketId, paymentId) {
 }
 async function addNote(ticketId, input) {
 	const data = noteSchema.parse(input);
-	await prisma.$transaction(async (tx) => {
+	await prisma$1.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
 		await logEvent(tx, ticketId, data.kind, data.message);
 	});
 	return getTicket(ticketId);
 }
 async function updateNote(ticketId, noteId, message) {
-	await prisma.$transaction(async (tx) => {
+	await prisma$1.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
 		if (!await tx.ticketEvent.findFirst({ where: {
 			id: noteId,
@@ -872,7 +876,7 @@ async function updateNote(ticketId, noteId, message) {
 	return getTicket(ticketId);
 }
 async function deleteNote(ticketId, noteId) {
-	await prisma.$transaction(async (tx) => {
+	await prisma$1.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
 		if (!await tx.ticketEvent.findFirst({ where: {
 			id: noteId,
@@ -890,7 +894,7 @@ async function listCustomers(search) {
 		{ email: { contains: q } },
 		...digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []
 	] } : {};
-	return (await prisma.customer.findMany({
+	return (await prisma$1.customer.findMany({
 		where,
 		orderBy: { updatedAt: "desc" },
 		include: { tickets: {
@@ -914,13 +918,13 @@ async function listCustomers(search) {
 async function lookupCustomerByPhone(phone) {
 	const phoneDigits = digitsOnly(phone);
 	if (phoneDigits.length < 7) return null;
-	return prisma.customer.findUnique({
+	return prisma$1.customer.findUnique({
 		where: { phoneDigits },
 		include: { devices: { orderBy: { updatedAt: "desc" } } }
 	});
 }
 async function getCustomer(id) {
-	const c = await prisma.customer.findUnique({
+	const c = await prisma$1.customer.findUnique({
 		where: { id },
 		include: {
 			devices: { orderBy: { updatedAt: "desc" } },
@@ -939,7 +943,7 @@ async function getCustomer(id) {
 }
 async function updateCustomer(id, input) {
 	const data = customerUpdateSchema.parse(input);
-	const existing = await prisma.customer.findUnique({ where: { id } });
+	const existing = await prisma$1.customer.findUnique({ where: { id } });
 	if (!existing) throw new HttpError(404, "Customer not found");
 	const update = {};
 	if (data.fullName !== void 0) update.fullName = data.fullName;
@@ -950,13 +954,13 @@ async function updateCustomer(id, input) {
 	if (data.phone !== void 0) {
 		const phoneDigits = digitsOnly(data.phone);
 		if (phoneDigits !== existing.phoneDigits) {
-			const clash = await prisma.customer.findUnique({ where: { phoneDigits } });
+			const clash = await prisma$1.customer.findUnique({ where: { phoneDigits } });
 			if (clash) throw new HttpError(409, `That phone number already belongs to ${clash.fullName}`);
 		}
 		update.phone = data.phone;
 		update.phoneDigits = phoneDigits;
 	}
-	await prisma.customer.update({
+	await prisma$1.customer.update({
 		where: { id },
 		data: update
 	});
@@ -964,7 +968,7 @@ async function updateCustomer(id, input) {
 }
 function listParts(search) {
 	const q = (search || "").trim();
-	return prisma.inventoryPart.findMany({
+	return prisma$1.inventoryPart.findMany({
 		where: q ? { OR: [
 			{ name: { contains: q } },
 			{ sku: { contains: q } },
@@ -974,26 +978,26 @@ function listParts(search) {
 	});
 }
 async function assertSkuFree(sku, exceptId) {
-	const clash = await prisma.inventoryPart.findUnique({ where: { sku } });
+	const clash = await prisma$1.inventoryPart.findUnique({ where: { sku } });
 	if (clash && clash.id !== exceptId) throw new HttpError(409, `SKU "${sku}" is already used by ${clash.name}`);
 }
 async function createPart(input) {
 	const data = partSchema.parse(input);
 	data.sku = data.sku.toUpperCase();
 	await assertSkuFree(data.sku);
-	return prisma.inventoryPart.create({ data: {
+	return prisma$1.inventoryPart.create({ data: {
 		...data,
 		supplier: emptyToNull(data.supplier) ?? null
 	} });
 }
 async function updatePart(id, input) {
 	const data = partSchema.partial().parse(input);
-	if (!await prisma.inventoryPart.findUnique({ where: { id } })) throw new HttpError(404, "Part not found");
+	if (!await prisma$1.inventoryPart.findUnique({ where: { id } })) throw new HttpError(404, "Part not found");
 	if (data.sku) {
 		data.sku = data.sku.toUpperCase();
 		await assertSkuFree(data.sku, id);
 	}
-	return prisma.inventoryPart.update({
+	return prisma$1.inventoryPart.update({
 		where: { id },
 		data: {
 			...data,
@@ -1002,17 +1006,17 @@ async function updatePart(id, input) {
 	});
 }
 async function adjustStock(id, delta) {
-	const part = await prisma.inventoryPart.findUnique({ where: { id } });
+	const part = await prisma$1.inventoryPart.findUnique({ where: { id } });
 	if (!part) throw new HttpError(404, "Part not found");
 	if (part.stock + delta < 0) throw new HttpError(409, `Stock cannot go below zero (currently ${part.stock})`);
-	return prisma.inventoryPart.update({
+	return prisma$1.inventoryPart.update({
 		where: { id },
 		data: { stock: { increment: delta } }
 	});
 }
 async function deletePart(id) {
-	if (!await prisma.inventoryPart.findUnique({ where: { id } })) throw new HttpError(404, "Part not found");
-	await prisma.inventoryPart.delete({ where: { id } });
+	if (!await prisma$1.inventoryPart.findUnique({ where: { id } })) throw new HttpError(404, "Part not found");
+	await prisma$1.inventoryPart.delete({ where: { id } });
 	return { ok: true };
 }
 function startOfDay(d = /* @__PURE__ */ new Date()) {
@@ -1024,7 +1028,7 @@ async function getDashboard() {
 	const today = startOfDay();
 	const tomorrow = new Date(today.getTime() + 864e5);
 	const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-	const tickets = await prisma.ticket.findMany({
+	const tickets = await prisma$1.ticket.findMany({
 		where: { deletedAt: null },
 		select: {
 			status: true,
@@ -1039,7 +1043,7 @@ async function getDashboard() {
 			payments: { select: { amountCents: true } }
 		}
 	});
-	const payments = await prisma.payment.findMany({
+	const payments = await prisma$1.payment.findMany({
 		where: {
 			createdAt: { gte: monthStart },
 			ticket: { deletedAt: null }
@@ -1049,7 +1053,7 @@ async function getDashboard() {
 			createdAt: true
 		}
 	});
-	const lowStock = await prisma.inventoryPart.count({ where: { stock: { lte: prisma.inventoryPart.fields.reorderPoint } } });
+	const lowStock = await prisma$1.inventoryPart.count({ where: { stock: { lte: prisma$1.inventoryPart.fields.reorderPoint } } });
 	const open = tickets.filter((t) => OPEN_STATUSES.includes(t.status));
 	const count = (s) => tickets.filter((t) => t.status === s).length;
 	const readyUnpaid = tickets.filter((t) => t.status === "COMPLETED" && computeTotals(t).balanceCents > 0);
@@ -1066,7 +1070,7 @@ async function getDashboard() {
 		awaitingPickupCents: readyUnpaid.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
 		collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
 		collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
-		customerCount: await prisma.customer.count(),
+		customerCount: await prisma$1.customer.count(),
 		lowStock
 	};
 }
@@ -1074,7 +1078,7 @@ async function getReport(days) {
 	const span = Math.min(Math.max(Math.floor(days) || 30, 1), 365);
 	const since = startOfDay(/* @__PURE__ */ new Date(Date.now() - (span - 1) * 864e5));
 	const [payments, created, completed, items] = await Promise.all([
-		prisma.payment.findMany({
+		prisma$1.payment.findMany({
 			where: {
 				createdAt: { gte: since },
 				ticket: { deletedAt: null }
@@ -1085,7 +1089,7 @@ async function getReport(days) {
 				createdAt: true
 			}
 		}),
-		prisma.ticket.findMany({
+		prisma$1.ticket.findMany({
 			where: {
 				createdAt: { gte: since },
 				deletedAt: null
@@ -1095,7 +1099,7 @@ async function getReport(days) {
 				device: { select: { name: true } }
 			}
 		}),
-		prisma.ticket.findMany({
+		prisma$1.ticket.findMany({
 			where: {
 				completedAt: { gte: since },
 				deletedAt: null
@@ -1106,7 +1110,7 @@ async function getReport(days) {
 				dueDate: true
 			}
 		}),
-		prisma.ticketItem.findMany({
+		prisma$1.ticketItem.findMany({
 			where: {
 				createdAt: { gte: since },
 				ticket: { deletedAt: null }
@@ -1170,7 +1174,7 @@ async function getReport(days) {
 	};
 }
 async function exportTicketsCsv() {
-	const tickets = await prisma.ticket.findMany({
+	const tickets = await prisma$1.ticket.findMany({
 		where: { deletedAt: null },
 		include: ticketInclude,
 		orderBy: { ticketNumber: "asc" }
@@ -1215,7 +1219,7 @@ async function exportTicketsCsv() {
 }
 async function loginUser(input, ipAddress) {
 	const { usernameOrEmail, password, adminMode } = loginSchema.parse(input);
-	const user = await prisma.user.findFirst({ where: { OR: [{ username: usernameOrEmail.toLowerCase() }, { email: usernameOrEmail.toLowerCase() }] } });
+	const user = await prisma$1.user.findFirst({ where: { OR: [{ username: usernameOrEmail.toLowerCase() }, { email: usernameOrEmail.toLowerCase() }] } });
 	if (!user) throw new HttpError(401, "Invalid username/email or password");
 	if (user.status !== "ACTIVE") throw new HttpError(403, "This account has been deactivated. Contact an administrator.");
 	if (!verifyPassword(password, user.passwordHash)) throw new HttpError(401, "Invalid username/email or password");
@@ -1229,7 +1233,7 @@ async function loginUser(input, ipAddress) {
 		});
 		throw new HttpError(403, "Access Denied: Administrator role required. Standard technicians must use Technician Login.");
 	}
-	await prisma.user.update({
+	await prisma$1.user.update({
 		where: { id: user.id },
 		data: { lastLoginAt: /* @__PURE__ */ new Date() }
 	});
@@ -1269,7 +1273,7 @@ async function listUsers(params) {
 			{ email: { contains: q } }
 		];
 	}
-	return await prisma.user.findMany({
+	return await prisma$1.user.findMany({
 		where,
 		select: {
 			id: true,
@@ -1290,7 +1294,7 @@ async function listUsers(params) {
 	});
 }
 async function getUser(id) {
-	const user = await prisma.user.findUnique({
+	const user = await prisma$1.user.findUnique({
 		where: { id },
 		select: {
 			id: true,
@@ -1313,10 +1317,10 @@ async function getUser(id) {
 }
 async function createUser(input, actor) {
 	const data = userCreateSchema.parse(input);
-	if (await prisma.user.findUnique({ where: { username: data.username.toLowerCase() } })) throw new HttpError(409, "Username is already taken");
-	if (await prisma.user.findUnique({ where: { email: data.email.toLowerCase() } })) throw new HttpError(409, "Email address is already registered");
+	if (await prisma$1.user.findUnique({ where: { username: data.username.toLowerCase() } })) throw new HttpError(409, "Username is already taken");
+	if (await prisma$1.user.findUnique({ where: { email: data.email.toLowerCase() } })) throw new HttpError(409, "Email address is already registered");
 	const passwordHash = hashPassword(data.password);
-	const user = await prisma.user.create({
+	const user = await prisma$1.user.create({
 		data: {
 			username: data.username.toLowerCase(),
 			email: data.email.toLowerCase(),
@@ -1356,18 +1360,18 @@ async function createUser(input, actor) {
 	return user;
 }
 async function updateUser(id, input, actor) {
-	const existing = await prisma.user.findUnique({ where: { id } });
+	const existing = await prisma$1.user.findUnique({ where: { id } });
 	if (!existing) throw new HttpError(404, "User account not found");
 	const data = userUpdateSchema.parse(input);
 	if (data.role && data.role !== "ADMIN" && existing.role === "ADMIN" || data.status && data.status === "DISABLED" && existing.status === "ACTIVE" && existing.role === "ADMIN") {
-		if (await prisma.user.count({ where: {
+		if (await prisma$1.user.count({ where: {
 			role: "ADMIN",
 			status: "ACTIVE",
 			NOT: { id }
 		} }) === 0) throw new HttpError(400, "Cannot demote or deactivate the last remaining active administrator");
 	}
 	if (data.email && data.email.toLowerCase() !== existing.email) {
-		if (await prisma.user.findUnique({ where: { email: data.email.toLowerCase() } })) throw new HttpError(409, "Email address is already in use by another user");
+		if (await prisma$1.user.findUnique({ where: { email: data.email.toLowerCase() } })) throw new HttpError(409, "Email address is already in use by another user");
 	}
 	const updateData = {};
 	if (data.name !== void 0) updateData.name = data.name;
@@ -1378,7 +1382,7 @@ async function updateUser(id, input, actor) {
 	if (data.role !== void 0) updateData.role = data.role;
 	if (data.status !== void 0) updateData.status = data.status;
 	if (data.preferences !== void 0) updateData.preferences = data.preferences;
-	const updated = await prisma.user.update({
+	const updated = await prisma$1.user.update({
 		where: { id },
 		data: updateData,
 		select: {
@@ -1409,17 +1413,17 @@ async function updateUser(id, input, actor) {
 }
 async function deleteUser(id, actor) {
 	if (id === actor.id) throw new HttpError(400, "Security Violation: You cannot delete your own logged-in administrator account");
-	const user = await prisma.user.findUnique({ where: { id } });
+	const user = await prisma$1.user.findUnique({ where: { id } });
 	if (!user) throw new HttpError(404, "User account not found");
 	if (user.role === "ADMIN") {
-		if (await prisma.user.count({ where: {
+		if (await prisma$1.user.count({ where: {
 			role: "ADMIN",
 			status: "ACTIVE",
 			NOT: { id }
 		} }) === 0) throw new HttpError(400, "Security Violation: Cannot delete the last remaining administrator account");
 	}
-	await prisma.session.deleteMany({ where: { userId: id } });
-	await prisma.user.delete({ where: { id } });
+	await prisma$1.session.deleteMany({ where: { userId: id } });
+	await prisma$1.user.delete({ where: { id } });
 	await recordAudit({
 		userId: actor.id,
 		actorName: actor.name,
@@ -1433,11 +1437,11 @@ async function deleteUser(id, actor) {
 }
 async function changeUserPassword(userId, input, actorName) {
 	const { currentPassword, newPassword } = changePasswordSchema.parse(input);
-	const user = await prisma.user.findUnique({ where: { id: userId } });
+	const user = await prisma$1.user.findUnique({ where: { id: userId } });
 	if (!user) throw new HttpError(404, "User account not found");
 	if (!verifyPassword(currentPassword, user.passwordHash)) throw new HttpError(400, "Current password is incorrect");
 	const passwordHash = hashPassword(newPassword);
-	await prisma.user.update({
+	await prisma$1.user.update({
 		where: { id: userId },
 		data: { passwordHash }
 	});
@@ -1454,14 +1458,14 @@ async function changeUserPassword(userId, input, actorName) {
 }
 async function adminResetUserPassword(userId, input, actor) {
 	const { newPassword } = resetPasswordSchema.parse(input);
-	const user = await prisma.user.findUnique({ where: { id: userId } });
+	const user = await prisma$1.user.findUnique({ where: { id: userId } });
 	if (!user) throw new HttpError(404, "User account not found");
 	const passwordHash = hashPassword(newPassword);
-	await prisma.user.update({
+	await prisma$1.user.update({
 		where: { id: userId },
 		data: { passwordHash }
 	});
-	await prisma.session.deleteMany({ where: { userId } });
+	await prisma$1.session.deleteMany({ where: { userId } });
 	await recordAudit({
 		userId: actor.id,
 		actorName: actor.name,
@@ -1474,9 +1478,9 @@ async function adminResetUserPassword(userId, input, actor) {
 	};
 }
 async function updateUserPreferences(userId, preferences) {
-	if (!await prisma.user.findUnique({ where: { id: userId } })) throw new HttpError(404, "User not found");
+	if (!await prisma$1.user.findUnique({ where: { id: userId } })) throw new HttpError(404, "User not found");
 	const prefString = typeof preferences === "string" ? preferences : JSON.stringify(preferences);
-	return await prisma.user.update({
+	return await prisma$1.user.update({
 		where: { id: userId },
 		data: { preferences: prefString },
 		select: {
@@ -1497,7 +1501,7 @@ async function listAuditLogs(params) {
 			{ action: { contains: q } }
 		];
 	}
-	return await prisma.auditLog.findMany({
+	return await prisma$1.auditLog.findMany({
 		where,
 		orderBy: { createdAt: "desc" },
 		take: limit
@@ -1505,12 +1509,12 @@ async function listAuditLogs(params) {
 }
 async function getAdminOverview() {
 	const [totalUsers, activeUsers, disabledUsers, adminUsers, standardUsers, recentUsers, recentAudits, ticketsCount, activeTicketsCount, completedTicketsCount, customersCount, inventoryCount, lowStockParts, revenueAgg] = await Promise.all([
-		prisma.user.count(),
-		prisma.user.count({ where: { status: "ACTIVE" } }),
-		prisma.user.count({ where: { status: "DISABLED" } }),
-		prisma.user.count({ where: { role: "ADMIN" } }),
-		prisma.user.count({ where: { role: "USER" } }),
-		prisma.user.findMany({
+		prisma$1.user.count(),
+		prisma$1.user.count({ where: { status: "ACTIVE" } }),
+		prisma$1.user.count({ where: { status: "DISABLED" } }),
+		prisma$1.user.count({ where: { role: "ADMIN" } }),
+		prisma$1.user.count({ where: { role: "USER" } }),
+		prisma$1.user.findMany({
 			orderBy: { createdAt: "desc" },
 			take: 5,
 			select: {
@@ -1524,23 +1528,23 @@ async function getAdminOverview() {
 				lastLoginAt: true
 			}
 		}),
-		prisma.auditLog.findMany({
+		prisma$1.auditLog.findMany({
 			orderBy: { createdAt: "desc" },
 			take: 8
 		}),
-		prisma.ticket.count({ where: { deletedAt: null } }),
-		prisma.ticket.count({ where: {
+		prisma$1.ticket.count({ where: { deletedAt: null } }),
+		prisma$1.ticket.count({ where: {
 			deletedAt: null,
 			status: { in: OPEN_STATUSES }
 		} }),
-		prisma.ticket.count({ where: {
+		prisma$1.ticket.count({ where: {
 			deletedAt: null,
 			status: "COMPLETED"
 		} }),
-		prisma.customer.count(),
-		prisma.inventoryPart.count(),
-		prisma.inventoryPart.count({ where: { stock: { lte: 2 } } }),
-		prisma.payment.aggregate({ _sum: { amountCents: true } })
+		prisma$1.customer.count(),
+		prisma$1.inventoryPart.count(),
+		prisma$1.inventoryPart.count({ where: { stock: { lte: 2 } } }),
+		prisma$1.payment.aggregate({ _sum: { amountCents: true } })
 	]);
 	return {
 		users: {
@@ -1575,16 +1579,16 @@ var KEEP = Number(process.env.BACKUP_KEEP || 30);
 var INTERVAL_HOURS = Number(process.env.BACKUP_INTERVAL_HOURS || 6);
 /** Enable SQLite crash-safety & concurrency settings. */
 async function configureSqlite() {
-	await prisma.$queryRawUnsafe("PRAGMA journal_mode = WAL;");
-	await prisma.$queryRawUnsafe("PRAGMA busy_timeout = 5000;");
-	await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON;");
+	await prisma$1.$queryRawUnsafe("PRAGMA journal_mode = WAL;");
+	await prisma$1.$queryRawUnsafe("PRAGMA busy_timeout = 5000;");
+	await prisma$1.$executeRawUnsafe("PRAGMA foreign_keys = ON;");
 }
 /** Consistent online snapshot using SQLite VACUUM INTO (safe while app is running). */
 async function createBackup(reason = "manual") {
 	fs.mkdirSync(BACKUP_DIR, { recursive: true });
 	const file = `apexfix-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${reason.replace(/[^a-z0-9]/gi, "")}.db`;
 	const full = path.join(BACKUP_DIR, file);
-	await prisma.$executeRawUnsafe(`VACUUM INTO '${full.replace(/'/g, "''")}'`);
+	await prisma$1.$executeRawUnsafe(`VACUUM INTO '${full.replace(/'/g, "''")}'`);
 	pruneBackups();
 	const st = fs.statSync(full);
 	return {
@@ -1772,7 +1776,7 @@ function calculatePayroll(input) {
 }
 // src/server/payrollService.ts
 async function getTimeClockStatus(userId) {
-	const user = await prisma.user.findUnique({
+	const user = await prisma$1.user.findUnique({
 		where: { id: userId },
 		select: {
 			id: true,
@@ -1786,7 +1790,7 @@ async function getTimeClockStatus(userId) {
 		}
 	});
 	if (!user) throw new HttpError(404, "User not found");
-	const activeShift = await prisma.shift.findFirst({
+	const activeShift = await prisma$1.shift.findFirst({
 		where: {
 			userId,
 			status: { in: ["ACTIVE", "ON_BREAK"] }
@@ -1797,7 +1801,7 @@ async function getTimeClockStatus(userId) {
 	const activeBreak = activeShift?.breaks.find((b) => b.endTime === null) || null;
 	const now = /* @__PURE__ */ new Date();
 	const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-	const todayShifts = await prisma.shift.findMany({ where: {
+	const todayShifts = await prisma$1.shift.findMany({ where: {
 		userId,
 		clockIn: { gte: todayStart }
 	} });
@@ -1809,7 +1813,7 @@ async function getTimeClockStatus(userId) {
 	}
 	const dayOfWeek = (now.getDay() + 6) % 7;
 	const weekStart = /* @__PURE__ */ new Date(todayStart.getTime() - dayOfWeek * 864e5);
-	const weekShifts = await prisma.shift.findMany({ where: {
+	const weekShifts = await prisma$1.shift.findMany({ where: {
 		userId,
 		clockIn: { gte: weekStart }
 	} });
@@ -1822,7 +1826,9 @@ async function getTimeClockStatus(userId) {
 	return {
 		user,
 		isClockedIn: Boolean(activeShift),
+		clockedIn: Boolean(activeShift),
 		isOnBreak: activeShift?.status === "ON_BREAK",
+		onBreak: activeShift?.status === "ON_BREAK",
 		activeShift: activeShift ? {
 			id: activeShift.id,
 			clockIn: activeShift.clockIn,
@@ -1840,12 +1846,12 @@ async function getTimeClockStatus(userId) {
 	};
 }
 async function clockIn(userId, notes) {
-	const existing = await prisma.shift.findFirst({ where: {
+	const existing = await prisma$1.shift.findFirst({ where: {
 		userId,
 		status: { in: ["ACTIVE", "ON_BREAK"] }
 	} });
-	if (existing) throw new HttpError(409, `You are already clocked in to a shift started at ${existing.clockIn.toLocaleTimeString()}`);
-	const shift = await prisma.shift.create({
+	if (existing) throw new HttpError(409, `You are already clocked in to a shift started at ${existing.clockIn.toLocaleTimeString()}`, { activeShift: existing });
+	const shift = await prisma$1.shift.create({
 		data: {
 			userId,
 			clockIn: /* @__PURE__ */ new Date(),
@@ -1865,8 +1871,8 @@ async function clockIn(userId, notes) {
 	});
 	return shift;
 }
-async function clockOut(userId, notes) {
-	const shift = await prisma.shift.findFirst({
+async function clockOut(userId, notes, shiftData) {
+	let shift = await prisma$1.shift.findFirst({
 		where: {
 			userId,
 			status: { in: ["ACTIVE", "ON_BREAK"] }
@@ -1876,13 +1882,32 @@ async function clockOut(userId, notes) {
 			user: { select: { name: true } }
 		}
 	});
+	if (!shift && shiftData?.clockIn) {
+		if (await prisma$1.user.findUnique({
+			where: { id: userId },
+			select: { name: true }
+		})) shift = await prisma$1.shift.create({
+			data: {
+				...shiftData.id ? { id: shiftData.id } : {},
+				userId,
+				clockIn: new Date(shiftData.clockIn),
+				status: "ACTIVE",
+				breakMinutes: shiftData.breakMinutes || 0,
+				notes: notes?.trim() || null
+			},
+			include: {
+				breaks: true,
+				user: { select: { name: true } }
+			}
+		});
+	}
 	if (!shift) throw new HttpError(400, "No active shift found. You must clock in before clocking out.");
 	const clockOutTime = /* @__PURE__ */ new Date();
 	if (shift.status === "ON_BREAK") {
 		const openBreak = shift.breaks.find((b) => b.endTime === null);
 		if (openBreak) {
 			const dur = Math.max(1, Math.round((clockOutTime.getTime() - openBreak.startTime.getTime()) / 6e4));
-			await prisma.shiftBreak.update({
+			await prisma$1.shiftBreak.update({
 				where: { id: openBreak.id },
 				data: {
 					endTime: clockOutTime,
@@ -1897,7 +1922,7 @@ async function clockOut(userId, notes) {
 	const dayOfWeek = (clockOutTime.getDay() + 6) % 7;
 	const startOfDay = new Date(clockOutTime.getFullYear(), clockOutTime.getMonth(), clockOutTime.getDate());
 	const weekStart = /* @__PURE__ */ new Date(startOfDay.getTime() - dayOfWeek * 864e5);
-	const priorWeekMinutes = (await prisma.shift.findMany({
+	const priorWeekMinutes = (await prisma$1.shift.findMany({
 		where: {
 			userId,
 			id: { not: shift.id },
@@ -1919,7 +1944,7 @@ async function clockOut(userId, notes) {
 		regularMinutes = Math.max(0, otThresholdMinutes - priorWeekMinutes);
 		overtimeMinutes = totalMinutes - regularMinutes;
 	}
-	const updated = await prisma.shift.update({
+	const updated = await prisma$1.shift.update({
 		where: { id: shift.id },
 		data: {
 			clockOut: clockOutTime,
@@ -1939,7 +1964,7 @@ async function clockOut(userId, notes) {
 	return updated;
 }
 async function startBreak(userId, type = "UNPAID_MEAL") {
-	const shift = await prisma.shift.findFirst({
+	const shift = await prisma$1.shift.findFirst({
 		where: {
 			userId,
 			status: "ACTIVE"
@@ -1947,12 +1972,12 @@ async function startBreak(userId, type = "UNPAID_MEAL") {
 		include: { user: { select: { name: true } } }
 	});
 	if (!shift) throw new HttpError(400, "You must have an active shift to start a break.");
-	const brk = await prisma.shiftBreak.create({ data: {
+	const brk = await prisma$1.shiftBreak.create({ data: {
 		shiftId: shift.id,
 		startTime: /* @__PURE__ */ new Date(),
 		type
 	} });
-	await prisma.shift.update({
+	await prisma$1.shift.update({
 		where: { id: shift.id },
 		data: { status: "ON_BREAK" }
 	});
@@ -1965,7 +1990,7 @@ async function startBreak(userId, type = "UNPAID_MEAL") {
 	return brk;
 }
 async function endBreak(userId) {
-	const shift = await prisma.shift.findFirst({
+	const shift = await prisma$1.shift.findFirst({
 		where: {
 			userId,
 			status: "ON_BREAK"
@@ -1982,14 +2007,14 @@ async function endBreak(userId) {
 	const now = /* @__PURE__ */ new Date();
 	const openBreak = shift.breaks[0];
 	const durationMinutes = Math.max(1, Math.round((now.getTime() - openBreak.startTime.getTime()) / 6e4));
-	await prisma.shiftBreak.update({
+	await prisma$1.shiftBreak.update({
 		where: { id: openBreak.id },
 		data: {
 			endTime: now,
 			durationMinutes
 		}
 	});
-	const updatedShift = await prisma.shift.update({
+	const updatedShift = await prisma$1.shift.update({
 		where: { id: shift.id },
 		data: {
 			status: "ACTIVE",
@@ -2011,7 +2036,7 @@ async function getMyShifts(userId, options) {
 		if (options.startDate) where.clockIn.gte = new Date(options.startDate);
 		if (options.endDate) where.clockIn.lte = new Date(options.endDate);
 	}
-	return (await prisma.shift.findMany({
+	return (await prisma$1.shift.findMany({
 		where,
 		include: { breaks: { orderBy: { startTime: "asc" } } },
 		orderBy: { clockIn: "desc" },
@@ -2025,14 +2050,14 @@ async function getMyShifts(userId, options) {
 	}));
 }
 async function getMyPaystubs(userId) {
-	return await prisma.paystub.findMany({
+	return await prisma$1.paystub.findMany({
 		where: { userId },
 		include: { payrollPeriod: true },
 		orderBy: { createdAt: "desc" }
 	});
 }
 async function getMyPaystub(userId, paystubId, isAdmin = false) {
-	const paystub = await prisma.paystub.findUnique({
+	const paystub = await prisma$1.paystub.findUnique({
 		where: { id: paystubId },
 		include: {
 			payrollPeriod: true,
@@ -2060,7 +2085,7 @@ async function getAttendanceOverview(filters) {
 		if (filters.endDate) where.clockIn.lte = new Date(filters.endDate);
 	}
 	const [shifts, users, currentlyClockedInCount] = await Promise.all([
-		prisma.shift.findMany({
+		prisma$1.shift.findMany({
 			where,
 			include: {
 				user: { select: {
@@ -2074,7 +2099,7 @@ async function getAttendanceOverview(filters) {
 			},
 			orderBy: { clockIn: "desc" }
 		}),
-		prisma.user.findMany({
+		prisma$1.user.findMany({
 			where: { status: "ACTIVE" },
 			select: {
 				id: true,
@@ -2085,7 +2110,7 @@ async function getAttendanceOverview(filters) {
 			},
 			orderBy: { name: "asc" }
 		}),
-		prisma.shift.count({ where: { status: { in: ["ACTIVE", "ON_BREAK"] } } })
+		prisma$1.shift.count({ where: { status: { in: ["ACTIVE", "ON_BREAK"] } } })
 	]);
 	const totalMinutes = shifts.reduce((acc, s) => acc + s.totalMinutes, 0);
 	const regularMinutes = shifts.reduce((acc, s) => acc + s.regularMinutes, 0);
@@ -2110,7 +2135,7 @@ async function getAttendanceOverview(filters) {
 }
 async function getLiveRoster() {
 	const now = /* @__PURE__ */ new Date();
-	return (await prisma.shift.findMany({
+	return (await prisma$1.shift.findMany({
 		where: { status: { in: ["ACTIVE", "ON_BREAK"] } },
 		include: {
 			user: { select: {
@@ -2148,7 +2173,7 @@ async function manualAddShift(data, adminUser) {
 	const totalMinutes = Math.max(0, grossMins - breakMins);
 	const regularMinutes = Math.min(totalMinutes, 480);
 	const overtimeMinutes = Math.max(0, totalMinutes - regularMinutes);
-	const shift = await prisma.shift.create({
+	const shift = await prisma$1.shift.create({
 		data: {
 			userId: data.userId,
 			clockIn: start,
@@ -2177,7 +2202,7 @@ async function manualAddShift(data, adminUser) {
 }
 async function manualEditShift(shiftId, data, adminUser) {
 	if (!data.reason?.trim()) throw new HttpError(400, "A modification reason is required to edit attendance records.");
-	const existing = await prisma.shift.findUnique({
+	const existing = await prisma$1.shift.findUnique({
 		where: { id: shiftId },
 		include: { user: { select: { name: true } } }
 	});
@@ -2195,7 +2220,7 @@ async function manualEditShift(shiftId, data, adminUser) {
 		regularMinutes = Math.min(totalMinutes, 480);
 		overtimeMinutes = Math.max(0, totalMinutes - regularMinutes);
 	}
-	const updated = await prisma.shift.update({
+	const updated = await prisma$1.shift.update({
 		where: { id: shiftId },
 		data: {
 			clockIn: newClockIn,
@@ -2221,12 +2246,12 @@ async function manualEditShift(shiftId, data, adminUser) {
 	return updated;
 }
 async function deleteShift(shiftId, adminUser) {
-	const existing = await prisma.shift.findUnique({
+	const existing = await prisma$1.shift.findUnique({
 		where: { id: shiftId },
 		include: { user: { select: { name: true } } }
 	});
 	if (!existing) throw new HttpError(404, "Shift not found");
-	await prisma.shift.delete({ where: { id: shiftId } });
+	await prisma$1.shift.delete({ where: { id: shiftId } });
 	await recordAudit({
 		userId: adminUser.id,
 		actorName: adminUser.name,
@@ -2243,7 +2268,7 @@ async function exportAttendanceCsv(filters) {
 		if (filters.startDate) where.clockIn.gte = new Date(filters.startDate);
 		if (filters.endDate) where.clockIn.lte = new Date(filters.endDate);
 	}
-	const shifts = await prisma.shift.findMany({
+	const shifts = await prisma$1.shift.findMany({
 		where,
 		include: { user: true },
 		orderBy: { clockIn: "desc" }
@@ -2284,7 +2309,7 @@ async function exportAttendanceCsv(filters) {
 	return rows.map((r) => r.map(esc).join(",")).join("\n");
 }
 async function getUserWageHistory(userId) {
-	const user = await prisma.user.findUnique({
+	const user = await prisma$1.user.findUnique({
 		where: { id: userId },
 		select: {
 			id: true,
@@ -2300,19 +2325,19 @@ async function getUserWageHistory(userId) {
 	if (!user) throw new HttpError(404, "User not found");
 	return {
 		user,
-		history: await prisma.wageRate.findMany({
+		history: await prisma$1.wageRate.findMany({
 			where: { userId },
 			orderBy: { effectiveDate: "desc" }
 		})
 	};
 }
 async function updateUserWage(userId, data, adminUser) {
-	const user = await prisma.user.findUnique({ where: { id: userId } });
+	const user = await prisma$1.user.findUnique({ where: { id: userId } });
 	if (!user) throw new HttpError(404, "User not found");
 	const hourly = Math.max(0, data.hourlyRateCents);
 	const overtime = data.overtimeRateCents && data.overtimeRateCents > 0 ? data.overtimeRateCents : Math.round(hourly * 1.5);
 	const effective = data.effectiveDate ? new Date(data.effectiveDate) : /* @__PURE__ */ new Date();
-	const wageRecord = await prisma.wageRate.create({ data: {
+	const wageRecord = await prisma$1.wageRate.create({ data: {
 		userId,
 		hourlyRateCents: hourly,
 		overtimeRateCents: overtime,
@@ -2320,7 +2345,7 @@ async function updateUserWage(userId, data, adminUser) {
 		reason: data.reason?.trim() || "Wage update",
 		createdById: adminUser.id
 	} });
-	const updatedUser = await prisma.user.update({
+	const updatedUser = await prisma$1.user.update({
 		where: { id: userId },
 		data: {
 			hourlyRateCents: hourly,
@@ -2345,16 +2370,16 @@ async function getPayrollDashboardOverview() {
 	const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
 	const weekStart = /* @__PURE__ */ new Date(startOfDay.getTime() - dayOfWeek * 864e5);
 	const [shiftsThisWeek, clockedInCount, periods, recentPaystubs, activeEmployees] = await Promise.all([
-		prisma.shift.findMany({
+		prisma$1.shift.findMany({
 			where: { clockIn: { gte: weekStart } },
 			include: { user: true }
 		}),
-		prisma.shift.count({ where: { status: { in: ["ACTIVE", "ON_BREAK"] } } }),
-		prisma.payrollPeriod.findMany({
+		prisma$1.shift.count({ where: { status: { in: ["ACTIVE", "ON_BREAK"] } } }),
+		prisma$1.payrollPeriod.findMany({
 			orderBy: { startDate: "desc" },
 			take: 6
 		}),
-		prisma.paystub.findMany({
+		prisma$1.paystub.findMany({
 			include: {
 				user: { select: {
 					name: true,
@@ -2365,7 +2390,7 @@ async function getPayrollDashboardOverview() {
 			orderBy: { createdAt: "desc" },
 			take: 8
 		}),
-		prisma.user.findMany({
+		prisma$1.user.findMany({
 			where: { status: "ACTIVE" },
 			select: {
 				id: true,
@@ -2408,12 +2433,12 @@ async function calculatePeriodPayroll(options) {
 	const end = new Date(options.endDate);
 	start.setHours(0, 0, 0, 0);
 	end.setHours(23, 59, 59, 999);
-	const employees = await prisma.user.findMany({
+	const employees = await prisma$1.user.findMany({
 		where: { status: "ACTIVE" },
 		include: { wageRates: { orderBy: { effectiveDate: "desc" } } },
 		orderBy: { name: "asc" }
 	});
-	const shifts = await prisma.shift.findMany({ where: {
+	const shifts = await prisma$1.shift.findMany({ where: {
 		clockIn: {
 			gte: start,
 			lte: end
@@ -2488,11 +2513,11 @@ async function createPayrollPeriod(data, adminUser) {
 	const start = new Date(data.startDate);
 	const end = new Date(data.endDate);
 	const pay = new Date(data.payDate);
-	const periodNumber = await prisma.payrollPeriod.count() + 1;
+	const periodNumber = await prisma$1.payrollPeriod.count() + 1;
 	const totalGrossCents = data.paystubs.reduce((s, p) => s + (p.grossPayCents || 0), 0);
 	const totalDeductionsCents = data.paystubs.reduce((s, p) => s + (p.totalDeductionsCents || 0), 0);
 	const totalNetCents = data.paystubs.reduce((s, p) => s + (p.netPayCents || 0), 0);
-	const period = await prisma.$transaction(async (tx) => {
+	const period = await prisma$1.$transaction(async (tx) => {
 		const createdPeriod = await tx.payrollPeriod.create({ data: {
 			periodNumber,
 			periodType: data.periodType || "BI_WEEKLY",
@@ -2537,14 +2562,14 @@ async function createPayrollPeriod(data, adminUser) {
 	return getPayrollPeriod(period.id);
 }
 async function listPayrollPeriods(limit = 50) {
-	return prisma.payrollPeriod.findMany({
+	return prisma$1.payrollPeriod.findMany({
 		orderBy: { startDate: "desc" },
 		take: limit,
 		include: { _count: { select: { paystubs: true } } }
 	});
 }
 async function getPayrollPeriod(periodId) {
-	const period = await prisma.payrollPeriod.findUnique({
+	const period = await prisma$1.payrollPeriod.findUnique({
 		where: { id: periodId },
 		include: { paystubs: {
 			include: { user: { select: {
@@ -2562,7 +2587,7 @@ async function getPayrollPeriod(periodId) {
 	return period;
 }
 async function updatePaystubDraft(paystubId, data, adminUser) {
-	const paystub = await prisma.paystub.findUnique({
+	const paystub = await prisma$1.paystub.findUnique({
 		where: { id: paystubId },
 		include: {
 			payrollPeriod: true,
@@ -2585,7 +2610,7 @@ async function updatePaystubDraft(paystubId, data, adminUser) {
 			td1OntarioClaimCents: paystub.user.td1OntarioClaimCents
 		}
 	});
-	const updatedPaystub = await prisma.$transaction(async (tx) => {
+	const updatedPaystub = await prisma$1.$transaction(async (tx) => {
 		const updated = await tx.paystub.update({
 			where: { id: paystubId },
 			data: {
@@ -2628,14 +2653,14 @@ async function updatePaystubDraft(paystubId, data, adminUser) {
 	return updatedPaystub;
 }
 async function finalizePayrollPeriod(periodId, adminUser) {
-	const period = await prisma.payrollPeriod.findUnique({
+	const period = await prisma$1.payrollPeriod.findUnique({
 		where: { id: periodId },
 		include: { paystubs: true }
 	});
 	if (!period) throw new HttpError(404, "Payroll period not found");
 	if (period.status === "FINALIZED") throw new HttpError(400, "This payroll period is already finalized and locked.");
 	const now = /* @__PURE__ */ new Date();
-	await prisma.$transaction(async (tx) => {
+	await prisma$1.$transaction(async (tx) => {
 		await tx.payrollPeriod.update({
 			where: { id: periodId },
 			data: {
@@ -2715,7 +2740,7 @@ async function exportPayrollCsv(periodId) {
 * Generate standard CRA compliant Canadian Paystub HTML for printing & PDF export
 */
 async function buildPaystubHtml(paystubId, isAdmin = false, currentUserId) {
-	const paystub = await prisma.paystub.findUnique({
+	const paystub = await prisma$1.paystub.findUnique({
 		where: { id: paystubId },
 		include: {
 			payrollPeriod: true,
@@ -3517,11 +3542,16 @@ app.post("/api/timeclock/clock-in", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.post("/api/timeclock/clock-out", requireAuth, wrap(async (req, res) => {
-	const shift = await clockOut(req.user.id, req.body?.notes);
+	const shift = await clockOut(req.user.id, req.body?.notes, req.body?.shiftData);
 	res.json({
 		success: true,
 		data: shift
 	});
+}));
+app.post("/api/sync/tickets", requireAuth, wrap(async (req, res) => {
+	const { deletedIds } = req.body || {};
+	if (Array.isArray(deletedIds) && deletedIds.length > 0) await prisma.ticket.deleteMany({ where: { id: { in: deletedIds } } }).catch(() => {});
+	res.json({ success: true });
 }));
 app.post("/api/timeclock/break-start", requireAuth, wrap(async (req, res) => {
 	const brk = await startBreak(req.user.id, req.body?.type);
@@ -3722,7 +3752,9 @@ app.get("/api/admin/payroll/paystubs/:id/html", requireAdmin, wrap(async (req, r
 app.use((err, _req, res, _next) => {
 	if (err instanceof HttpError) return res.status(err.status).json({
 		success: false,
-		error: err.message
+		error: err.message,
+		...err.activeShift ? { activeShift: err.activeShift } : {},
+		...err.details ? { details: err.details } : {}
 	});
 	if (err instanceof ZodError) {
 		const message = (err.issues || err.errors || []).map((e) => `${e.path.join(".") || "input"}: ${e.message}`).join(", ");
@@ -4018,7 +4050,7 @@ CREATE INDEX IF NOT EXISTS "Paystub_userId_idx" ON "Paystub"("userId");
 async function ensureDatabaseSchema() {
 	const statements = SCHEMA_SQL.split(";").map((s) => s.trim()).filter((s) => s.length > 0);
 	for (const sql of statements) try {
-		await prisma.$executeRawUnsafe(sql);
+		await prisma$1.$executeRawUnsafe(sql);
 	} catch {}
 	for (const alter of [
 		"ALTER TABLE \"User\" ADD COLUMN \"employeeNumber\" TEXT;",
@@ -4029,7 +4061,7 @@ async function ensureDatabaseSchema() {
 		"ALTER TABLE \"User\" ADD COLUMN \"td1OntarioClaimCents\" INTEGER NOT NULL DEFAULT 1274600;",
 		"ALTER TABLE \"User\" ADD COLUMN \"sin\" TEXT;"
 	]) try {
-		await prisma.$executeRawUnsafe(alter);
+		await prisma$1.$executeRawUnsafe(alter);
 	} catch {}
 }
 // src/server/serverless.ts

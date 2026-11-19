@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { MetricCards } from './components/MetricCards';
@@ -22,13 +22,30 @@ import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
 import { fetchWithAuth, removeToken } from './utils/auth';
 
+const getInitialTickets = (): Ticket[] => {
+  try {
+    const raw = localStorage.getItem('apexfix_cached_tickets');
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return [];
+};
+
+const getDeletedTicketIds = (): Set<string> => {
+  try {
+    const raw = localStorage.getItem('apexfix_deleted_ticket_ids');
+    if (raw) return new Set(JSON.parse(raw));
+  } catch {}
+  return new Set();
+};
+
 export function App() {
   const [currentTab, setCurrentTab] = useState<'repairs' | 'customers' | 'inventory' | 'analytics' | 'settings' | 'admin'>('repairs');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('ALL');
   const [selectedBench] = useState('ALL');
 
-  const [tickets, setTickets] = useState<Ticket[]>([]);
+  const [tickets, setTickets] = useState<Ticket[]>(getInitialTickets);
+  const deletedTicketIdsRef = useRef<Set<string>>(getDeletedTicketIds());
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -84,7 +101,25 @@ export function App() {
       const res = await fetchWithAuth('/api/timeclock/status');
       if (res.ok) {
         const json = await res.json();
-        setTimeClockStatus(json.data);
+        let s = json.data;
+        const localActiveRaw = localStorage.getItem(`apexfix_active_shift_${currentUser.id}`);
+        if (localActiveRaw) {
+          try {
+            const localShift = JSON.parse(localActiveRaw);
+            const serverClockedIn = Boolean(s?.isClockedIn ?? s?.clockedIn);
+            if (!serverClockedIn && localShift?.clockIn) {
+              s = {
+                ...s,
+                isClockedIn: true,
+                clockedIn: true,
+                isOnBreak: localShift.status === 'ON_BREAK',
+                onBreak: localShift.status === 'ON_BREAK',
+                activeShift: localShift,
+              };
+            }
+          } catch {}
+        }
+        setTimeClockStatus(s);
       }
     } catch {}
   };
@@ -148,18 +183,45 @@ export function App() {
 
   const handleDeleteTicket = async (ticketId: string) => {
     try {
-      const res = await fetchWithAuth(`/api/tickets/${ticketId}`, {
-        method: 'DELETE',
+      // 1. Immediately record deletion locally so it NEVER resurfaces, regardless of serverless cache
+      deletedTicketIdsRef.current.add(ticketId);
+      try {
+        localStorage.setItem(
+          'apexfix_deleted_ticket_ids',
+          JSON.stringify(Array.from(deletedTicketIdsRef.current))
+        );
+      } catch {}
+
+      setTickets((prev) => {
+        const next = prev.filter((t) => t.id !== ticketId);
+        try {
+          localStorage.setItem('apexfix_cached_tickets', JSON.stringify(next));
+        } catch {}
+        return next;
       });
-      const data = await res.json();
-      if (!res.ok) {
-        throw new Error(data.error || 'Failed to delete work order');
-      }
-      posAudio.playSuccessChime();
-      showToast('Work order successfully deleted');
+
       if (selectedTicket && selectedTicket.id === ticketId) {
         setSelectedTicket(null);
       }
+
+      // 2. Call server
+      const res = await fetchWithAuth(`/api/tickets/${ticketId}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error || 'Failed to delete work order');
+      }
+
+      // 3. Sync deleted list with server
+      fetchWithAuth('/api/sync/tickets', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ deletedIds: Array.from(deletedTicketIdsRef.current) }),
+      }).catch(() => {});
+
+      posAudio.playSuccessChime();
+      showToast('Work order successfully deleted');
       fetchData(true);
     } catch (err: any) {
       posAudio.playWarningBeep();
@@ -201,15 +263,47 @@ export function App() {
 
       if (ticketsRes.ok) {
         const data = await ticketsRes.json();
-        const freshList: Ticket[] = data.data || [];
-        setTickets(freshList);
+        const serverList: Ticket[] = data.data || [];
+        const deletedIds = deletedTicketIdsRef.current;
 
-        // Keep selectedTicket in sync if open
-        if (selectedTicket) {
-          const matched = freshList.find((t) => t.id === selectedTicket.id);
-          if (matched && JSON.stringify(matched) !== JSON.stringify(selectedTicket)) {
-            setSelectedTicket(matched);
+        // 1. Strict anti-fluctuation filter: filter out any deleted tickets
+        const cleanServerList = serverList.filter((t) => !deletedIds.has(t.id));
+
+        // 2. Multi-container reconciliation: preserve recent local tickets created within 15 minutes
+        setTickets((prevList) => {
+          const serverIds = new Set(cleanServerList.map((t) => t.id));
+          const now = Date.now();
+
+          const preservedLocal = prevList.filter((t) => {
+            if (deletedIds.has(t.id)) return false;
+            if (serverIds.has(t.id)) return false;
+            const ageMs = now - new Date(t.createdAt || 0).getTime();
+            return ageMs < 15 * 60 * 1000;
+          });
+
+          const merged = [...cleanServerList, ...preservedLocal];
+          try {
+            localStorage.setItem('apexfix_cached_tickets', JSON.stringify(merged));
+          } catch {}
+
+          // Keep selectedTicket in sync if open
+          if (selectedTicket) {
+            const matched = merged.find((t) => t.id === selectedTicket.id);
+            if (matched && JSON.stringify(matched) !== JSON.stringify(selectedTicket)) {
+              setSelectedTicket(matched);
+            }
           }
+
+          return merged;
+        });
+
+        // Sync deleted IDs if container needs cleanup
+        if (deletedIds.size > 0) {
+          fetchWithAuth('/api/sync/tickets', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ deletedIds: Array.from(deletedIds) }),
+          }).catch(() => {});
         }
       }
 
@@ -233,12 +327,16 @@ export function App() {
     fetchData();
     const interval = setInterval(() => {
       fetchData(true);
-    }, 3000);
+    }, 6000);
     return () => clearInterval(interval);
   }, [activeFilter, searchQuery, selectedBench, selectedTicket?.id]);
 
   // Real-time live updates via Server-Sent Events (SSE)
+  // Only connect on localhost. On Vercel serverless, SSE holds lambdas open and forces multi-container divergence.
   useEffect(() => {
+    const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    if (!isLocal) return;
+
     let es: EventSource | null = null;
     let reconnectTimer: any = null;
 
@@ -251,7 +349,11 @@ export function App() {
             const newTicket: Ticket = JSON.parse(e.data);
             setTickets((prev) => {
               if (prev.some((t) => t.id === newTicket.id)) return prev;
-              return [newTicket, ...prev];
+              const next = [newTicket, ...prev];
+              try {
+                localStorage.setItem('apexfix_cached_tickets', JSON.stringify(next));
+              } catch {}
+              return next;
             });
             fetchData(true);
           } catch {}
@@ -260,7 +362,13 @@ export function App() {
         es.addEventListener('ticket_updated', (e) => {
           try {
             const updated: Ticket = JSON.parse(e.data);
-            setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+            setTickets((prev) => {
+              const next = prev.map((t) => (t.id === updated.id ? updated : t));
+              try {
+                localStorage.setItem('apexfix_cached_tickets', JSON.stringify(next));
+              } catch {}
+              return next;
+            });
             setSelectedTicket((curr) => (curr && curr.id === updated.id ? updated : curr));
             fetchData(true);
           } catch {}
@@ -269,7 +377,17 @@ export function App() {
         es.addEventListener('ticket_deleted', (e) => {
           try {
             const { id } = JSON.parse(e.data);
-            setTickets((prev) => prev.filter((t) => t.id !== id));
+            deletedTicketIdsRef.current.add(id);
+            try {
+              localStorage.setItem('apexfix_deleted_ticket_ids', JSON.stringify(Array.from(deletedTicketIdsRef.current)));
+            } catch {}
+            setTickets((prev) => {
+              const next = prev.filter((t) => t.id !== id);
+              try {
+                localStorage.setItem('apexfix_cached_tickets', JSON.stringify(next));
+              } catch {}
+              return next;
+            });
             setSelectedTicket((curr) => (curr && curr.id === id ? null : curr));
             fetchData(true);
           } catch {}
@@ -453,10 +571,10 @@ export function App() {
         onLogout={handleLogout}
         onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
         onOpenTimeClock={() => setIsTimeClockModalOpen(true)}
-        isClockedIn={timeClockStatus?.clockedIn}
-        isOnBreak={timeClockStatus?.onBreak}
+        isClockedIn={Boolean(timeClockStatus?.isClockedIn ?? timeClockStatus?.clockedIn)}
+        isOnBreak={Boolean(timeClockStatus?.isOnBreak ?? timeClockStatus?.onBreak)}
         timeClockElapsed={
-          timeClockStatus?.clockedIn && timeClockStatus?.activeShift?.clockIn
+          (timeClockStatus?.isClockedIn ?? timeClockStatus?.clockedIn) && timeClockStatus?.activeShift?.clockIn
             ? `${Math.floor((Date.now() - new Date(timeClockStatus.activeShift.clockIn).getTime()) / 3600000)}h`
             : undefined
         }
@@ -629,7 +747,13 @@ export function App() {
         onClose={() => setIsCreateModalOpen(false)}
         onSuccess={(createdTicket) => {
           if (createdTicket) {
-            setTickets((prev) => [createdTicket, ...prev.filter((t) => t.id !== createdTicket.id)]);
+            setTickets((prev) => {
+              const next = [createdTicket, ...prev.filter((t) => t.id !== createdTicket.id)];
+              try {
+                localStorage.setItem('apexfix_cached_tickets', JSON.stringify(next));
+              } catch {}
+              return next;
+            });
             setSelectedTicket(createdTicket);
           }
           showToast(`Work order #${createdTicket?.ticketNumber || ''} created successfully`);

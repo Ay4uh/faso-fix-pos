@@ -29,8 +29,12 @@ type Tx = Prisma.TransactionClient;
 
 /** Error with an HTTP status, surfaced to the client as JSON by the error handler. */
 export class HttpError extends Error {
-  constructor(public status: number, message: string) {
+  public details?: any;
+  public activeShift?: any;
+  constructor(public status: number, message: string, extra?: { details?: any; activeShift?: any }) {
     super(message);
+    if (extra?.details) this.details = extra.details;
+    if (extra?.activeShift) this.activeShift = extra.activeShift;
   }
 }
 

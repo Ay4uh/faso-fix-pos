@@ -59,12 +59,46 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     }
   }, [isOpen]);
 
+  const getActiveShiftKey = () => `apexfix_active_shift_${currentUser?.id || 'default'}`;
+
   const loadClockStatus = async () => {
     try {
       const res = await fetchWithAuth('/api/timeclock/status');
       if (res.ok) {
         const json = await res.json();
-        setClockStatus(json.data);
+        let statusData = json.data;
+
+        // Multi-container synchronization check
+        const localRaw = localStorage.getItem(getActiveShiftKey());
+        if (localRaw) {
+          try {
+            const localShift = JSON.parse(localRaw);
+            const serverClockedIn = Boolean(statusData?.isClockedIn ?? statusData?.clockedIn);
+            if (!serverClockedIn && localShift?.clockIn) {
+              const clockInDate = new Date(localShift.clockIn);
+              const elapsedMin = Math.max(0, Math.round((Date.now() - clockInDate.getTime()) / 60000) - (localShift.breakMinutes || 0));
+              statusData = {
+                ...statusData,
+                isClockedIn: true,
+                clockedIn: true,
+                isOnBreak: localShift.status === 'ON_BREAK',
+                onBreak: localShift.status === 'ON_BREAK',
+                activeShift: {
+                  ...localShift,
+                  clockIn: localShift.clockIn,
+                  activeDurationMinutes: elapsedMin,
+                },
+              };
+            }
+          } catch {}
+        } else if (statusData?.activeShift) {
+          // Cache server active shift locally
+          try {
+            localStorage.setItem(getActiveShiftKey(), JSON.stringify(statusData.activeShift));
+          } catch {}
+        }
+
+        setClockStatus(statusData);
       }
     } catch (err) {
       console.error('[TimeClock Status Fetch Error]', err);
@@ -106,7 +140,28 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
         body: JSON.stringify({ notes }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to clock in');
+
+      if (!res.ok) {
+        // If already clocked in, gracefully recover and sync active shift
+        if (res.status === 409) {
+          const recoveredShift = json.activeShift || {
+            id: `shift_${Date.now()}`,
+            clockIn: new Date().toISOString(),
+            status: 'ACTIVE',
+            breakMinutes: 0,
+          };
+          localStorage.setItem(getActiveShiftKey(), JSON.stringify(recoveredShift));
+          setSuccessMsg('Shift active. Shift timer running.');
+          await loadClockStatus();
+          onStatusChange?.();
+          return;
+        }
+        throw new Error(json.error || 'Failed to clock in');
+      }
+
+      if (json.data) {
+        localStorage.setItem(getActiveShiftKey(), JSON.stringify(json.data));
+      }
 
       setSuccessMsg('Successfully clocked in for your shift.');
       setNotes('');
@@ -126,14 +181,23 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     setErrorMsg(null);
     setSuccessMsg(null);
     try {
+      let localShift = null;
+      try {
+        const raw = localStorage.getItem(getActiveShiftKey());
+        if (raw) localShift = JSON.parse(raw);
+      } catch {}
+
+      const shiftData = activeShift || localShift || undefined;
+
       const res = await fetchWithAuth('/api/timeclock/clock-out', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ notes }),
+        body: JSON.stringify({ notes, shiftData }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to clock out');
 
+      localStorage.removeItem(getActiveShiftKey());
       setSuccessMsg('Shift complete! Successfully clocked out.');
       setNotes('');
       await loadClockStatus();
@@ -160,6 +224,14 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       if (!res.ok) throw new Error(json.error || 'Failed to start break');
 
       setSuccessMsg('Break timer started.');
+      try {
+        const raw = localStorage.getItem(getActiveShiftKey());
+        if (raw) {
+          const shift = JSON.parse(raw);
+          shift.status = 'ON_BREAK';
+          localStorage.setItem(getActiveShiftKey(), JSON.stringify(shift));
+        }
+      } catch {}
       await loadClockStatus();
       onStatusChange?.();
     } catch (err: any) {
@@ -181,6 +253,14 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       if (!res.ok) throw new Error(json.error || 'Failed to end break');
 
       setSuccessMsg('Welcome back! Break ended and shift resumed.');
+      try {
+        const raw = localStorage.getItem(getActiveShiftKey());
+        if (raw) {
+          const shift = JSON.parse(raw);
+          shift.status = 'ACTIVE';
+          localStorage.setItem(getActiveShiftKey(), JSON.stringify(shift));
+        }
+      } catch {}
       await loadClockStatus();
       onStatusChange?.();
     } catch (err: any) {
@@ -192,8 +272,8 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
 
   if (!isOpen) return null;
 
-  const isClockedIn = clockStatus?.clockedIn;
-  const isOnBreak = clockStatus?.onBreak;
+  const isClockedIn = Boolean(clockStatus?.isClockedIn ?? clockStatus?.clockedIn);
+  const isOnBreak = Boolean(clockStatus?.isOnBreak ?? clockStatus?.onBreak);
   const activeShift = clockStatus?.activeShift;
 
   const fmtCurrency = (cents: number) => `$${((cents || 0) / 100).toFixed(2)}`;
