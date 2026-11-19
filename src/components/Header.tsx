@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, ArrowRight, LogOut, Menu } from 'lucide-react';
+import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock } from 'lucide-react';
 import { Ticket, User } from '../types';
 
 interface HeaderProps {
@@ -12,6 +12,10 @@ interface HeaderProps {
   currentUser?: User | null;
   onLogout?: () => void;
   onOpenMobileMenu?: () => void;
+  onOpenTimeClock?: () => void;
+  isClockedIn?: boolean;
+  isOnBreak?: boolean;
+  timeClockElapsed?: string;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -24,6 +28,10 @@ export const Header: React.FC<HeaderProps> = ({
   currentUser,
   onLogout,
   onOpenMobileMenu,
+  onOpenTimeClock,
+  isClockedIn,
+  isOnBreak,
+  timeClockElapsed,
 }) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
@@ -233,6 +241,27 @@ export const Header: React.FC<HeaderProps> = ({
           <Plus className="w-4 h-4" />
           <span className="hidden md:inline">New Ticket</span>
         </button>
+
+        {/* Time Clock Status Widget */}
+        {currentUser && onOpenTimeClock && (
+          <button
+            type="button"
+            onClick={onOpenTimeClock}
+            title="Open Staff Time Clock & Paystubs"
+            className={`inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 border shadow-2xs ${
+              isOnBreak
+                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                : isClockedIn
+                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+            }`}
+          >
+            <Clock className={`w-3.5 h-3.5 ${isOnBreak ? 'text-amber-600' : isClockedIn ? 'text-emerald-600 animate-pulse' : 'text-slate-500'}`} />
+            <span className="hidden sm:inline">
+              {isOnBreak ? 'On Break' : isClockedIn ? `Clocked In${timeClockElapsed ? ` (${timeClockElapsed})` : ''}` : 'Clock In'}
+            </span>
+          </button>
+        )}
 
         {/* User Profile & Direct Logout Button */}
         {currentUser && onLogout && (

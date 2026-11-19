@@ -1623,6 +1623,1277 @@ function startBackupSchedule() {
 	}, INTERVAL_HOURS * 36e5).unref();
 	console.log(`[Backup] Auto-backup every ${INTERVAL_HOURS}h → ${BACKUP_DIR} (keeping ${KEEP})`);
 }
+// src/server/payrollMath.ts
+var CRA_2026 = {
+	CPP: {
+		RATE: .0595,
+		BASIC_EXEMPTION_ANNUAL_CENTS: 35e4,
+		YMPE_ANNUAL_CENTS: 713e4,
+		MAX_ANNUAL_CONTRIBUTION_CENTS: 403410
+	},
+	EI: {
+		RATE: .0163,
+		MAX_INSURABLE_ANNUAL_CENTS: 657e4,
+		MAX_ANNUAL_PREMIUM_CENTS: 107091
+	},
+	DEFAULT_TD1_FEDERAL_CENTS: 1612900,
+	DEFAULT_TD1_ONTARIO_CENTS: 1274600,
+	ONTARIO_VACATION_PAY_BPS: 400,
+	ONTARIO_OVERTIME_WEEKLY_HOURS: 44
+};
+/**
+* Determine periods per year based on pay frequency
+*/
+function getPeriodsPerYear(periodType, days = 14) {
+	switch (periodType) {
+		case "WEEKLY": return 52;
+		case "BI_WEEKLY": return 26;
+		case "MONTHLY": return 12;
+		case "CUSTOM": return Math.max(1, Math.round(365 / Math.max(1, days)));
+		default: return 26;
+	}
+}
+/**
+* Compute Canada Pension Plan (CPP) periodic contribution
+*/
+function calculateCPP(grossCents, periodsPerYear) {
+	if (grossCents <= 0) return 0;
+	const periodicExemption = Math.round(CRA_2026.CPP.BASIC_EXEMPTION_ANNUAL_CENTS / periodsPerYear);
+	const contributoryGross = Math.max(0, grossCents - periodicExemption);
+	if (contributoryGross <= 0) return 0;
+	const rawCpp = Math.round(contributoryGross * CRA_2026.CPP.RATE);
+	const periodicMax = Math.round(CRA_2026.CPP.MAX_ANNUAL_CONTRIBUTION_CENTS / periodsPerYear);
+	return Math.min(rawCpp, periodicMax);
+}
+/**
+* Compute Employment Insurance (EI) periodic premium
+*/
+function calculateEI(grossCents, periodsPerYear) {
+	if (grossCents <= 0) return 0;
+	const rawEi = Math.round(grossCents * CRA_2026.EI.RATE);
+	const periodicMax = Math.round(CRA_2026.EI.MAX_ANNUAL_PREMIUM_CENTS / periodsPerYear);
+	return Math.min(rawEi, periodicMax);
+}
+/**
+* Calculate Canadian Federal Income Tax on Annualized Income (2026 brackets)
+*/
+function calculateAnnualFederalTax(annualIncomeCents, td1FedCents) {
+	const inc = annualIncomeCents / 100;
+	if (inc <= 0) return 0;
+	let tax = 0;
+	if (inc <= 55867) tax = inc * .15;
+	else if (inc <= 111733) tax = 8380.05 + (inc - 55867) * .205;
+	else if (inc <= 173205) tax = 19832.579999999998 + (inc - 111733) * .26;
+	else if (inc <= 246752) tax = 35815.3 + (inc - 173205) * .29;
+	else tax = 57143.93 + (inc - 246752) * .33;
+	const credit = td1FedCents / 100 * .15;
+	return Math.max(0, Math.round((tax - credit) * 100));
+}
+/**
+* Calculate Ontario Provincial Income Tax on Annualized Income (2026 brackets + surtax + OHP)
+*/
+function calculateAnnualOntarioTax(annualIncomeCents, td1OnCents) {
+	const inc = annualIncomeCents / 100;
+	if (inc <= 0) return 0;
+	let baseTax = 0;
+	if (inc <= 51446) baseTax = inc * .0505;
+	else if (inc <= 102894) baseTax = 2598.023 + (inc - 51446) * .0915;
+	else if (inc <= 15e4) baseTax = 7305.515 + (inc - 102894) * .1116;
+	else if (inc <= 22e4) baseTax = 12562.544600000001 + (inc - 15e4) * .1216;
+	else baseTax = 21074.5446 + (inc - 22e4) * .1316;
+	const credit = td1OnCents / 100 * .0505;
+	let netBaseTax = Math.max(0, baseTax - credit);
+	let surtax = 0;
+	if (netBaseTax > 5315) surtax += (netBaseTax - 5315) * .2;
+	if (netBaseTax > 6802) surtax += (netBaseTax - 6802) * .36;
+	let ohp = 0;
+	if (inc > 2e4 && inc <= 25e3) ohp = Math.min(300, (inc - 2e4) * .06);
+	else if (inc > 25e3 && inc <= 36e3) ohp = 300;
+	else if (inc > 36e3 && inc <= 38500) ohp = 300 + (inc - 36e3) * .06;
+	else if (inc > 38500 && inc <= 48e3) ohp = 450;
+	else if (inc > 48e3 && inc <= 48600) ohp = 450 + (inc - 48e3) * .25;
+	else if (inc > 48600 && inc <= 72e3) ohp = 600;
+	else if (inc > 72e3 && inc <= 72600) ohp = 600 + (inc - 72e3) * .25;
+	else if (inc > 72600 && inc <= 2e5) ohp = 750;
+	else if (inc > 2e5 && inc <= 200600) ohp = 750 + (inc - 2e5) * .25;
+	else if (inc > 200600) ohp = 900;
+	return Math.round((netBaseTax + surtax + ohp) * 100);
+}
+/**
+* Compute combined Federal and Ontario periodic income tax
+*/
+function calculateIncomeTax(grossCents, periodsPerYear, td1FedCents = CRA_2026.DEFAULT_TD1_FEDERAL_CENTS, td1OnCents = CRA_2026.DEFAULT_TD1_ONTARIO_CENTS) {
+	if (grossCents <= 0) return 0;
+	const annualGross = grossCents * periodsPerYear;
+	const annualFed = calculateAnnualFederalTax(annualGross, td1FedCents);
+	const annualOn = calculateAnnualOntarioTax(annualGross, td1OnCents);
+	return Math.max(0, Math.round((annualFed + annualOn) / periodsPerYear));
+}
+/**
+* Main Payroll Calculation Function
+*/
+function calculatePayroll(input) {
+	const periodsPerYear = getPeriodsPerYear(input.periodType, input.daysInPeriod);
+	const hourlyRateCents = Math.max(0, input.employee.hourlyRateCents);
+	const overtimeRateCents = input.employee.overtimeRateCents && input.employee.overtimeRateCents > 0 ? input.employee.overtimeRateCents : Math.round(hourlyRateCents * 1.5);
+	const regularHours = Math.max(0, Number(input.regularHours.toFixed(2)));
+	const overtimeHours = Math.max(0, Number(input.overtimeHours.toFixed(2)));
+	const regularPayCents = Math.round(regularHours * hourlyRateCents);
+	const overtimePayCents = Math.round(overtimeHours * overtimeRateCents);
+	const bonusCents = Math.max(0, input.bonusCents || 0);
+	const vacationPayPct = input.employee.vacationPayPct ?? CRA_2026.ONTARIO_VACATION_PAY_BPS;
+	const baseEarningsCents = regularPayCents + overtimePayCents + bonusCents;
+	const vacationPayCents = Math.round(baseEarningsCents * vacationPayPct / 1e4);
+	const grossPayCents = baseEarningsCents + vacationPayCents;
+	const cppCents = calculateCPP(grossPayCents, periodsPerYear);
+	const eiCents = calculateEI(grossPayCents, periodsPerYear);
+	const incomeTaxCents = calculateIncomeTax(grossPayCents, periodsPerYear, input.employee.td1FederalClaimCents || CRA_2026.DEFAULT_TD1_FEDERAL_CENTS, input.employee.td1OntarioClaimCents || CRA_2026.DEFAULT_TD1_ONTARIO_CENTS);
+	const otherDeductionsCents = Math.max(0, input.otherDeductionsCents || 0);
+	const totalDeductionsCents = cppCents + eiCents + incomeTaxCents + otherDeductionsCents;
+	return {
+		regularHours,
+		overtimeHours,
+		hourlyRateCents,
+		overtimeRateCents,
+		regularPayCents,
+		overtimePayCents,
+		bonusCents,
+		vacationPayCents,
+		grossPayCents,
+		cppCents,
+		eiCents,
+		incomeTaxCents,
+		otherDeductionsCents,
+		totalDeductionsCents,
+		netPayCents: Math.max(0, grossPayCents - totalDeductionsCents),
+		payPeriodsPerYear: periodsPerYear,
+		effectiveTaxRatePct: grossPayCents > 0 ? Number((totalDeductionsCents / grossPayCents * 100).toFixed(2)) : 0
+	};
+}
+// src/server/payrollService.ts
+async function getTimeClockStatus(userId) {
+	const user = await prisma.user.findUnique({
+		where: { id: userId },
+		select: {
+			id: true,
+			name: true,
+			role: true,
+			employeeNumber: true,
+			hourlyRateCents: true,
+			overtimeRateCents: true,
+			vacationPayPct: true,
+			bench: true
+		}
+	});
+	if (!user) throw new HttpError(404, "User not found");
+	const activeShift = await prisma.shift.findFirst({
+		where: {
+			userId,
+			status: { in: ["ACTIVE", "ON_BREAK"] }
+		},
+		include: { breaks: { orderBy: { startTime: "desc" } } },
+		orderBy: { clockIn: "desc" }
+	});
+	const activeBreak = activeShift?.breaks.find((b) => b.endTime === null) || null;
+	const now = /* @__PURE__ */ new Date();
+	const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+	const todayShifts = await prisma.shift.findMany({ where: {
+		userId,
+		clockIn: { gte: todayStart }
+	} });
+	let todayMinutes = 0;
+	for (const s of todayShifts) if (s.status === "COMPLETED") todayMinutes += s.totalMinutes;
+	else {
+		const elapsed = Math.round((now.getTime() - s.clockIn.getTime()) / 6e4);
+		todayMinutes += Math.max(0, elapsed - s.breakMinutes);
+	}
+	const dayOfWeek = (now.getDay() + 6) % 7;
+	const weekStart = /* @__PURE__ */ new Date(todayStart.getTime() - dayOfWeek * 864e5);
+	const weekShifts = await prisma.shift.findMany({ where: {
+		userId,
+		clockIn: { gte: weekStart }
+	} });
+	let weekMinutes = 0;
+	for (const s of weekShifts) if (s.status === "COMPLETED") weekMinutes += s.totalMinutes;
+	else {
+		const elapsed = Math.round((now.getTime() - s.clockIn.getTime()) / 6e4);
+		weekMinutes += Math.max(0, elapsed - s.breakMinutes);
+	}
+	return {
+		user,
+		isClockedIn: Boolean(activeShift),
+		isOnBreak: activeShift?.status === "ON_BREAK",
+		activeShift: activeShift ? {
+			id: activeShift.id,
+			clockIn: activeShift.clockIn,
+			status: activeShift.status,
+			breakMinutes: activeShift.breakMinutes,
+			activeDurationMinutes: Math.max(0, Math.round((now.getTime() - activeShift.clockIn.getTime()) / 6e4) - activeShift.breakMinutes),
+			activeBreak
+		} : null,
+		todayMinutes,
+		todayHours: Number((todayMinutes / 60).toFixed(2)),
+		weekMinutes,
+		weekHours: Number((weekMinutes / 60).toFixed(2)),
+		isApproachingOvertime: weekMinutes / 60 >= 40,
+		isOvertime: weekMinutes / 60 > CRA_2026.ONTARIO_OVERTIME_WEEKLY_HOURS
+	};
+}
+async function clockIn(userId, notes) {
+	const existing = await prisma.shift.findFirst({ where: {
+		userId,
+		status: { in: ["ACTIVE", "ON_BREAK"] }
+	} });
+	if (existing) throw new HttpError(409, `You are already clocked in to a shift started at ${existing.clockIn.toLocaleTimeString()}`);
+	const shift = await prisma.shift.create({
+		data: {
+			userId,
+			clockIn: /* @__PURE__ */ new Date(),
+			status: "ACTIVE",
+			notes: notes?.trim() || null
+		},
+		include: { user: { select: {
+			name: true,
+			employeeNumber: true
+		} } }
+	});
+	await recordAudit({
+		userId,
+		actorName: shift.user.name,
+		action: "CLOCK_IN",
+		details: `Employee ${shift.user.name} clocked in at ${shift.clockIn.toISOString()}`
+	});
+	return shift;
+}
+async function clockOut(userId, notes) {
+	const shift = await prisma.shift.findFirst({
+		where: {
+			userId,
+			status: { in: ["ACTIVE", "ON_BREAK"] }
+		},
+		include: {
+			breaks: true,
+			user: { select: { name: true } }
+		}
+	});
+	if (!shift) throw new HttpError(400, "No active shift found. You must clock in before clocking out.");
+	const clockOutTime = /* @__PURE__ */ new Date();
+	if (shift.status === "ON_BREAK") {
+		const openBreak = shift.breaks.find((b) => b.endTime === null);
+		if (openBreak) {
+			const dur = Math.max(1, Math.round((clockOutTime.getTime() - openBreak.startTime.getTime()) / 6e4));
+			await prisma.shiftBreak.update({
+				where: { id: openBreak.id },
+				data: {
+					endTime: clockOutTime,
+					durationMinutes: dur
+				}
+			});
+			shift.breakMinutes += dur;
+		}
+	}
+	const grossMinutes = Math.max(0, Math.round((clockOutTime.getTime() - shift.clockIn.getTime()) / 6e4));
+	const totalMinutes = Math.max(0, grossMinutes - shift.breakMinutes);
+	const dayOfWeek = (clockOutTime.getDay() + 6) % 7;
+	const startOfDay = new Date(clockOutTime.getFullYear(), clockOutTime.getMonth(), clockOutTime.getDate());
+	const weekStart = /* @__PURE__ */ new Date(startOfDay.getTime() - dayOfWeek * 864e5);
+	const priorWeekMinutes = (await prisma.shift.findMany({
+		where: {
+			userId,
+			id: { not: shift.id },
+			clockIn: {
+				gte: weekStart,
+				lt: clockOutTime
+			},
+			status: "COMPLETED"
+		},
+		select: { totalMinutes: true }
+	})).reduce((s, p) => s + p.totalMinutes, 0);
+	const otThresholdMinutes = CRA_2026.ONTARIO_OVERTIME_WEEKLY_HOURS * 60;
+	let regularMinutes = totalMinutes;
+	let overtimeMinutes = 0;
+	if (priorWeekMinutes >= otThresholdMinutes) {
+		regularMinutes = 0;
+		overtimeMinutes = totalMinutes;
+	} else if (priorWeekMinutes + totalMinutes > otThresholdMinutes) {
+		regularMinutes = Math.max(0, otThresholdMinutes - priorWeekMinutes);
+		overtimeMinutes = totalMinutes - regularMinutes;
+	}
+	const updated = await prisma.shift.update({
+		where: { id: shift.id },
+		data: {
+			clockOut: clockOutTime,
+			status: "COMPLETED",
+			totalMinutes,
+			regularMinutes,
+			overtimeMinutes,
+			notes: notes?.trim() || shift.notes
+		}
+	});
+	await recordAudit({
+		userId,
+		actorName: shift.user.name,
+		action: "CLOCK_OUT",
+		details: `Employee ${shift.user.name} clocked out. Total worked: ${(totalMinutes / 60).toFixed(2)}h (Regular: ${(regularMinutes / 60).toFixed(2)}h, Overtime: ${(overtimeMinutes / 60).toFixed(2)}h)`
+	});
+	return updated;
+}
+async function startBreak(userId, type = "UNPAID_MEAL") {
+	const shift = await prisma.shift.findFirst({
+		where: {
+			userId,
+			status: "ACTIVE"
+		},
+		include: { user: { select: { name: true } } }
+	});
+	if (!shift) throw new HttpError(400, "You must have an active shift to start a break.");
+	const brk = await prisma.shiftBreak.create({ data: {
+		shiftId: shift.id,
+		startTime: /* @__PURE__ */ new Date(),
+		type
+	} });
+	await prisma.shift.update({
+		where: { id: shift.id },
+		data: { status: "ON_BREAK" }
+	});
+	await recordAudit({
+		userId,
+		actorName: shift.user.name,
+		action: "BREAK_START",
+		details: `Employee ${shift.user.name} started ${type.toLowerCase().replace("_", " ")} break`
+	});
+	return brk;
+}
+async function endBreak(userId) {
+	const shift = await prisma.shift.findFirst({
+		where: {
+			userId,
+			status: "ON_BREAK"
+		},
+		include: {
+			breaks: {
+				where: { endTime: null },
+				orderBy: { startTime: "desc" }
+			},
+			user: { select: { name: true } }
+		}
+	});
+	if (!shift || !shift.breaks.length) throw new HttpError(400, "No active break found to end.");
+	const now = /* @__PURE__ */ new Date();
+	const openBreak = shift.breaks[0];
+	const durationMinutes = Math.max(1, Math.round((now.getTime() - openBreak.startTime.getTime()) / 6e4));
+	await prisma.shiftBreak.update({
+		where: { id: openBreak.id },
+		data: {
+			endTime: now,
+			durationMinutes
+		}
+	});
+	const updatedShift = await prisma.shift.update({
+		where: { id: shift.id },
+		data: {
+			status: "ACTIVE",
+			breakMinutes: { increment: durationMinutes }
+		}
+	});
+	await recordAudit({
+		userId,
+		actorName: shift.user.name,
+		action: "BREAK_END",
+		details: `Employee ${shift.user.name} ended break after ${durationMinutes} minutes`
+	});
+	return updatedShift;
+}
+async function getMyShifts(userId, options) {
+	const where = { userId };
+	if (options.startDate || options.endDate) {
+		where.clockIn = {};
+		if (options.startDate) where.clockIn.gte = new Date(options.startDate);
+		if (options.endDate) where.clockIn.lte = new Date(options.endDate);
+	}
+	return (await prisma.shift.findMany({
+		where,
+		include: { breaks: { orderBy: { startTime: "asc" } } },
+		orderBy: { clockIn: "desc" },
+		take: options.limit || 50
+	})).map((s) => ({
+		...s,
+		totalHours: Number((s.totalMinutes / 60).toFixed(2)),
+		regularHours: Number((s.regularMinutes / 60).toFixed(2)),
+		overtimeHours: Number((s.overtimeMinutes / 60).toFixed(2)),
+		breakHours: Number((s.breakMinutes / 60).toFixed(2))
+	}));
+}
+async function getMyPaystubs(userId) {
+	return await prisma.paystub.findMany({
+		where: { userId },
+		include: { payrollPeriod: true },
+		orderBy: { createdAt: "desc" }
+	});
+}
+async function getMyPaystub(userId, paystubId, isAdmin = false) {
+	const paystub = await prisma.paystub.findUnique({
+		where: { id: paystubId },
+		include: {
+			payrollPeriod: true,
+			user: { select: {
+				id: true,
+				name: true,
+				email: true,
+				employeeNumber: true,
+				hourlyRateCents: true,
+				sin: true
+			} }
+		}
+	});
+	if (!paystub) throw new HttpError(404, "Paystub not found");
+	if (!isAdmin && paystub.userId !== userId) throw new HttpError(403, "Unauthorized access to confidential paystub");
+	return paystub;
+}
+async function getAttendanceOverview(filters) {
+	const where = {};
+	if (filters.userId && filters.userId !== "ALL") where.userId = filters.userId;
+	if (filters.status && filters.status !== "ALL") where.status = filters.status;
+	if (filters.startDate || filters.endDate) {
+		where.clockIn = {};
+		if (filters.startDate) where.clockIn.gte = new Date(filters.startDate);
+		if (filters.endDate) where.clockIn.lte = new Date(filters.endDate);
+	}
+	const [shifts, users, currentlyClockedInCount] = await Promise.all([
+		prisma.shift.findMany({
+			where,
+			include: {
+				user: { select: {
+					id: true,
+					name: true,
+					employeeNumber: true,
+					role: true,
+					bench: true
+				} },
+				breaks: { orderBy: { startTime: "asc" } }
+			},
+			orderBy: { clockIn: "desc" }
+		}),
+		prisma.user.findMany({
+			where: { status: "ACTIVE" },
+			select: {
+				id: true,
+				name: true,
+				employeeNumber: true,
+				role: true,
+				hourlyRateCents: true
+			},
+			orderBy: { name: "asc" }
+		}),
+		prisma.shift.count({ where: { status: { in: ["ACTIVE", "ON_BREAK"] } } })
+	]);
+	const totalMinutes = shifts.reduce((acc, s) => acc + s.totalMinutes, 0);
+	const regularMinutes = shifts.reduce((acc, s) => acc + s.regularMinutes, 0);
+	const overtimeMinutes = shifts.reduce((acc, s) => acc + s.overtimeMinutes, 0);
+	return {
+		shifts: shifts.map((s) => ({
+			...s,
+			totalHours: Number((s.totalMinutes / 60).toFixed(2)),
+			regularHours: Number((s.regularMinutes / 60).toFixed(2)),
+			overtimeHours: Number((s.overtimeMinutes / 60).toFixed(2)),
+			breakHours: Number((s.breakMinutes / 60).toFixed(2))
+		})),
+		users,
+		metrics: {
+			totalShifts: shifts.length,
+			currentlyClockedIn: currentlyClockedInCount,
+			totalHours: Number((totalMinutes / 60).toFixed(2)),
+			regularHours: Number((regularMinutes / 60).toFixed(2)),
+			overtimeHours: Number((overtimeMinutes / 60).toFixed(2))
+		}
+	};
+}
+async function getLiveRoster() {
+	const now = /* @__PURE__ */ new Date();
+	return (await prisma.shift.findMany({
+		where: { status: { in: ["ACTIVE", "ON_BREAK"] } },
+		include: {
+			user: { select: {
+				id: true,
+				name: true,
+				employeeNumber: true,
+				role: true,
+				bench: true
+			} },
+			breaks: { where: { endTime: null } }
+		},
+		orderBy: { clockIn: "asc" }
+	})).map((s) => {
+		const elapsedMinutes = Math.max(0, Math.round((now.getTime() - s.clockIn.getTime()) / 6e4));
+		const activeWorkedMinutes = Math.max(0, elapsedMinutes - s.breakMinutes);
+		return {
+			shiftId: s.id,
+			user: s.user,
+			clockIn: s.clockIn,
+			status: s.status,
+			activeBreak: s.breaks[0] || null,
+			breakMinutes: s.breakMinutes,
+			activeWorkedMinutes,
+			activeWorkedHours: Number((activeWorkedMinutes / 60).toFixed(2))
+		};
+	});
+}
+async function manualAddShift(data, adminUser) {
+	if (!data.reason?.trim()) throw new HttpError(400, "A modification reason is required for manual shift addition.");
+	const start = new Date(data.clockIn);
+	const end = new Date(data.clockOut);
+	if (end <= start) throw new HttpError(400, "Clock out time must be later than clock in time.");
+	const breakMins = Math.max(0, data.breakMinutes || 0);
+	const grossMins = Math.round((end.getTime() - start.getTime()) / 6e4);
+	const totalMinutes = Math.max(0, grossMins - breakMins);
+	const regularMinutes = Math.min(totalMinutes, 480);
+	const overtimeMinutes = Math.max(0, totalMinutes - regularMinutes);
+	const shift = await prisma.shift.create({
+		data: {
+			userId: data.userId,
+			clockIn: start,
+			clockOut: end,
+			status: "COMPLETED",
+			breakMinutes: breakMins,
+			totalMinutes,
+			regularMinutes,
+			overtimeMinutes,
+			notes: data.notes?.trim() || null,
+			editedByAdminId: adminUser.id,
+			editedAt: /* @__PURE__ */ new Date(),
+			editReason: `Manual Shift Addition: ${data.reason.trim()}`,
+			originalClockIn: start,
+			originalClockOut: end
+		},
+		include: { user: { select: { name: true } } }
+	});
+	await recordAudit({
+		userId: adminUser.id,
+		actorName: adminUser.name,
+		action: "SHIFT_MANUAL_ADD",
+		details: `Admin ${adminUser.name} manually added shift for ${shift.user.name} (${(totalMinutes / 60).toFixed(2)}h). Reason: ${data.reason.trim()}`
+	});
+	return shift;
+}
+async function manualEditShift(shiftId, data, adminUser) {
+	if (!data.reason?.trim()) throw new HttpError(400, "A modification reason is required to edit attendance records.");
+	const existing = await prisma.shift.findUnique({
+		where: { id: shiftId },
+		include: { user: { select: { name: true } } }
+	});
+	if (!existing) throw new HttpError(404, "Shift not found");
+	const newClockIn = new Date(data.clockIn);
+	const newClockOut = data.clockOut ? new Date(data.clockOut) : existing.clockOut;
+	let totalMinutes = existing.totalMinutes;
+	let regularMinutes = existing.regularMinutes;
+	let overtimeMinutes = existing.overtimeMinutes;
+	const breakMinutes = data.breakMinutes !== void 0 ? Math.max(0, data.breakMinutes) : existing.breakMinutes;
+	if (newClockOut) {
+		if (newClockOut <= newClockIn) throw new HttpError(400, "Clock out time must be later than clock in time.");
+		const grossMins = Math.round((newClockOut.getTime() - newClockIn.getTime()) / 6e4);
+		totalMinutes = Math.max(0, grossMins - breakMinutes);
+		regularMinutes = Math.min(totalMinutes, 480);
+		overtimeMinutes = Math.max(0, totalMinutes - regularMinutes);
+	}
+	const updated = await prisma.shift.update({
+		where: { id: shiftId },
+		data: {
+			clockIn: newClockIn,
+			clockOut: newClockOut,
+			breakMinutes,
+			totalMinutes,
+			regularMinutes,
+			overtimeMinutes,
+			notes: data.notes !== void 0 ? data.notes : existing.notes,
+			editedByAdminId: adminUser.id,
+			editedAt: /* @__PURE__ */ new Date(),
+			editReason: data.reason.trim(),
+			originalClockIn: existing.originalClockIn || existing.clockIn,
+			originalClockOut: existing.originalClockOut || existing.clockOut
+		}
+	});
+	await recordAudit({
+		userId: adminUser.id,
+		actorName: adminUser.name,
+		action: "SHIFT_MODIFIED",
+		details: `Admin ${adminUser.name} edited shift for ${existing.user.name}. Reason: ${data.reason.trim()}`
+	});
+	return updated;
+}
+async function deleteShift(shiftId, adminUser) {
+	const existing = await prisma.shift.findUnique({
+		where: { id: shiftId },
+		include: { user: { select: { name: true } } }
+	});
+	if (!existing) throw new HttpError(404, "Shift not found");
+	await prisma.shift.delete({ where: { id: shiftId } });
+	await recordAudit({
+		userId: adminUser.id,
+		actorName: adminUser.name,
+		action: "SHIFT_DELETED",
+		details: `Admin ${adminUser.name} deleted shift #${shiftId} for ${existing.user.name}`
+	});
+	return { success: true };
+}
+async function exportAttendanceCsv(filters) {
+	const where = {};
+	if (filters.userId && filters.userId !== "ALL") where.userId = filters.userId;
+	if (filters.startDate || filters.endDate) {
+		where.clockIn = {};
+		if (filters.startDate) where.clockIn.gte = new Date(filters.startDate);
+		if (filters.endDate) where.clockIn.lte = new Date(filters.endDate);
+	}
+	const shifts = await prisma.shift.findMany({
+		where,
+		include: { user: true },
+		orderBy: { clockIn: "desc" }
+	});
+	const esc = (v) => `"${String(v ?? "").replace(/"/g, "\"\"")}"`;
+	const rows = [[
+		"Shift ID",
+		"Employee Name",
+		"Employee Number",
+		"Clock In",
+		"Clock Out",
+		"Status",
+		"Break (Minutes)",
+		"Total Hours",
+		"Regular Hours",
+		"Overtime Hours",
+		"Edited By Admin",
+		"Edit Reason",
+		"Original Clock In",
+		"Original Clock Out"
+	]];
+	for (const s of shifts) rows.push([
+		s.id,
+		s.user.name,
+		s.user.employeeNumber || "",
+		s.clockIn.toISOString(),
+		s.clockOut ? s.clockOut.toISOString() : "Active Shift",
+		s.status,
+		String(s.breakMinutes),
+		(s.totalMinutes / 60).toFixed(2),
+		(s.regularMinutes / 60).toFixed(2),
+		(s.overtimeMinutes / 60).toFixed(2),
+		s.editedByAdminId ? "Yes" : "No",
+		s.editReason || "",
+		s.originalClockIn ? s.originalClockIn.toISOString() : "",
+		s.originalClockOut ? s.originalClockOut.toISOString() : ""
+	]);
+	return rows.map((r) => r.map(esc).join(",")).join("\n");
+}
+async function getUserWageHistory(userId) {
+	const user = await prisma.user.findUnique({
+		where: { id: userId },
+		select: {
+			id: true,
+			name: true,
+			employeeNumber: true,
+			hourlyRateCents: true,
+			overtimeRateCents: true,
+			vacationPayPct: true,
+			td1FederalClaimCents: true,
+			td1OntarioClaimCents: true
+		}
+	});
+	if (!user) throw new HttpError(404, "User not found");
+	return {
+		user,
+		history: await prisma.wageRate.findMany({
+			where: { userId },
+			orderBy: { effectiveDate: "desc" }
+		})
+	};
+}
+async function updateUserWage(userId, data, adminUser) {
+	const user = await prisma.user.findUnique({ where: { id: userId } });
+	if (!user) throw new HttpError(404, "User not found");
+	const hourly = Math.max(0, data.hourlyRateCents);
+	const overtime = data.overtimeRateCents && data.overtimeRateCents > 0 ? data.overtimeRateCents : Math.round(hourly * 1.5);
+	const effective = data.effectiveDate ? new Date(data.effectiveDate) : /* @__PURE__ */ new Date();
+	const wageRecord = await prisma.wageRate.create({ data: {
+		userId,
+		hourlyRateCents: hourly,
+		overtimeRateCents: overtime,
+		effectiveDate: effective,
+		reason: data.reason?.trim() || "Wage update",
+		createdById: adminUser.id
+	} });
+	const updatedUser = await prisma.user.update({
+		where: { id: userId },
+		data: {
+			hourlyRateCents: hourly,
+			overtimeRateCents: overtime,
+			vacationPayPct: data.vacationPayPct !== void 0 ? data.vacationPayPct : user.vacationPayPct
+		}
+	});
+	await recordAudit({
+		userId: adminUser.id,
+		actorName: adminUser.name,
+		action: "WAGE_UPDATE",
+		details: `Admin ${adminUser.name} updated wage for ${user.name} to $${(hourly / 100).toFixed(2)}/hr (effective ${effective.toISOString().slice(0, 10)}). Reason: ${data.reason || "Not specified"}`
+	});
+	return {
+		wageRecord,
+		user: updatedUser
+	};
+}
+async function getPayrollDashboardOverview() {
+	const now = /* @__PURE__ */ new Date();
+	const dayOfWeek = (now.getDay() + 6) % 7;
+	const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+	const weekStart = /* @__PURE__ */ new Date(startOfDay.getTime() - dayOfWeek * 864e5);
+	const [shiftsThisWeek, clockedInCount, periods, recentPaystubs, activeEmployees] = await Promise.all([
+		prisma.shift.findMany({
+			where: { clockIn: { gte: weekStart } },
+			include: { user: true }
+		}),
+		prisma.shift.count({ where: { status: { in: ["ACTIVE", "ON_BREAK"] } } }),
+		prisma.payrollPeriod.findMany({
+			orderBy: { startDate: "desc" },
+			take: 6
+		}),
+		prisma.paystub.findMany({
+			include: {
+				user: { select: {
+					name: true,
+					employeeNumber: true
+				} },
+				payrollPeriod: true
+			},
+			orderBy: { createdAt: "desc" },
+			take: 8
+		}),
+		prisma.user.findMany({
+			where: { status: "ACTIVE" },
+			select: {
+				id: true,
+				name: true,
+				hourlyRateCents: true,
+				overtimeRateCents: true
+			}
+		})
+	]);
+	const totalMinutes = shiftsThisWeek.reduce((s, x) => s + x.totalMinutes, 0);
+	const regularMinutes = shiftsThisWeek.reduce((s, x) => s + x.regularMinutes, 0);
+	const overtimeMinutes = shiftsThisWeek.reduce((s, x) => s + x.overtimeMinutes, 0);
+	let estimatedGrossCents = 0;
+	for (const s of shiftsThisWeek) {
+		const rate = s.user.hourlyRateCents || 2200;
+		const otRate = s.user.overtimeRateCents || Math.round(rate * 1.5);
+		const regPay = Math.round(s.regularMinutes / 60 * rate);
+		const otPay = Math.round(s.overtimeMinutes / 60 * otRate);
+		estimatedGrossCents += regPay + otPay;
+	}
+	const estimatedDeductionsCents = Math.round(estimatedGrossCents * .2395);
+	const estimatedNetCents = Math.max(0, estimatedGrossCents - estimatedDeductionsCents);
+	return {
+		metrics: {
+			totalHoursThisWeek: Number((totalMinutes / 60).toFixed(2)),
+			regularHoursThisWeek: Number((regularMinutes / 60).toFixed(2)),
+			overtimeHoursThisWeek: Number((overtimeMinutes / 60).toFixed(2)),
+			estimatedGrossCents,
+			estimatedDeductionsCents,
+			estimatedNetCents,
+			clockedInCount,
+			activeEmployeeCount: activeEmployees.length
+		},
+		recentPeriods: periods,
+		recentPaystubs
+	};
+}
+async function calculatePeriodPayroll(options) {
+	const start = new Date(options.startDate);
+	const end = new Date(options.endDate);
+	start.setHours(0, 0, 0, 0);
+	end.setHours(23, 59, 59, 999);
+	const employees = await prisma.user.findMany({
+		where: { status: "ACTIVE" },
+		include: { wageRates: { orderBy: { effectiveDate: "desc" } } },
+		orderBy: { name: "asc" }
+	});
+	const shifts = await prisma.shift.findMany({ where: {
+		clockIn: {
+			gte: start,
+			lte: end
+		},
+		status: "COMPLETED"
+	} });
+	const daysInPeriod = Math.max(1, Math.round((end.getTime() - start.getTime()) / 864e5));
+	const employeePaystubs = [];
+	for (const emp of employees) {
+		const empShifts = shifts.filter((s) => s.userId === emp.id);
+		const regMinutes = empShifts.reduce((s, x) => s + x.regularMinutes, 0);
+		const otMinutes = empShifts.reduce((s, x) => s + x.overtimeMinutes, 0);
+		const regularHours = Number((regMinutes / 60).toFixed(2));
+		const overtimeHours = Number((otMinutes / 60).toFixed(2));
+		const effectiveWage = emp.wageRates.find((w) => w.effectiveDate <= end) || null;
+		const hourlyRateCents = effectiveWage ? effectiveWage.hourlyRateCents : emp.hourlyRateCents;
+		const overtimeRateCents = effectiveWage ? effectiveWage.overtimeRateCents : emp.overtimeRateCents || Math.round(hourlyRateCents * 1.5);
+		const calc = calculatePayroll({
+			regularHours,
+			overtimeHours,
+			periodType: options.periodType,
+			daysInPeriod,
+			employee: {
+				hourlyRateCents,
+				overtimeRateCents,
+				vacationPayPct: emp.vacationPayPct,
+				td1FederalClaimCents: emp.td1FederalClaimCents,
+				td1OntarioClaimCents: emp.td1OntarioClaimCents
+			}
+		});
+		employeePaystubs.push({
+			userId: emp.id,
+			employee: {
+				id: emp.id,
+				name: emp.name,
+				employeeNumber: emp.employeeNumber,
+				email: emp.email,
+				role: emp.role
+			},
+			...calc
+		});
+	}
+	const totalGrossCents = employeePaystubs.reduce((s, p) => s + p.grossPayCents, 0);
+	const totalDeductionsCents = employeePaystubs.reduce((s, p) => s + p.totalDeductionsCents, 0);
+	const totalNetCents = employeePaystubs.reduce((s, p) => s + p.netPayCents, 0);
+	const totalHours = employeePaystubs.reduce((s, p) => s + p.regularHours + p.overtimeHours, 0);
+	const periodPayDate = options.payDate || new Date(end.getTime() + 432e6).toISOString();
+	return {
+		periodType: options.periodType,
+		startDate: start.toISOString(),
+		endDate: end.toISOString(),
+		payDate: periodPayDate,
+		period: {
+			startDate: start.toISOString(),
+			endDate: end.toISOString(),
+			payDate: periodPayDate,
+			periodType: options.periodType
+		},
+		daysInPeriod,
+		employeePaystubs,
+		paystubs: employeePaystubs,
+		summary: {
+			totalEmployees: employeePaystubs.length,
+			totalHours: Number(totalHours.toFixed(2)),
+			totalGrossCents,
+			totalDeductionsCents,
+			totalNetCents
+		}
+	};
+}
+async function createPayrollPeriod(data, adminUser) {
+	const start = new Date(data.startDate);
+	const end = new Date(data.endDate);
+	const pay = new Date(data.payDate);
+	const periodNumber = await prisma.payrollPeriod.count() + 1;
+	const totalGrossCents = data.paystubs.reduce((s, p) => s + (p.grossPayCents || 0), 0);
+	const totalDeductionsCents = data.paystubs.reduce((s, p) => s + (p.totalDeductionsCents || 0), 0);
+	const totalNetCents = data.paystubs.reduce((s, p) => s + (p.netPayCents || 0), 0);
+	const period = await prisma.$transaction(async (tx) => {
+		const createdPeriod = await tx.payrollPeriod.create({ data: {
+			periodNumber,
+			periodType: data.periodType || "BI_WEEKLY",
+			startDate: start,
+			endDate: end,
+			payDate: pay,
+			status: "DRAFT",
+			totalGrossCents,
+			totalDeductionsCents,
+			totalNetCents,
+			notes: data.notes?.trim() || null
+		} });
+		for (const p of data.paystubs) await tx.paystub.create({ data: {
+			payrollPeriodId: createdPeriod.id,
+			userId: p.userId,
+			regularHours: p.regularHours || 0,
+			overtimeHours: p.overtimeHours || 0,
+			hourlyRateCents: p.hourlyRateCents || 2200,
+			overtimeRateCents: p.overtimeRateCents || Math.round((p.hourlyRateCents || 2200) * 1.5),
+			regularPayCents: p.regularPayCents || 0,
+			overtimePayCents: p.overtimePayCents || 0,
+			bonusCents: p.bonusCents || 0,
+			vacationPayCents: p.vacationPayCents || 0,
+			grossPayCents: p.grossPayCents || 0,
+			cppCents: p.cppCents || 0,
+			eiCents: p.eiCents || 0,
+			incomeTaxCents: p.incomeTaxCents || 0,
+			otherDeductionsCents: p.otherDeductionsCents || 0,
+			totalDeductionsCents: p.totalDeductionsCents || 0,
+			netPayCents: p.netPayCents || 0,
+			status: "DRAFT",
+			notes: p.notes?.trim() || null
+		} });
+		return createdPeriod;
+	});
+	await recordAudit({
+		userId: adminUser.id,
+		actorName: adminUser.name,
+		action: "PAYROLL_PERIOD_CREATED",
+		details: `Admin ${adminUser.name} created Payroll Period #${period.periodNumber} (${start.toISOString().slice(0, 10)} to ${end.toISOString().slice(0, 10)}) with ${data.paystubs.length} paystubs`
+	});
+	return getPayrollPeriod(period.id);
+}
+async function listPayrollPeriods(limit = 50) {
+	return prisma.payrollPeriod.findMany({
+		orderBy: { startDate: "desc" },
+		take: limit,
+		include: { _count: { select: { paystubs: true } } }
+	});
+}
+async function getPayrollPeriod(periodId) {
+	const period = await prisma.payrollPeriod.findUnique({
+		where: { id: periodId },
+		include: { paystubs: {
+			include: { user: { select: {
+				id: true,
+				name: true,
+				employeeNumber: true,
+				email: true,
+				role: true,
+				bench: true
+			} } },
+			orderBy: { user: { name: "asc" } }
+		} }
+	});
+	if (!period) throw new HttpError(404, "Payroll period not found");
+	return period;
+}
+async function updatePaystubDraft(paystubId, data, adminUser) {
+	const paystub = await prisma.paystub.findUnique({
+		where: { id: paystubId },
+		include: {
+			payrollPeriod: true,
+			user: true
+		}
+	});
+	if (!paystub) throw new HttpError(404, "Paystub not found");
+	if (paystub.payrollPeriod.status === "FINALIZED") throw new HttpError(403, "This payroll period has been FINALIZED and locked. Adjustments must be made via a supplementary adjustment.");
+	const calc = calculatePayroll({
+		regularHours: data.regularHours !== void 0 ? Math.max(0, data.regularHours) : paystub.regularHours,
+		overtimeHours: data.overtimeHours !== void 0 ? Math.max(0, data.overtimeHours) : paystub.overtimeHours,
+		bonusCents: data.bonusCents !== void 0 ? Math.max(0, data.bonusCents) : paystub.bonusCents,
+		otherDeductionsCents: data.otherDeductionsCents !== void 0 ? Math.max(0, data.otherDeductionsCents) : paystub.otherDeductionsCents,
+		periodType: paystub.payrollPeriod.periodType,
+		employee: {
+			hourlyRateCents: paystub.hourlyRateCents,
+			overtimeRateCents: paystub.overtimeRateCents,
+			vacationPayPct: paystub.user.vacationPayPct,
+			td1FederalClaimCents: paystub.user.td1FederalClaimCents,
+			td1OntarioClaimCents: paystub.user.td1OntarioClaimCents
+		}
+	});
+	const updatedPaystub = await prisma.$transaction(async (tx) => {
+		const updated = await tx.paystub.update({
+			where: { id: paystubId },
+			data: {
+				regularHours: calc.regularHours,
+				overtimeHours: calc.overtimeHours,
+				regularPayCents: calc.regularPayCents,
+				overtimePayCents: calc.overtimePayCents,
+				bonusCents: calc.bonusCents,
+				vacationPayCents: calc.vacationPayCents,
+				grossPayCents: calc.grossPayCents,
+				cppCents: calc.cppCents,
+				eiCents: calc.eiCents,
+				incomeTaxCents: calc.incomeTaxCents,
+				otherDeductionsCents: calc.otherDeductionsCents,
+				totalDeductionsCents: calc.totalDeductionsCents,
+				netPayCents: calc.netPayCents,
+				notes: data.notes !== void 0 ? data.notes : paystub.notes
+			}
+		});
+		const allPaystubs = await tx.paystub.findMany({ where: { payrollPeriodId: paystub.payrollPeriodId } });
+		const totalGrossCents = allPaystubs.reduce((s, p) => s + p.grossPayCents, 0);
+		const totalDeductionsCents = allPaystubs.reduce((s, p) => s + p.totalDeductionsCents, 0);
+		const totalNetCents = allPaystubs.reduce((s, p) => s + p.netPayCents, 0);
+		await tx.payrollPeriod.update({
+			where: { id: paystub.payrollPeriodId },
+			data: {
+				totalGrossCents,
+				totalDeductionsCents,
+				totalNetCents
+			}
+		});
+		return updated;
+	});
+	await recordAudit({
+		userId: adminUser.id,
+		actorName: adminUser.name,
+		action: "PAYSTUB_MODIFIED",
+		details: `Admin ${adminUser.name} updated paystub #${paystubId} for ${paystub.user.name} (Gross: $${(calc.grossPayCents / 100).toFixed(2)}, Net: $${(calc.netPayCents / 100).toFixed(2)})`
+	});
+	return updatedPaystub;
+}
+async function finalizePayrollPeriod(periodId, adminUser) {
+	const period = await prisma.payrollPeriod.findUnique({
+		where: { id: periodId },
+		include: { paystubs: true }
+	});
+	if (!period) throw new HttpError(404, "Payroll period not found");
+	if (period.status === "FINALIZED") throw new HttpError(400, "This payroll period is already finalized and locked.");
+	const now = /* @__PURE__ */ new Date();
+	await prisma.$transaction(async (tx) => {
+		await tx.payrollPeriod.update({
+			where: { id: periodId },
+			data: {
+				status: "FINALIZED",
+				finalizedAt: now,
+				finalizedById: adminUser.id
+			}
+		});
+		await tx.paystub.updateMany({
+			where: { payrollPeriodId: periodId },
+			data: {
+				status: "APPROVED",
+				paidAt: period.payDate
+			}
+		});
+	});
+	await recordAudit({
+		userId: adminUser.id,
+		actorName: adminUser.name,
+		action: "PAYROLL_FINALIZED",
+		details: `Admin ${adminUser.name} finalized & locked Payroll Period #${period.periodNumber}. Gross: $${(period.totalGrossCents / 100).toFixed(2)}, Net: $${(period.totalNetCents / 100).toFixed(2)}`
+	});
+	return getPayrollPeriod(periodId);
+}
+async function exportPayrollCsv(periodId) {
+	const period = await getPayrollPeriod(periodId);
+	const esc = (v) => `"${String(v ?? "").replace(/"/g, "\"\"")}"`;
+	const rows = [[
+		"Period #",
+		"Period Start",
+		"Period End",
+		"Pay Date",
+		"Employee Name",
+		"Employee Number",
+		"Hourly Rate ($)",
+		"Regular Hours",
+		"Overtime Hours",
+		"Regular Pay ($)",
+		"Overtime Pay ($)",
+		"Bonus ($)",
+		"Vacation Pay ($)",
+		"Total Gross ($)",
+		"CPP ($)",
+		"EI ($)",
+		"Income Tax ($)",
+		"Other Deductions ($)",
+		"Total Deductions ($)",
+		"Net Pay ($)",
+		"Status"
+	]];
+	for (const p of period.paystubs) rows.push([
+		String(period.periodNumber),
+		period.startDate.toISOString().slice(0, 10),
+		period.endDate.toISOString().slice(0, 10),
+		period.payDate.toISOString().slice(0, 10),
+		p.user.name,
+		p.user.employeeNumber || "",
+		(p.hourlyRateCents / 100).toFixed(2),
+		p.regularHours.toFixed(2),
+		p.overtimeHours.toFixed(2),
+		(p.regularPayCents / 100).toFixed(2),
+		(p.overtimePayCents / 100).toFixed(2),
+		(p.bonusCents / 100).toFixed(2),
+		(p.vacationPayCents / 100).toFixed(2),
+		(p.grossPayCents / 100).toFixed(2),
+		(p.cppCents / 100).toFixed(2),
+		(p.eiCents / 100).toFixed(2),
+		(p.incomeTaxCents / 100).toFixed(2),
+		(p.otherDeductionsCents / 100).toFixed(2),
+		(p.totalDeductionsCents / 100).toFixed(2),
+		(p.netPayCents / 100).toFixed(2),
+		p.status
+	]);
+	return rows.map((r) => r.map(esc).join(",")).join("\n");
+}
+/**
+* Generate standard CRA compliant Canadian Paystub HTML for printing & PDF export
+*/
+async function buildPaystubHtml(paystubId, isAdmin = false, currentUserId) {
+	const paystub = await prisma.paystub.findUnique({
+		where: { id: paystubId },
+		include: {
+			payrollPeriod: true,
+			user: true
+		}
+	});
+	if (!paystub) throw new HttpError(404, "Paystub not found");
+	if (!isAdmin && currentUserId && paystub.userId !== currentUserId) throw new HttpError(403, "Unauthorized access to paystub");
+	const settings = await getSettings();
+	const money = (cents) => `$${(cents / 100).toFixed(2)}`;
+	return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Paystub - ${paystub.user.name} - Period #${paystub.payrollPeriod.periodNumber}</title>
+  <style>
+    @page { size: letter; margin: 0.5in; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.4; padding: 20px; font-size: 13px; max-width: 800px; margin: 0 auto; }
+    .header { display: flex; justify-content: space-between; border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 16px; }
+    .company h1 { margin: 0; font-size: 20px; font-weight: 800; color: #0f172a; }
+    .company p { margin: 2px 0; font-size: 11px; color: #64748b; }
+    .title { text-align: right; }
+    .title h2 { margin: 0; font-size: 18px; font-weight: 700; color: #4f46e5; }
+    .title p { margin: 2px 0; font-size: 11px; color: #64748b; }
+    .meta-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px 16px; margin-bottom: 20px; }
+    .meta-col p { margin: 4px 0; font-size: 12px; }
+    .meta-col strong { color: #0f172a; font-weight: 600; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 20px; font-size: 12px; }
+    th { background: #f1f5f9; padding: 8px 10px; text-align: left; font-weight: 700; color: #475569; border-bottom: 1px solid #cbd5e1; }
+    td { padding: 8px 10px; border-bottom: 1px solid #f1f5f9; }
+    .text-right { text-align: right; }
+    .text-center { text-align: center; }
+    .summary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-top: 10px; }
+    .total-box { background: #eef2ff; border: 1.5px solid #c7d2fe; border-radius: 8px; padding: 16px; text-align: center; margin-top: 20px; }
+    .total-box h3 { margin: 0; font-size: 14px; color: #3730a3; text-transform: uppercase; letter-spacing: 0.5px; }
+    .total-box .net-amount { font-size: 28px; font-weight: 800; color: #4338ca; margin: 4px 0; font-family: monospace; }
+    .footer { margin-top: 30px; border-top: 1px solid #e2e8f0; padding-top: 12px; font-size: 10px; color: #94a3b8; text-align: center; }
+    @media print {
+      body { padding: 0; }
+      .no-print { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="company">
+      <h1>${settings.shopName || "Faso Fix POS"}</h1>
+      <p>${settings.address || "Ontario, Canada"}</p>
+      <p>Tel: ${settings.phone || "647-740-0566"} • Email: ${settings.email || "support@fasofix.ca"}</p>
+    </div>
+    <div class="title">
+      <h2>EMPLOYEE EARNINGS STATEMENT</h2>
+      <p>Period #${paystub.payrollPeriod.periodNumber} • Status: ${paystub.status}</p>
+      <p>Issued: ${paystub.payrollPeriod.payDate.toISOString().slice(0, 10)}</p>
+    </div>
+  </div>
+
+  <div class="meta-grid">
+    <div class="meta-col">
+      <p><strong>Employee Name:</strong> ${paystub.user.name}</p>
+      <p><strong>Employee ID:</strong> ${paystub.user.employeeNumber || "EMP-" + paystub.user.id.slice(0, 6)}</p>
+      <p><strong>Email:</strong> ${paystub.user.email}</p>
+      <p><strong>Hourly Rate:</strong> ${money(paystub.hourlyRateCents)}/hr</p>
+    </div>
+    <div class="meta-col">
+      <p><strong>Pay Period:</strong> ${paystub.payrollPeriod.startDate.toISOString().slice(0, 10)} to ${paystub.payrollPeriod.endDate.toISOString().slice(0, 10)}</p>
+      <p><strong>Payment Date:</strong> ${paystub.payrollPeriod.payDate.toISOString().slice(0, 10)}</p>
+      <p><strong>Payment Method:</strong> ${paystub.paymentMethod.replace(/_/g, " ")}</p>
+      <p><strong>Jurisdiction:</strong> Ontario (CRA T4127 Compliant)</p>
+    </div>
+  </div>
+
+  <div class="summary-grid">
+    <!-- Earnings Column -->
+    <div>
+      <h4 style="margin: 0 0 8px 0; color: #1e293b;">EARNINGS BREAKDOWN</h4>
+      <table>
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="text-right">Hours</th>
+            <th class="text-right">Rate</th>
+            <th class="text-right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Regular Hours</td>
+            <td class="text-right">${paystub.regularHours.toFixed(2)}</td>
+            <td class="text-right">${money(paystub.hourlyRateCents)}</td>
+            <td class="text-right">${money(paystub.regularPayCents)}</td>
+          </tr>
+          ${paystub.overtimeHours > 0 ? `
+          <tr>
+            <td>Overtime Hours (1.5x)</td>
+            <td class="text-right">${paystub.overtimeHours.toFixed(2)}</td>
+            <td class="text-right">${money(paystub.overtimeRateCents)}</td>
+            <td class="text-right">${money(paystub.overtimePayCents)}</td>
+          </tr>
+          ` : ""}
+          ${paystub.bonusCents > 0 ? `
+          <tr>
+            <td>Bonus / Commissions</td>
+            <td class="text-right">—</td>
+            <td class="text-right">—</td>
+            <td class="text-right">${money(paystub.bonusCents)}</td>
+          </tr>
+          ` : ""}
+          <tr>
+            <td>Vacation Pay (4% ON Statutory)</td>
+            <td class="text-right">—</td>
+            <td class="text-right">4.0%</td>
+            <td class="text-right">${money(paystub.vacationPayCents)}</td>
+          </tr>
+          <tr style="font-weight: 700; background: #f8fafc;">
+            <td colspan="3">TOTAL GROSS PAY</td>
+            <td class="text-right" style="color: #4f46e5;">${money(paystub.grossPayCents)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- Deductions Column -->
+    <div>
+      <h4 style="margin: 0 0 8px 0; color: #1e293b;">STATUTORY DEDUCTIONS</h4>
+      <table>
+        <thead>
+          <tr>
+            <th>Description</th>
+            <th class="text-right">Type</th>
+            <th class="text-right">Amount</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Canada Pension Plan (CPP)</td>
+            <td class="text-right">Statutory (5.95%)</td>
+            <td class="text-right">${money(paystub.cppCents)}</td>
+          </tr>
+          <tr>
+            <td>Employment Insurance (EI)</td>
+            <td class="text-right">Statutory (1.63%)</td>
+            <td class="text-right">${money(paystub.eiCents)}</td>
+          </tr>
+          <tr>
+            <td>Federal & Ontario Income Tax</td>
+            <td class="text-right">CRA TD1 Tiered</td>
+            <td class="text-right">${money(paystub.incomeTaxCents)}</td>
+          </tr>
+          ${paystub.otherDeductionsCents > 0 ? `
+          <tr>
+            <td>Other Authorized Deductions</td>
+            <td class="text-right">Company / Benefit</td>
+            <td class="text-right">${money(paystub.otherDeductionsCents)}</td>
+          </tr>
+          ` : ""}
+          <tr style="font-weight: 700; background: #f8fafc;">
+            <td colspan="2">TOTAL DEDUCTIONS</td>
+            <td class="text-right" style="color: #ef4444;">-${money(paystub.totalDeductionsCents)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="total-box">
+    <h3>Net Pay Deposit</h3>
+    <div class="net-amount">${money(paystub.netPayCents)}</div>
+    <p style="margin: 0; font-size: 11px; color: #6366f1;">Total Gross Earnings: ${money(paystub.grossPayCents)} | Total Statutory Deductions: ${money(paystub.totalDeductionsCents)}</p>
+  </div>
+
+  <div class="footer">
+    <p>This paystub was generated by Faso Fix POS Time & Payroll Management System. Compliant with Ontario Employment Standards Act (ESA) and Canada Revenue Agency (CRA) guidelines.</p>
+    <p>Please retain this statement for income tax records.</p>
+  </div>
+</body>
+</html>`;
+}
 // src/server/index.ts
 var app = express();
 var PORT = process.env.PORT || 4e3;
@@ -2231,6 +3502,223 @@ app.get("/api/admin/backups/:file", requireAdmin, (req, res) => {
 	});
 	res.download(full);
 });
+app.get("/api/timeclock/status", authenticateSession, wrap(async (req, res) => {
+	const status = await getTimeClockStatus(req.user.id);
+	res.json({
+		success: true,
+		data: status
+	});
+}));
+app.post("/api/timeclock/clock-in", authenticateSession, wrap(async (req, res) => {
+	const shift = await clockIn(req.user.id, req.body?.notes);
+	res.json({
+		success: true,
+		data: shift
+	});
+}));
+app.post("/api/timeclock/clock-out", authenticateSession, wrap(async (req, res) => {
+	const shift = await clockOut(req.user.id, req.body?.notes);
+	res.json({
+		success: true,
+		data: shift
+	});
+}));
+app.post("/api/timeclock/break-start", authenticateSession, wrap(async (req, res) => {
+	const brk = await startBreak(req.user.id, req.body?.type);
+	res.json({
+		success: true,
+		data: brk
+	});
+}));
+app.post("/api/timeclock/break-end", authenticateSession, wrap(async (req, res) => {
+	const brk = await endBreak(req.user.id);
+	res.json({
+		success: true,
+		data: brk
+	});
+}));
+app.get("/api/timeclock/my-shifts", authenticateSession, wrap(async (req, res) => {
+	const shifts = await getMyShifts(req.user.id, {
+		startDate: req.query.startDate,
+		endDate: req.query.endDate,
+		limit: req.query.limit ? Number(req.query.limit) : 50
+	});
+	res.json({
+		success: true,
+		data: shifts
+	});
+}));
+app.get("/api/timeclock/my-paystubs", authenticateSession, wrap(async (req, res) => {
+	const paystubs = await getMyPaystubs(req.user.id);
+	res.json({
+		success: true,
+		data: paystubs
+	});
+}));
+app.get("/api/timeclock/my-paystubs/:id", authenticateSession, wrap(async (req, res) => {
+	const isAdmin = req.user.role === "ADMIN";
+	const paystub = await getMyPaystub(req.user.id, getParam(req, "id"), isAdmin);
+	res.json({
+		success: true,
+		data: paystub
+	});
+}));
+app.get("/api/timeclock/my-paystubs/:id/html", authenticateSession, wrap(async (req, res) => {
+	const isAdmin = req.user.role === "ADMIN";
+	const html = await buildPaystubHtml(getParam(req, "id"), isAdmin, req.user.id);
+	res.setHeader("Content-Type", "text/html; charset=utf-8");
+	res.send(html);
+}));
+app.get("/api/admin/attendance/live", requireAdmin, wrap(async (_req, res) => {
+	const roster = await getLiveRoster();
+	res.json({
+		success: true,
+		data: roster
+	});
+}));
+app.get("/api/admin/attendance", requireAdmin, wrap(async (req, res) => {
+	const overview = await getAttendanceOverview({
+		userId: req.query.userId,
+		status: req.query.status,
+		startDate: req.query.startDate,
+		endDate: req.query.endDate
+	});
+	res.json({
+		success: true,
+		data: overview
+	});
+}));
+app.post("/api/admin/attendance/shifts", requireAdmin, wrap(async (req, res) => {
+	const shift = await manualAddShift(req.body, {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.json({
+		success: true,
+		data: shift
+	});
+}));
+app.put("/api/admin/attendance/shifts/:id", requireAdmin, wrap(async (req, res) => {
+	const shift = await manualEditShift(getParam(req, "id"), req.body, {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.json({
+		success: true,
+		data: shift
+	});
+}));
+app.delete("/api/admin/attendance/shifts/:id", requireAdmin, wrap(async (req, res) => {
+	const result = await deleteShift(getParam(req, "id"), {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.json({
+		success: true,
+		data: result
+	});
+}));
+app.get("/api/admin/attendance/export", requireAdmin, wrap(async (req, res) => {
+	const csv = await exportAttendanceCsv({
+		userId: req.query.userId,
+		startDate: req.query.startDate,
+		endDate: req.query.endDate
+	});
+	res.setHeader("Content-Type", "text/csv; charset=utf-8");
+	res.setHeader("Content-Disposition", `attachment; filename="attendance-export-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv"`);
+	res.send(csv);
+}));
+app.get("/api/admin/users/:id/wages", requireAdmin, wrap(async (req, res) => {
+	const history = await getUserWageHistory(getParam(req, "id"));
+	res.json({
+		success: true,
+		data: history
+	});
+}));
+app.post("/api/admin/users/:id/wages", requireAdmin, wrap(async (req, res) => {
+	const updated = await updateUserWage(getParam(req, "id"), req.body, {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.json({
+		success: true,
+		data: updated
+	});
+}));
+app.get("/api/admin/payroll/overview", requireAdmin, wrap(async (_req, res) => {
+	const overview = await getPayrollDashboardOverview();
+	res.json({
+		success: true,
+		data: overview
+	});
+}));
+app.get("/api/admin/payroll/periods", requireAdmin, wrap(async (req, res) => {
+	const periods = await listPayrollPeriods(req.query.limit ? Number(req.query.limit) : 50);
+	res.json({
+		success: true,
+		data: periods
+	});
+}));
+app.post("/api/admin/payroll/periods/calculate", requireAdmin, wrap(async (req, res) => {
+	const calc = await calculatePeriodPayroll({
+		startDate: req.body.startDate,
+		endDate: req.body.endDate,
+		payDate: req.body.payDate,
+		periodType: req.body.periodType || "BI_WEEKLY"
+	});
+	res.json({
+		success: true,
+		data: calc
+	});
+}));
+app.post("/api/admin/payroll/periods", requireAdmin, wrap(async (req, res) => {
+	const period = await createPayrollPeriod(req.body, {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.json({
+		success: true,
+		data: period
+	});
+}));
+app.get("/api/admin/payroll/periods/:id", requireAdmin, wrap(async (req, res) => {
+	const period = await getPayrollPeriod(getParam(req, "id"));
+	res.json({
+		success: true,
+		data: period
+	});
+}));
+app.put("/api/admin/payroll/paystubs/:id", requireAdmin, wrap(async (req, res) => {
+	const updated = await updatePaystubDraft(getParam(req, "id"), req.body, {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.json({
+		success: true,
+		data: updated
+	});
+}));
+app.post("/api/admin/payroll/periods/:id/finalize", requireAdmin, wrap(async (req, res) => {
+	const finalized = await finalizePayrollPeriod(getParam(req, "id"), {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.json({
+		success: true,
+		data: finalized
+	});
+}));
+app.get("/api/admin/payroll/periods/:id/export", requireAdmin, wrap(async (req, res) => {
+	const csv = await exportPayrollCsv(getParam(req, "id"));
+	res.setHeader("Content-Type", "text/csv; charset=utf-8");
+	res.setHeader("Content-Disposition", `attachment; filename="payroll-period-${getParam(req, "id")}.csv"`);
+	res.send(csv);
+}));
+app.get("/api/admin/payroll/paystubs/:id/html", requireAdmin, wrap(async (req, res) => {
+	const html = await buildPaystubHtml(getParam(req, "id"), true);
+	res.setHeader("Content-Type", "text/html; charset=utf-8");
+	res.send(html);
+}));
 app.use((err, _req, res, _next) => {
 	if (err instanceof HttpError) return res.status(err.status).json({
 		success: false,
@@ -2429,31 +3917,158 @@ CREATE INDEX IF NOT EXISTS "Session_userId_idx" ON "Session"("userId");
 CREATE INDEX IF NOT EXISTS "Session_token_idx" ON "Session"("token");
 CREATE INDEX IF NOT EXISTS "AuditLog_action_idx" ON "AuditLog"("action");
 CREATE INDEX IF NOT EXISTS "AuditLog_createdAt_idx" ON "AuditLog"("createdAt");
+
+CREATE TABLE IF NOT EXISTS "WageRate" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "hourlyRateCents" INTEGER NOT NULL,
+    "overtimeRateCents" INTEGER NOT NULL,
+    "effectiveDate" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reason" TEXT,
+    "createdById" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "WageRate_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "Shift" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "clockIn" DATETIME NOT NULL,
+    "clockOut" DATETIME,
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "totalMinutes" INTEGER NOT NULL DEFAULT 0,
+    "regularMinutes" INTEGER NOT NULL DEFAULT 0,
+    "overtimeMinutes" INTEGER NOT NULL DEFAULT 0,
+    "breakMinutes" INTEGER NOT NULL DEFAULT 0,
+    "notes" TEXT,
+    "editedByAdminId" TEXT,
+    "editedAt" DATETIME,
+    "editReason" TEXT,
+    "originalClockIn" DATETIME,
+    "originalClockOut" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Shift_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ShiftBreak" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "shiftId" TEXT NOT NULL,
+    "startTime" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "endTime" DATETIME,
+    "durationMinutes" INTEGER NOT NULL DEFAULT 0,
+    "type" TEXT NOT NULL DEFAULT 'UNPAID_MEAL',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ShiftBreak_shiftId_fkey" FOREIGN KEY ("shiftId") REFERENCES "Shift" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "PayrollPeriod" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "periodNumber" INTEGER NOT NULL,
+    "periodType" TEXT NOT NULL DEFAULT 'BI_WEEKLY',
+    "startDate" DATETIME NOT NULL,
+    "endDate" DATETIME NOT NULL,
+    "payDate" DATETIME NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "totalGrossCents" INTEGER NOT NULL DEFAULT 0,
+    "totalNetCents" INTEGER NOT NULL DEFAULT 0,
+    "totalDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "finalizedAt" DATETIME,
+    "finalizedById" TEXT,
+    "notes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "Paystub" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "payrollPeriodId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "regularHours" REAL NOT NULL DEFAULT 0,
+    "overtimeHours" REAL NOT NULL DEFAULT 0,
+    "hourlyRateCents" INTEGER NOT NULL,
+    "overtimeRateCents" INTEGER NOT NULL,
+    "regularPayCents" INTEGER NOT NULL DEFAULT 0,
+    "overtimePayCents" INTEGER NOT NULL DEFAULT 0,
+    "bonusCents" INTEGER NOT NULL DEFAULT 0,
+    "vacationPayCents" INTEGER NOT NULL DEFAULT 0,
+    "grossPayCents" INTEGER NOT NULL DEFAULT 0,
+    "cppCents" INTEGER NOT NULL DEFAULT 0,
+    "eiCents" INTEGER NOT NULL DEFAULT 0,
+    "incomeTaxCents" INTEGER NOT NULL DEFAULT 0,
+    "otherDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "totalDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "netPayCents" INTEGER NOT NULL DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "paidAt" DATETIME,
+    "paymentMethod" TEXT NOT NULL DEFAULT 'DIRECT_DEPOSIT',
+    "paymentReference" TEXT,
+    "notes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Paystub_payrollPeriodId_fkey" FOREIGN KEY ("payrollPeriodId") REFERENCES "PayrollPeriod" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Paystub_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "WageRate_userId_idx" ON "WageRate"("userId");
+CREATE INDEX IF NOT EXISTS "Shift_userId_idx" ON "Shift"("userId");
+CREATE INDEX IF NOT EXISTS "Shift_status_idx" ON "Shift"("status");
+CREATE INDEX IF NOT EXISTS "Shift_clockIn_idx" ON "Shift"("clockIn");
+CREATE INDEX IF NOT EXISTS "ShiftBreak_shiftId_idx" ON "ShiftBreak"("shiftId");
+CREATE INDEX IF NOT EXISTS "PayrollPeriod_status_idx" ON "PayrollPeriod"("status");
+CREATE INDEX IF NOT EXISTS "Paystub_payrollPeriodId_idx" ON "Paystub"("payrollPeriodId");
+CREATE INDEX IF NOT EXISTS "Paystub_userId_idx" ON "Paystub"("userId");
 `;
 async function ensureDatabaseSchema() {
 	const statements = SCHEMA_SQL.split(";").map((s) => s.trim()).filter((s) => s.length > 0);
 	for (const sql of statements) try {
 		await prisma.$executeRawUnsafe(sql);
 	} catch {}
+	for (const alter of [
+		"ALTER TABLE \"User\" ADD COLUMN \"employeeNumber\" TEXT;",
+		"ALTER TABLE \"User\" ADD COLUMN \"hourlyRateCents\" INTEGER NOT NULL DEFAULT 2200;",
+		"ALTER TABLE \"User\" ADD COLUMN \"overtimeRateCents\" INTEGER;",
+		"ALTER TABLE \"User\" ADD COLUMN \"vacationPayPct\" INTEGER NOT NULL DEFAULT 400;",
+		"ALTER TABLE \"User\" ADD COLUMN \"td1FederalClaimCents\" INTEGER NOT NULL DEFAULT 1612900;",
+		"ALTER TABLE \"User\" ADD COLUMN \"td1OntarioClaimCents\" INTEGER NOT NULL DEFAULT 1274600;",
+		"ALTER TABLE \"User\" ADD COLUMN \"sin\" TEXT;"
+	]) try {
+		await prisma.$executeRawUnsafe(alter);
+	} catch {}
 }
 // src/server/serverless.ts
 var initialized = false;
+var initPromise = null;
 async function initServerless() {
 	if (initialized) return;
-	try {
-		await configureSqlite();
-		await ensureDatabaseSchema();
-		await ensureAdminProvisioning();
-		initialized = true;
-	} catch (err) {
-		console.error("[Serverless Init Error]", err);
-	}
+	if (!initPromise) initPromise = (async () => {
+		try {
+			await configureSqlite();
+			await ensureDatabaseSchema();
+			await ensureAdminProvisioning();
+			initialized = true;
+		} catch (err) {
+			console.error("[Serverless Init Error]", err);
+		} finally {
+			initPromise = null;
+		}
+	})();
+	await initPromise;
 }
 async function handler(req, res) {
-	await initServerless();
-	const originalPath = req.headers["x-forwarded-uri"] || req.headers["x-matched-path"] || (typeof req.headers["x-now-route-matches"] === "string" && req.headers["x-now-route-matches"].includes("1=") ? "/api/" + req.headers["x-now-route-matches"].split("1=")[1].split("&")[0] : null);
-	if (originalPath && typeof originalPath === "string") req.url = originalPath;
-	else if (req.url && !req.url.startsWith("/api")) req.url = "/api" + (req.url.startsWith("/") ? req.url : "/" + req.url);
-	return app(req, res);
+	try {
+		await initServerless();
+		const originalPath = req.headers["x-forwarded-uri"] || req.headers["x-matched-path"] || (typeof req.headers["x-now-route-matches"] === "string" && req.headers["x-now-route-matches"].includes("1=") ? "/api/" + req.headers["x-now-route-matches"].split("1=")[1].split("&")[0] : null);
+		if (originalPath && typeof originalPath === "string") req.url = originalPath;
+		else if (req.url && !req.url.startsWith("/api")) req.url = "/api" + (req.url.startsWith("/") ? req.url : "/" + req.url);
+		return await new Promise((resolve, reject) => {
+			res.on("finish", () => resolve());
+			res.on("close", () => resolve());
+			res.on("error", (err) => reject(err));
+			app(req, res);
+		});
+	} catch (err) {
+		console.error("[Serverless Handler Unhandled Exception]", err);
+		if (!res.headersSent) res.status(500).json({
+			success: false,
+			error: "Internal server error occurred while processing request.",
+			details: err?.message || String(err)
+		});
+	}
 }
 export { handler as default };

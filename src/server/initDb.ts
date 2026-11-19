@@ -168,6 +168,102 @@ CREATE INDEX IF NOT EXISTS "Session_userId_idx" ON "Session"("userId");
 CREATE INDEX IF NOT EXISTS "Session_token_idx" ON "Session"("token");
 CREATE INDEX IF NOT EXISTS "AuditLog_action_idx" ON "AuditLog"("action");
 CREATE INDEX IF NOT EXISTS "AuditLog_createdAt_idx" ON "AuditLog"("createdAt");
+
+CREATE TABLE IF NOT EXISTS "WageRate" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "hourlyRateCents" INTEGER NOT NULL,
+    "overtimeRateCents" INTEGER NOT NULL,
+    "effectiveDate" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reason" TEXT,
+    "createdById" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "WageRate_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "Shift" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "clockIn" DATETIME NOT NULL,
+    "clockOut" DATETIME,
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "totalMinutes" INTEGER NOT NULL DEFAULT 0,
+    "regularMinutes" INTEGER NOT NULL DEFAULT 0,
+    "overtimeMinutes" INTEGER NOT NULL DEFAULT 0,
+    "breakMinutes" INTEGER NOT NULL DEFAULT 0,
+    "notes" TEXT,
+    "editedByAdminId" TEXT,
+    "editedAt" DATETIME,
+    "editReason" TEXT,
+    "originalClockIn" DATETIME,
+    "originalClockOut" DATETIME,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Shift_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "ShiftBreak" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "shiftId" TEXT NOT NULL,
+    "startTime" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "endTime" DATETIME,
+    "durationMinutes" INTEGER NOT NULL DEFAULT 0,
+    "type" TEXT NOT NULL DEFAULT 'UNPAID_MEAL',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ShiftBreak_shiftId_fkey" FOREIGN KEY ("shiftId") REFERENCES "Shift" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE TABLE IF NOT EXISTS "PayrollPeriod" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "periodNumber" INTEGER NOT NULL,
+    "periodType" TEXT NOT NULL DEFAULT 'BI_WEEKLY',
+    "startDate" DATETIME NOT NULL,
+    "endDate" DATETIME NOT NULL,
+    "payDate" DATETIME NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "totalGrossCents" INTEGER NOT NULL DEFAULT 0,
+    "totalNetCents" INTEGER NOT NULL DEFAULT 0,
+    "totalDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "finalizedAt" DATETIME,
+    "finalizedById" TEXT,
+    "notes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL
+);
+CREATE TABLE IF NOT EXISTS "Paystub" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "payrollPeriodId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "regularHours" REAL NOT NULL DEFAULT 0,
+    "overtimeHours" REAL NOT NULL DEFAULT 0,
+    "hourlyRateCents" INTEGER NOT NULL,
+    "overtimeRateCents" INTEGER NOT NULL,
+    "regularPayCents" INTEGER NOT NULL DEFAULT 0,
+    "overtimePayCents" INTEGER NOT NULL DEFAULT 0,
+    "bonusCents" INTEGER NOT NULL DEFAULT 0,
+    "vacationPayCents" INTEGER NOT NULL DEFAULT 0,
+    "grossPayCents" INTEGER NOT NULL DEFAULT 0,
+    "cppCents" INTEGER NOT NULL DEFAULT 0,
+    "eiCents" INTEGER NOT NULL DEFAULT 0,
+    "incomeTaxCents" INTEGER NOT NULL DEFAULT 0,
+    "otherDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "totalDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "netPayCents" INTEGER NOT NULL DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "paidAt" DATETIME,
+    "paymentMethod" TEXT NOT NULL DEFAULT 'DIRECT_DEPOSIT',
+    "paymentReference" TEXT,
+    "notes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Paystub_payrollPeriodId_fkey" FOREIGN KEY ("payrollPeriodId") REFERENCES "PayrollPeriod" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Paystub_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "WageRate_userId_idx" ON "WageRate"("userId");
+CREATE INDEX IF NOT EXISTS "Shift_userId_idx" ON "Shift"("userId");
+CREATE INDEX IF NOT EXISTS "Shift_status_idx" ON "Shift"("status");
+CREATE INDEX IF NOT EXISTS "Shift_clockIn_idx" ON "Shift"("clockIn");
+CREATE INDEX IF NOT EXISTS "ShiftBreak_shiftId_idx" ON "ShiftBreak"("shiftId");
+CREATE INDEX IF NOT EXISTS "PayrollPeriod_status_idx" ON "PayrollPeriod"("status");
+CREATE INDEX IF NOT EXISTS "Paystub_payrollPeriodId_idx" ON "Paystub"("payrollPeriodId");
+CREATE INDEX IF NOT EXISTS "Paystub_userId_idx" ON "Paystub"("userId");
 `;
 
 export async function ensureDatabaseSchema() {
@@ -180,5 +276,21 @@ export async function ensureDatabaseSchema() {
     } catch {
       // Ignored if table or index already exists
     }
+  }
+
+  // Safe migrations for User table columns if added to an existing SQLite DB
+  const userMigrations = [
+    'ALTER TABLE "User" ADD COLUMN "employeeNumber" TEXT;',
+    'ALTER TABLE "User" ADD COLUMN "hourlyRateCents" INTEGER NOT NULL DEFAULT 2200;',
+    'ALTER TABLE "User" ADD COLUMN "overtimeRateCents" INTEGER;',
+    'ALTER TABLE "User" ADD COLUMN "vacationPayPct" INTEGER NOT NULL DEFAULT 400;',
+    'ALTER TABLE "User" ADD COLUMN "td1FederalClaimCents" INTEGER NOT NULL DEFAULT 1612900;',
+    'ALTER TABLE "User" ADD COLUMN "td1OntarioClaimCents" INTEGER NOT NULL DEFAULT 1274600;',
+    'ALTER TABLE "User" ADD COLUMN "sin" TEXT;',
+  ];
+  for (const alter of userMigrations) {
+    try {
+      await prisma.$executeRawUnsafe(alter);
+    } catch {}
   }
 }

@@ -23,10 +23,13 @@ import {
   UserX,
   Wrench,
   Phone,
+  DollarSign,
 } from 'lucide-react';
 import { fetchWithAuth } from '../utils/auth';
 import { posAudio } from '../utils/audio';
 import { User, AdminOverview, AuditLog, UserRole, UserStatus, Ticket } from '../types';
+import { AdminAttendanceTab } from './admin/AdminAttendanceTab';
+import { AdminPayrollTab } from './admin/AdminPayrollTab';
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -39,7 +42,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onLogout,
   onNavigateToTab,
 }) => {
-  const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'tickets' | 'roles' | 'audit'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'attendance' | 'payroll'>('overview');
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -293,9 +296,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
         {[
           { id: 'overview', label: 'Admin Overview', icon: Activity },
           { id: 'users', label: 'User & Staff Management', icon: Users, badge: overview?.users.total },
+          { id: 'attendance', label: 'Time & Attendance', icon: Clock },
+          { id: 'payroll', label: 'Payroll & Remuneration', icon: DollarSign },
           { id: 'tickets', label: 'Work Orders & Tickets', icon: Wrench, badge: tickets.length },
           { id: 'roles', label: 'Roles & RBAC Permissions', icon: ShieldCheck },
-          { id: 'audit', label: 'System Audit Logs', icon: Clock, badge: auditLogs.length },
+          { id: 'audit', label: 'System Audit Logs', icon: Layers, badge: auditLogs.length },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeSection === tab.id;
@@ -983,6 +988,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       )}
 
       {/* ========================================================
+          SECTION 6: TIME & ATTENDANCE DASHBOARD
+         ======================================================== */}
+      {activeSection === 'attendance' && (
+        <AdminAttendanceTab />
+      )}
+
+      {/* ========================================================
+          SECTION 7: PAYROLL & STATUTORY REMUNERATION
+         ======================================================== */}
+      {activeSection === 'payroll' && (
+        <AdminPayrollTab />
+      )}
+
+      {/* ========================================================
           MODAL: CREATE NEW USER
          ======================================================== */}
       {isCreateUserModalOpen && (
@@ -1315,11 +1334,36 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
   const [bench, setBench] = useState(user.bench || '');
   const [role, setRole] = useState<UserRole>(user.role);
   const [status, setStatus] = useState<UserStatus>(user.status);
+  const [hourlyWage, setHourlyWage] = useState('22.00');
+  const [vacationPct, setVacationPct] = useState('4.0');
+  const [initialWage, setInitialWage] = useState('22.00');
+  const [wageReason, setWageReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    // Fetch wage history on open
+    fetchWithAuth(`/api/admin/users/${user.id}/wages`)
+      .then((res) => res.json())
+      .then((json) => {
+        if (json.data?.currentWage) {
+          const val = ((json.data.currentWage.hourlyRateCents || 2200) / 100).toFixed(2);
+          setHourlyWage(val);
+          setInitialWage(val);
+        }
+      })
+      .catch(() => {});
+  }, [user.id]);
+
+  const isWageChanged = hourlyWage !== initialWage;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isWageChanged && !wageReason.trim()) {
+      setError('A reason is required to adjust employee wage rates for CRA audit records.');
+      return;
+    }
+
     setIsSubmitting(true);
     setError(null);
 
@@ -1338,6 +1382,22 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to update user');
+
+      // Update wage if modified
+      if (isWageChanged) {
+        const wageRes = await fetchWithAuth(`/api/admin/users/${user.id}/wages`, {
+          method: 'POST',
+          body: JSON.stringify({
+            hourlyRateCents: Math.round(parseFloat(hourlyWage) * 100),
+            vacationPayPct: Math.round(parseFloat(vacationPct) * 100),
+            reason: wageReason.trim(),
+          }),
+        });
+        if (!wageRes.ok) {
+          const wData = await wageRes.json();
+          throw new Error(wData.error || 'Failed to update wage rate');
+        }
+      }
 
       posAudio.playSuccessChime();
       onSuccess();
@@ -1427,6 +1487,55 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
                 <option value="DISABLED">Disabled</option>
               </select>
             </div>
+          </div>
+
+          {/* Wage & Compensation Section */}
+          <div className="p-3 bg-indigo-50/50 rounded-xl border border-indigo-100 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900">
+                Wage &amp; Compensation (CRA)
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">OT: &gt;44h @ 1.5x</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="text-[10px] font-bold text-slate-600 block mb-0.5">Hourly Wage ($)</label>
+                <input
+                  type="number"
+                  step="0.25"
+                  min="0"
+                  value={hourlyWage}
+                  onChange={(e) => setHourlyWage(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono font-bold"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-bold text-slate-600 block mb-0.5">Vacation Pay %</label>
+                <input
+                  type="number"
+                  step="0.5"
+                  min="0"
+                  value={vacationPct}
+                  onChange={(e) => setVacationPct(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-mono"
+                />
+              </div>
+            </div>
+            {isWageChanged && (
+              <div>
+                <label className="text-[10px] font-bold text-red-600 block mb-0.5">
+                  Wage Adjustment Reason *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={wageReason}
+                  onChange={(e) => setWageReason(e.target.value)}
+                  placeholder="e.g. Annual merit increase / certification"
+                  className="w-full px-2.5 py-1.5 text-xs bg-white border border-red-200 rounded-lg"
+                />
+              </div>
+            )}
           </div>
 
           <div className="space-y-1">

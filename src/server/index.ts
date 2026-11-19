@@ -45,6 +45,7 @@ import {
 } from './service';
 import { authenticateSession, ensureAdminProvisioning, recordAudit } from './auth';
 import { configureSqlite, createBackup, listBackups, resolveBackup, startBackupSchedule } from './backup';
+import * as payrollService from './payrollService';
 
 declare global {
   namespace Express {
@@ -624,6 +625,203 @@ app.get('/api/admin/backups/:file', requireAdmin, (req, res) => {
   if (!full) return res.status(404).json({ success: false, error: 'Backup not found' });
   res.download(full);
 });
+
+// ---------------------------------------------------------------------------
+// Employee Time Clock & Paystub Routes
+// ---------------------------------------------------------------------------
+
+app.get('/api/timeclock/status', authenticateSession, wrap(async (req, res) => {
+  const status = await payrollService.getTimeClockStatus(req.user!.id);
+  res.json({ success: true, data: status });
+}));
+
+app.post('/api/timeclock/clock-in', authenticateSession, wrap(async (req, res) => {
+  const shift = await payrollService.clockIn(req.user!.id, req.body?.notes);
+  res.json({ success: true, data: shift });
+}));
+
+app.post('/api/timeclock/clock-out', authenticateSession, wrap(async (req, res) => {
+  const shift = await payrollService.clockOut(req.user!.id, req.body?.notes);
+  res.json({ success: true, data: shift });
+}));
+
+app.post('/api/timeclock/break-start', authenticateSession, wrap(async (req, res) => {
+  const brk = await payrollService.startBreak(req.user!.id, req.body?.type);
+  res.json({ success: true, data: brk });
+}));
+
+app.post('/api/timeclock/break-end', authenticateSession, wrap(async (req, res) => {
+  const brk = await payrollService.endBreak(req.user!.id);
+  res.json({ success: true, data: brk });
+}));
+
+app.get('/api/timeclock/my-shifts', authenticateSession, wrap(async (req, res) => {
+  const shifts = await payrollService.getMyShifts(req.user!.id, {
+    startDate: req.query.startDate as string,
+    endDate: req.query.endDate as string,
+    limit: req.query.limit ? Number(req.query.limit) : 50,
+  });
+  res.json({ success: true, data: shifts });
+}));
+
+app.get('/api/timeclock/my-paystubs', authenticateSession, wrap(async (req, res) => {
+  const paystubs = await payrollService.getMyPaystubs(req.user!.id);
+  res.json({ success: true, data: paystubs });
+}));
+
+app.get('/api/timeclock/my-paystubs/:id', authenticateSession, wrap(async (req, res) => {
+  const isAdmin = req.user!.role === 'ADMIN';
+  const paystub = await payrollService.getMyPaystub(req.user!.id, getParam(req, 'id'), isAdmin);
+  res.json({ success: true, data: paystub });
+}));
+
+app.get('/api/timeclock/my-paystubs/:id/html', authenticateSession, wrap(async (req, res) => {
+  const isAdmin = req.user!.role === 'ADMIN';
+  const html = await payrollService.buildPaystubHtml(getParam(req, 'id'), isAdmin, req.user!.id);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+}));
+
+// ---------------------------------------------------------------------------
+// Admin Time & Attendance Routes
+// ---------------------------------------------------------------------------
+
+app.get('/api/admin/attendance/live', requireAdmin, wrap(async (_req, res) => {
+  const roster = await payrollService.getLiveRoster();
+  res.json({ success: true, data: roster });
+}));
+
+app.get('/api/admin/attendance', requireAdmin, wrap(async (req, res) => {
+  const overview = await payrollService.getAttendanceOverview({
+    userId: req.query.userId as string,
+    status: req.query.status as string,
+    startDate: req.query.startDate as string,
+    endDate: req.query.endDate as string,
+  });
+  res.json({ success: true, data: overview });
+}));
+
+app.post('/api/admin/attendance/shifts', requireAdmin, wrap(async (req, res) => {
+  const shift = await payrollService.manualAddShift(
+    req.body,
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, data: shift });
+}));
+
+app.put('/api/admin/attendance/shifts/:id', requireAdmin, wrap(async (req, res) => {
+  const shift = await payrollService.manualEditShift(
+    getParam(req, 'id'),
+    req.body,
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, data: shift });
+}));
+
+app.delete('/api/admin/attendance/shifts/:id', requireAdmin, wrap(async (req, res) => {
+  const result = await payrollService.deleteShift(
+    getParam(req, 'id'),
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, data: result });
+}));
+
+app.get('/api/admin/attendance/export', requireAdmin, wrap(async (req, res) => {
+  const csv = await payrollService.exportAttendanceCsv({
+    userId: req.query.userId as string,
+    startDate: req.query.startDate as string,
+    endDate: req.query.endDate as string,
+  });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="attendance-export-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(csv);
+}));
+
+// ---------------------------------------------------------------------------
+// Admin Wage & Compensation Routes
+// ---------------------------------------------------------------------------
+
+app.get('/api/admin/users/:id/wages', requireAdmin, wrap(async (req, res) => {
+  const history = await payrollService.getUserWageHistory(getParam(req, 'id'));
+  res.json({ success: true, data: history });
+}));
+
+app.post('/api/admin/users/:id/wages', requireAdmin, wrap(async (req, res) => {
+  const updated = await payrollService.updateUserWage(
+    getParam(req, 'id'),
+    req.body,
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, data: updated });
+}));
+
+// ---------------------------------------------------------------------------
+// Admin Payroll Management Routes
+// ---------------------------------------------------------------------------
+
+app.get('/api/admin/payroll/overview', requireAdmin, wrap(async (_req, res) => {
+  const overview = await payrollService.getPayrollDashboardOverview();
+  res.json({ success: true, data: overview });
+}));
+
+app.get('/api/admin/payroll/periods', requireAdmin, wrap(async (req, res) => {
+  const limit = req.query.limit ? Number(req.query.limit) : 50;
+  const periods = await payrollService.listPayrollPeriods(limit);
+  res.json({ success: true, data: periods });
+}));
+
+app.post('/api/admin/payroll/periods/calculate', requireAdmin, wrap(async (req, res) => {
+  const calc = await payrollService.calculatePeriodPayroll({
+    startDate: req.body.startDate,
+    endDate: req.body.endDate,
+    payDate: req.body.payDate,
+    periodType: req.body.periodType || 'BI_WEEKLY',
+  });
+  res.json({ success: true, data: calc });
+}));
+
+app.post('/api/admin/payroll/periods', requireAdmin, wrap(async (req, res) => {
+  const period = await payrollService.createPayrollPeriod(
+    req.body,
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, data: period });
+}));
+
+app.get('/api/admin/payroll/periods/:id', requireAdmin, wrap(async (req, res) => {
+  const period = await payrollService.getPayrollPeriod(getParam(req, 'id'));
+  res.json({ success: true, data: period });
+}));
+
+app.put('/api/admin/payroll/paystubs/:id', requireAdmin, wrap(async (req, res) => {
+  const updated = await payrollService.updatePaystubDraft(
+    getParam(req, 'id'),
+    req.body,
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, data: updated });
+}));
+
+app.post('/api/admin/payroll/periods/:id/finalize', requireAdmin, wrap(async (req, res) => {
+  const finalized = await payrollService.finalizePayrollPeriod(
+    getParam(req, 'id'),
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, data: finalized });
+}));
+
+app.get('/api/admin/payroll/periods/:id/export', requireAdmin, wrap(async (req, res) => {
+  const csv = await payrollService.exportPayrollCsv(getParam(req, 'id'));
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="payroll-period-${getParam(req, 'id')}.csv"`);
+  res.send(csv);
+}));
+
+app.get('/api/admin/payroll/paystubs/:id/html', requireAdmin, wrap(async (req, res) => {
+  const html = await payrollService.buildPaystubHtml(getParam(req, 'id'), true);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+}));
 
 // ---------------------------------------------------------------------------
 // Central Error Handler

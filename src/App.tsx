@@ -16,6 +16,7 @@ import { AdminLoginModal } from './components/AdminLoginModal';
 import { LoginPage } from './components/LoginPage';
 import { MobileDrawer } from './components/MobileDrawer';
 import { MobileBottomNav } from './components/MobileBottomNav';
+import { TimeClockModal } from './components/TimeClockModal';
 import { Ticket, Customer, DashboardStats, User } from './types';
 import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
@@ -40,6 +41,8 @@ export function App() {
   // Modals / Screens
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isTimeClockModalOpen, setIsTimeClockModalOpen] = useState(false);
+  const [timeClockStatus, setTimeClockStatus] = useState<any | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const [printTicket, setPrintTicket] = useState<Ticket | null>(null);
   const [smsTicket, setSmsTicket] = useState<Ticket | null>(null);
@@ -74,6 +77,25 @@ export function App() {
     };
     verifySession();
   }, []);
+
+  const fetchTimeClockStatus = async () => {
+    if (!currentUser) return;
+    try {
+      const res = await fetchWithAuth('/api/timeclock/status');
+      if (res.ok) {
+        const json = await res.json();
+        setTimeClockStatus(json.data);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (currentUser) {
+      fetchTimeClockStatus();
+      const interval = setInterval(fetchTimeClockStatus, 60000);
+      return () => clearInterval(interval);
+    }
+  }, [currentUser]);
 
   // Listen for unauthorized events to kick back to LoginPage immediately
   useEffect(() => {
@@ -430,6 +452,14 @@ export function App() {
         currentUser={currentUser}
         onLogout={handleLogout}
         onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
+        onOpenTimeClock={() => setIsTimeClockModalOpen(true)}
+        isClockedIn={timeClockStatus?.clockedIn}
+        isOnBreak={timeClockStatus?.onBreak}
+        timeClockElapsed={
+          timeClockStatus?.clockedIn && timeClockStatus?.activeShift?.clockIn
+            ? `${Math.floor((Date.now() - new Date(timeClockStatus.activeShift.clockIn).getTime()) / 3600000)}h`
+            : undefined
+        }
       />
 
       {/* Main Layout Area */}
@@ -620,6 +650,13 @@ export function App() {
       <PrintTicketModal
         ticket={printTicket}
         onClose={() => setPrintTicket(null)}
+      />
+
+      <TimeClockModal
+        isOpen={isTimeClockModalOpen}
+        onClose={() => setIsTimeClockModalOpen(false)}
+        currentUser={currentUser}
+        onStatusChange={fetchTimeClockStatus}
       />
 
       <AdminLoginModal

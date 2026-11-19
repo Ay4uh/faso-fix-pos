@@ -40,13 +40,23 @@ model User {
   status       String     @default("ACTIVE") // ACTIVE | DISABLED
   phone        String?
   bio          String?
-  bench        String?    @default("Bench #01")
-  preferences  String     @default("{}") // JSON: { soundFX: true, compactView: false, emailAlerts: true }
-  lastLoginAt  DateTime?
-  sessions     Session[]
-  auditLogs    AuditLog[] @relation("UserAuditLogs")
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  bench                 String?    @default("Bench #01")
+  preferences           String     @default("{}") // JSON: { soundFX: true, compactView: false, emailAlerts: true }
+  lastLoginAt           DateTime?
+  employeeNumber        String?    @unique
+  hourlyRateCents       Int        @default(2200) // basis cents: 2200 = $22.00/hr
+  overtimeRateCents     Int?       // basis cents: defaults to 1.5x hourlyRateCents if null
+  vacationPayPct        Int        @default(400)  // basis points: 400 = 4.00%
+  td1FederalClaimCents  Int        @default(1612900) // $16,129 basic personal amount
+  td1OntarioClaimCents  Int        @default(1274600) // $12,746 Ontario personal claim
+  sin                   String?
+  shifts                Shift[]
+  wageRates             WageRate[]
+  paystubs              Paystub[]
+  sessions              Session[]
+  auditLogs             AuditLog[] @relation("UserAuditLogs")
+  createdAt             DateTime   @default(now())
+  updatedAt             DateTime   @updatedAt
 
   @@index([role])
   @@index([status])
@@ -200,4 +210,114 @@ model InventoryPart {
   items        TicketItem[]
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
+}
+
+model WageRate {
+  id                String   @id @default(uuid())
+  userId            String
+  hourlyRateCents   Int
+  overtimeRateCents Int
+  effectiveDate     DateTime @default(now())
+  reason            String?
+  createdById       String?
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime @default(now())
+
+  @@index([userId])
+  @@index([effectiveDate])
+}
+
+model Shift {
+  id                String       @id @default(uuid())
+  userId            String
+  clockIn           DateTime
+  clockOut          DateTime?
+  status            String       @default("ACTIVE") // ACTIVE | ON_BREAK | COMPLETED
+  totalMinutes      Int          @default(0)
+  regularMinutes    Int          @default(0)
+  overtimeMinutes   Int          @default(0)
+  breakMinutes      Int          @default(0)
+  notes             String?
+  editedByAdminId   String?
+  editedAt          DateTime?
+  editReason        String?
+  originalClockIn   DateTime?
+  originalClockOut  DateTime?
+  breaks            ShiftBreak[]
+  user              User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
+
+  @@index([userId])
+  @@index([status])
+  @@index([clockIn])
+}
+
+model ShiftBreak {
+  id              String    @id @default(uuid())
+  shiftId         String
+  startTime       DateTime  @default(now())
+  endTime         DateTime?
+  durationMinutes Int       @default(0)
+  type            String    @default("UNPAID_MEAL") // UNPAID_MEAL | PAID_REST
+  shift           Shift     @relation(fields: [shiftId], references: [id], onDelete: Cascade)
+  createdAt       DateTime  @default(now())
+
+  @@index([shiftId])
+}
+
+model PayrollPeriod {
+  id                    String    @id @default(uuid())
+  periodNumber          Int
+  periodType            String    @default("BI_WEEKLY") // WEEKLY | BI_WEEKLY | MONTHLY | CUSTOM
+  startDate             DateTime
+  endDate               DateTime
+  payDate               DateTime
+  status                String    @default("DRAFT") // DRAFT | APPROVED | FINALIZED
+  totalGrossCents       Int       @default(0)
+  totalNetCents         Int       @default(0)
+  totalDeductionsCents  Int       @default(0)
+  finalizedAt           DateTime?
+  finalizedById         String?
+  notes                 String?
+  paystubs              Paystub[]
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([status])
+  @@index([startDate])
+}
+
+model Paystub {
+  id                    String        @id @default(uuid())
+  payrollPeriodId       String
+  userId                String
+  regularHours          Float         @default(0)
+  overtimeHours         Float         @default(0)
+  hourlyRateCents       Int
+  overtimeRateCents     Int
+  regularPayCents       Int           @default(0)
+  overtimePayCents      Int           @default(0)
+  bonusCents            Int           @default(0)
+  vacationPayCents      Int           @default(0)
+  grossPayCents         Int           @default(0)
+  cppCents              Int           @default(0)
+  eiCents               Int           @default(0)
+  incomeTaxCents        Int           @default(0)
+  otherDeductionsCents  Int           @default(0)
+  totalDeductionsCents  Int           @default(0)
+  netPayCents           Int           @default(0)
+  status                String        @default("DRAFT") // DRAFT | APPROVED | PAID
+  paidAt                DateTime?
+  paymentMethod         String        @default("DIRECT_DEPOSIT") // DIRECT_DEPOSIT | CHEQUE | CASH
+  paymentReference      String?
+  notes                 String?
+  payrollPeriod         PayrollPeriod @relation(fields: [payrollPeriodId], references: [id], onDelete: Cascade)
+  user                  User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@index([payrollPeriodId])
+  @@index([userId])
+  @@index([status])
 }
