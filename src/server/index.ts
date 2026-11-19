@@ -47,6 +47,7 @@ import { authenticateSession, ensureAdminProvisioning, recordAudit } from './aut
 import { configureSqlite, createBackup, listBackups, resolveBackup, startBackupSchedule } from './backup';
 import * as payrollService from './payrollService';
 import { prisma } from './prisma';
+import { buildReceiptHtml, buildBenchSlipHtml, buildLetterInvoiceHtml } from '../utils/receipt';
 
 declare global {
   namespace Express {
@@ -80,9 +81,13 @@ app.use(express.json());
 app.use(async (req: Request, _res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
-    const token = authHeader?.startsWith('Bearer ')
+    let token = authHeader?.startsWith('Bearer ')
       ? authHeader.slice(7)
       : (req.headers['x-session-token'] as string | undefined);
+
+    if (!token && typeof req.query?.token === 'string') {
+      token = req.query.token;
+    }
 
     if (token) {
       req.token = token;
@@ -381,6 +386,43 @@ app.get('/api/tickets', requireAuth, wrap(async (req, res) => {
 app.get('/api/tickets/:id', requireAuth, wrap(async (req, res) => {
   const ticket = await getTicket(getParam(req, 'id'));
   res.json({ success: true, data: ticket });
+}));
+
+app.get('/api/tickets/:id/print', requireAuth, wrap(async (req, res) => {
+  const ticket = await getTicket(getParam(req, 'id'));
+  const shop = await getSettings();
+  const format = (req.query.format as string) || 'letter';
+  let html = '';
+
+  if (format === '80mm') {
+    html = buildReceiptHtml(ticket as any, shop, '80mm');
+  } else if (format === '58mm') {
+    html = buildReceiptHtml(ticket as any, shop, '58mm');
+  } else if (format === 'slip' || format === 'bench') {
+    html = buildBenchSlipHtml(ticket as any, shop);
+  } else {
+    html = buildLetterInvoiceHtml(ticket as any, shop);
+  }
+
+  // Inject auto-print script that focuses and prints reliably
+  const autoPrint = `
+    <script>
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          try {
+            window.focus();
+            window.print();
+          } catch (e) {
+            console.error(e);
+          }
+        }, 200);
+      });
+    </script>
+  `;
+  html = html.replace('</body>', `${autoPrint}</body>`);
+
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
 }));
 
 app.post('/api/tickets', requireAuth, wrap(async (req, res) => {

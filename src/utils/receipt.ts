@@ -487,24 +487,33 @@ export function printHtml(html: string): Promise<void> {
   });
 }
 
+/**
+ * Opens a dedicated printable view in a clean top-level window.
+ * Completely immune to iframe focus locks, backdrop-filter bugs, and "Loading preview..." freezes.
+ */
+export function openPrintSlip(ticketId: string, format: string): void {
+  const token = typeof window !== 'undefined' ? (localStorage.getItem('apexfix_session_token') || '') : '';
+  const url = `/api/tickets/${ticketId}/print?format=${format}&token=${encodeURIComponent(token)}`;
+  const win = window.open(url, '_blank', 'width=850,height=950');
+  if (win) {
+    win.focus();
+  } else if (typeof window !== 'undefined') {
+    window.open(url, '_blank');
+  }
+}
+
 /** Prints a thermal receipt (80mm or 58mm). */
 export async function printReceipt(ticket: Ticket, width: ReceiptWidth = '80mm'): Promise<void> {
-  const shop = await loadShop();
-  const html = buildReceiptHtml(ticket, shop, width);
-  await printHtml(html);
+  openPrintSlip(ticket.id, width);
 }
 
 /** Prints a compact thermal bench slip / sticker. */
 export async function printBenchSlip(ticket: Ticket): Promise<void> {
-  const shop = await loadShop();
-  const html = buildBenchSlipHtml(ticket, shop);
-  await printHtml(html);
+  openPrintSlip(ticket.id, 'slip');
 }
 
 /** Prints a full Letter (8.5×11) Work Order & Invoice. */
 export async function printLetterInvoice(ticket: Ticket): Promise<void> {
-  const shop = await loadShop();
-  const html = buildLetterInvoiceHtml(ticket, shop);
-  await printHtml(html);
+  openPrintSlip(ticket.id, 'letter');
 }
 

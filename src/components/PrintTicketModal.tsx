@@ -15,9 +15,10 @@ import {
   Phone,
   Mail,
   MapPin,
+  ExternalLink,
 } from 'lucide-react';
 import { Barcode } from './Barcode';
-import { printReceipt, printBenchSlip, printLetterInvoice } from '../utils/receipt';
+import { printReceipt, printBenchSlip, printLetterInvoice, openPrintSlip } from '../utils/receipt';
 
 interface PrintTicketModalProps {
   ticket: Ticket | null;
@@ -45,27 +46,16 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
   const isPaid = totals.balanceCents <= 0;
   const woBarcode = `WO-${String(ticket.ticketNumber).padStart(4, '0')}`;
 
-  const handlePrint = async () => {
-    try {
-      if (paperFormat === 'letter') {
-        await printLetterInvoice(ticket);
-      } else {
-        await printBenchSlip(ticket);
-      }
-    } catch (err) {
-      console.error('[Print Failure Fallback to Window]', err);
-      document.body.classList.add('printing-modal');
-      const cleanup = () => {
-        document.body.classList.remove('printing-modal');
-        window.removeEventListener('afterprint', cleanup);
-      };
-      window.addEventListener('afterprint', cleanup);
-      window.print();
+  const handlePrint = () => {
+    if (paperFormat === 'letter') {
+      printLetterInvoice(ticket);
+    } else {
+      printBenchSlip(ticket);
     }
   };
 
   return (
-    <div data-print-root className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto print:p-0 print:bg-white print:overflow-visible">
+    <div data-print-root className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto print:static print:inset-auto print:block print:p-0 print:m-0 print:w-full print:bg-white print:overflow-visible print:backdrop-blur-none">
       <div data-print-card className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto print:border-none print:shadow-none print:max-w-none print:rounded-none print:overflow-visible print:my-0">
         {/* Interactive Top Control Bar (Hidden during window.print) */}
         <div className="px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50 print:hidden">
@@ -132,6 +122,14 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Print {paperFormat === 'letter' ? 'Letter' : 'Slip'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => openPrintSlip(ticket.id, paperFormat === 'letter' ? 'letter' : 'slip')}
+              title="Open clean printable view in new tab"
+              className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-200 transition cursor-pointer"
+            >
+              <ExternalLink className="w-4 h-4" />
             </button>
 
             <button

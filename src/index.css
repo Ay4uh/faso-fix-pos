@@ -25,6 +25,14 @@ body {
 
 /* Print styling: ensure instant, crisp preview generation without pagination freeze */
 @media print {
+  *, *::before, *::after {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    filter: none !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+
   html, body {
     background: #ffffff !important;
     color: #000000 !important;
