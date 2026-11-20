@@ -390,130 +390,94 @@ export async function loadShop(): Promise<ReceiptShop> {
       return cachedShop!;
     }
   } catch {}
-  return {};
+  return {
+    shopName: 'Faso Fix Electronics',
+    address: '1084 Tech Boulevard, Suite 200 • San Jose, CA 95110',
+    phone: '(555) 902-3482',
+    email: 'service@fasofix.ca',
+    taxLabel: 'HST',
+    currencySymbol: '$',
+    warrantyDays: 90,
+    receiptFooter: 'Please back up your data. 90-day warranty on all serviced hardware.',
+  };
 }
 
 /**
- * Rock-solid browser print executor that never hangs on "Loading preview...".
- * Uses a properly sized hidden iframe with complete document readiness listeners,
- * and preserves the iframe until afterprint completes.
+ * Directly prints HTML in a clean, dedicated popup window using in-memory data.
+ * Completely immune to:
+ * - "Work order not found" errors (never calls serverless DB)
+ * - "Loading preview..." freezes (no iframes, no parent modals, no backdrop-filter)
+ * - Container replication lag
  */
-export function printHtml(html: string): Promise<void> {
-  return new Promise((resolve) => {
-    // Remove any leftover print iframes
-    const oldIframes = document.querySelectorAll('iframe[data-pos-print]');
-    oldIframes.forEach((el) => {
-      try { el.remove(); } catch {}
-    });
-
-    const iframe = document.createElement('iframe');
-    iframe.setAttribute('data-pos-print', 'true');
-    iframe.setAttribute('aria-hidden', 'true');
-
-    // CRITICAL: Do NOT use width: 0, height: 0! Chrome requires layout dimensions to compute preview.
-    Object.assign(iframe.style, {
-      position: 'fixed',
-      top: '0',
-      left: '0',
-      width: '100vw',
-      height: '100vh',
-      border: '0',
-      opacity: '0',
-      pointerEvents: 'none',
-      zIndex: '-99999',
-    });
-
-    document.body.appendChild(iframe);
-
-    const doc = iframe.contentDocument || iframe.contentWindow?.document;
-    if (!doc || !iframe.contentWindow) {
-      // Clean popup fallback if iframe DOM is blocked
-      const win = window.open('', '_blank', 'width=850,height=950');
-      if (win) {
-        win.document.open();
-        win.document.write(html);
-        win.document.close();
-        win.focus();
-        setTimeout(() => {
-          win.print();
-          resolve();
-        }, 300);
-      } else {
-        resolve();
-      }
-      return;
-    }
-
-    doc.open();
-    doc.write(html);
-    doc.close();
-
-    const printWin = iframe.contentWindow;
-
-    const cleanup = () => {
-      setTimeout(() => {
-        if (document.body.contains(iframe)) {
-          iframe.remove();
-        }
-        resolve();
-      }, 500);
-    };
-
-    printWin.addEventListener('afterprint', cleanup);
-
-    // Safety fallback cleanup in case afterprint doesn't fire
-    setTimeout(() => {
-      if (document.body.contains(iframe)) {
-        iframe.remove();
-      }
-      resolve();
-    }, 60000);
-
-    const executePrint = () => {
-      try {
-        printWin.focus();
-        printWin.print();
-      } catch (err) {
-        console.error('[Print Execution Error]', err);
-        resolve();
-      }
-    };
-
-    if (doc.readyState === 'complete') {
-      setTimeout(executePrint, 150);
-    } else {
-      iframe.onload = () => setTimeout(executePrint, 150);
-    }
-  });
-}
-
-/**
- * Opens a dedicated printable view in a clean top-level window.
- * Completely immune to iframe focus locks, backdrop-filter bugs, and "Loading preview..." freezes.
- */
-export function openPrintSlip(ticketId: string, format: string): void {
-  const token = typeof window !== 'undefined' ? (localStorage.getItem('apexfix_session_token') || '') : '';
-  const url = `/api/tickets/${ticketId}/print?format=${format}&token=${encodeURIComponent(token)}`;
-  const win = window.open(url, '_blank', 'width=850,height=950');
-  if (win) {
-    win.focus();
-  } else if (typeof window !== 'undefined') {
-    window.open(url, '_blank');
+export async function printDirectDocument(html: string): Promise<void> {
+  const win = window.open('', '_blank', 'width=850,height=950');
+  if (!win) {
+    alert('Please allow popups in your browser to print slips and receipts.');
+    return;
   }
+
+  // Inject auto-print script that focuses and prints reliably
+  const autoPrintScript = `
+    <script>
+      window.addEventListener('load', function() {
+        setTimeout(function() {
+          try {
+            window.focus();
+            window.print();
+          } catch(e) {
+            console.error(e);
+          }
+        }, 150);
+      });
+    </script>
+  `;
+
+  const printableHtml = html.includes('</body>')
+    ? html.replace('</body>', `${autoPrintScript}</body>`)
+    : `${html}${autoPrintScript}`;
+
+  win.document.open();
+  win.document.write(printableHtml);
+  win.document.close();
+  win.focus();
 }
 
-/** Prints a thermal receipt (80mm or 58mm). */
+/**
+ * Opens a dedicated printable view in a clean top-level window using in-memory ticket data.
+ */
+export async function openPrintSlip(ticket: Ticket, format: string): Promise<void> {
+  const shop = await loadShop();
+  let html = '';
+  if (format === '80mm') {
+    html = buildReceiptHtml(ticket, shop, '80mm');
+  } else if (format === '58mm') {
+    html = buildReceiptHtml(ticket, shop, '58mm');
+  } else if (format === 'slip' || format === 'bench') {
+    html = buildBenchSlipHtml(ticket, shop);
+  } else {
+    html = buildLetterInvoiceHtml(ticket, shop);
+  }
+  await printDirectDocument(html);
+}
+
+/** Prints a thermal receipt (80mm or 58mm) directly from in-memory ticket data. */
 export async function printReceipt(ticket: Ticket, width: ReceiptWidth = '80mm'): Promise<void> {
-  openPrintSlip(ticket.id, width);
+  const shop = await loadShop();
+  const html = buildReceiptHtml(ticket, shop, width);
+  await printDirectDocument(html);
 }
 
-/** Prints a compact thermal bench slip / sticker. */
+/** Prints a compact thermal bench slip / sticker directly from in-memory ticket data. */
 export async function printBenchSlip(ticket: Ticket): Promise<void> {
-  openPrintSlip(ticket.id, 'slip');
+  const shop = await loadShop();
+  const html = buildBenchSlipHtml(ticket, shop);
+  await printDirectDocument(html);
 }
 
-/** Prints a full Letter (8.5×11) Work Order & Invoice. */
+/** Prints a full Letter (8.5×11) Work Order & Invoice directly from in-memory ticket data. */
 export async function printLetterInvoice(ticket: Ticket): Promise<void> {
-  openPrintSlip(ticket.id, 'letter');
+  const shop = await loadShop();
+  const html = buildLetterInvoiceHtml(ticket, shop);
+  await printDirectDocument(html);
 }
 

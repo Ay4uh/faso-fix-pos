@@ -125,7 +125,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             </button>
             <button
               type="button"
-              onClick={() => openPrintSlip(ticket.id, paperFormat === 'letter' ? 'letter' : 'slip')}
+              onClick={() => openPrintSlip(ticket, paperFormat === 'letter' ? 'letter' : 'slip')}
               title="Open clean printable view in new tab"
               className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-200 transition cursor-pointer"
             >

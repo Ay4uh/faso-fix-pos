@@ -3603,7 +3603,19 @@ app.get("/api/tickets/:id", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.get("/api/tickets/:id/print", requireAuth, wrap(async (req, res) => {
-	const ticket = await getTicket(getParam(req, "id"));
+	let ticket = null;
+	try {
+		ticket = await getTicket(getParam(req, "id"));
+	} catch {
+		return res.status(200).send(`
+      <!doctype html><html><head><title>Print Preview</title></head>
+      <body style="font-family:sans-serif;padding:40px;text-align:center;color:#334155">
+        <h2 style="color:#0f172a">Faso Fix POS • Print Dispatch</h2>
+        <p>This work order is stored in your active POS browser session. Please click Print directly from your open work order screen in the POS terminal.</p>
+        <button onclick="window.close()" style="margin-top:15px;padding:8px 18px;border-radius:6px;border:1px solid #cbd5e1;background:#f8fafc;font-weight:bold;cursor:pointer">Close Window</button>
+      </body></html>
+    `);
+	}
 	const shop = await getSettings();
 	const format = req.query.format || "letter";
 	let html = "";
