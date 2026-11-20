@@ -509,18 +509,6 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                     </div>
                   </div>
                 </div>
-
-                <div className="mt-4 p-2.5 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center gap-2">
-                  <ShieldCheck className="w-5 h-5 text-indigo-600 shrink-0" />
-                  <div>
-                    <span className="font-bold text-slate-900 text-xs block">
-                      Covered Under Faso Fix 90-Day Warranty
-                    </span>
-                    <span className="text-[10px] text-slate-500 font-mono">
-                      Covers component failure & workmanship. Excludes liquid or physical drop damage.
-                    </span>
-                  </div>
-                </div>
               </div>
 
               {/* Right: Explicit Before-Tax & After-Tax Totals */}
@@ -574,13 +562,9 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               </div>
             </div>
 
-            {/* Terms, Policy & Signatures */}
-            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4 space-y-3">
-              <div className="text-[10px] text-slate-500 leading-relaxed">
-                <strong>Service Terms & Warranty Policy:</strong> Faso Fix warrants the specified replacement components and associated craftsmanship for a period of ninety (90) calendar days from device release. Warranty explicitly excludes secondary accidental drops, liquid immersion, unauthorized third-party board modifications, or deliberate abuse. Customer acknowledges device data retention is the client's sole responsibility; all diagnostic and hardware tests were completed satisfactorily prior to release.
-              </div>
-
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
+            {/* Authorizations & Signatures */}
+            <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {/* Tech Sign-off */}
                 <div className="flex flex-col justify-end">
                   <div className="flex items-center justify-between mb-1">

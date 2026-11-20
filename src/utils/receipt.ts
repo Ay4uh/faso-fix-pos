@@ -103,8 +103,7 @@ ${row('Paid', money(t.paidCents))}
 <div class="big">${row('BALANCE', money(Math.max(t.balanceCents, 0)), true)}</div>
 <div class="c b" style="margin-top:4px">*** ${status} ***</div>` : ''}
 <hr>
-${shop.warrantyDays ? `<div class="c small">${shop.warrantyDays}-day warranty on parts &amp; labour.</div>` : ''}
-${shop.receiptFooter ? `<div class="c small">${esc(shop.receiptFooter)}</div>` : '<div class="c small">Thank you for your business!</div>'}
+<div class="c small">Thank you for your business!</div>
 </body></html>`;
 }
 
@@ -313,10 +312,6 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
       <span>Total Paid to Date:</span>
       <span style="color:#059669">${money(t.paidCents)}</span>
     </div>
-    <div style="margin-top:6px;background:#eef2ff;border:1px solid #c7d2fe;padding:6px;border-radius:4px;font-size:10px;color:#3730a3">
-      <strong>Covered Under Faso Fix 90-Day Warranty</strong><br>
-      Covers component failure and workmanship. Excludes liquid or physical drop damage.
-    </div>
   </div>
 
   <div class="card">
@@ -370,10 +365,6 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   </div>
 </div>
 
-<div class="terms">
-  <strong>Service Terms &amp; Warranty Policy:</strong> Faso Fix warrants specified replacement components and craftsmanship for ninety (90) calendar days from device release. Warranty explicitly excludes secondary accidental drops, liquid immersion, or unauthorized tampering. Client acknowledges data retention is client's sole responsibility; all diagnostic checks were satisfactorily verified prior to release.
-</div>
-
 </body></html>`;
 }
 
@@ -397,53 +388,76 @@ export async function loadShop(): Promise<ReceiptShop> {
     email: 'service@fasofix.ca',
     taxLabel: 'HST',
     currencySymbol: '$',
-    warrantyDays: 90,
-    receiptFooter: 'Please back up your data. 90-day warranty on all serviced hardware.',
+    warrantyDays: 0,
+    receiptFooter: 'Thank you for your business!',
   };
 }
 
 /**
- * Directly prints HTML in a clean, dedicated popup window using in-memory data.
- * Completely immune to:
- * - "Work order not found" errors (never calls serverless DB)
- * - "Loading preview..." freezes (no iframes, no parent modals, no backdrop-filter)
- * - Container replication lag
+ * Directly prints HTML without opening about:blank popup windows that hang Chrome's preview engine.
+ * Uses an off-screen iframe attached to document.body, ensuring:
+ * 1. Same-origin security context (Chrome resolves printer destination instantly in <50ms)
+ * 2. No popup blockers or about:blank compositor deadlocks
+ * 3. Exact @page layout and vector barcode rendering
  */
-export async function printDirectDocument(html: string): Promise<void> {
-  const win = window.open('', '_blank', 'width=850,height=950');
-  if (!win) {
-    alert('Please allow popups in your browser to print slips and receipts.');
-    return;
-  }
+export function printDirectDocument(html: string): Promise<void> {
+  return new Promise((resolve) => {
+    try {
+      // Remove any previously created print iframe
+      const oldFrame = document.getElementById('pos-direct-print-frame');
+      if (oldFrame) {
+        oldFrame.remove();
+      }
 
-  // Inject auto-print script that focuses and prints reliably
-  const autoPrintScript = `
-    <script>
-      window.addEventListener('load', function() {
-        setTimeout(function() {
+      const iframe = document.createElement('iframe');
+      iframe.id = 'pos-direct-print-frame';
+      // Use off-screen fixed positioning with realistic viewport dimensions so Chromium's layout
+      // engine computes media @page rules and vector dimensions without 0x0 clipping or preview deadlocks
+      iframe.setAttribute(
+        'style',
+        'position: fixed; left: -9999px; top: -9999px; width: 1024px; height: 1024px; border: 0; visibility: hidden;'
+      );
+
+      document.body.appendChild(iframe);
+
+      const frameDoc = iframe.contentWindow?.document;
+      if (!frameDoc) {
+        resolve();
+        return;
+      }
+
+      frameDoc.open();
+      frameDoc.write(html);
+      frameDoc.close();
+
+      // Wait 250ms for Chromium to lay out fonts, SVGs, and styles, then invoke print
+      setTimeout(() => {
+        try {
+          iframe.contentWindow?.focus();
+          iframe.contentWindow?.print();
+        } catch (err) {
+          console.error('Print execution error:', err);
+        }
+        resolve();
+
+        // Remove iframe after print dialog completes
+        setTimeout(() => {
           try {
-            window.focus();
-            window.print();
-          } catch(e) {
-            console.error(e);
-          }
-        }, 150);
-      });
-    </script>
-  `;
-
-  const printableHtml = html.includes('</body>')
-    ? html.replace('</body>', `${autoPrintScript}</body>`)
-    : `${html}${autoPrintScript}`;
-
-  win.document.open();
-  win.document.write(printableHtml);
-  win.document.close();
-  win.focus();
+            iframe.remove();
+          } catch {}
+        }, 60000);
+      }, 250);
+    } catch (e) {
+      console.error('Direct print failed:', e);
+      resolve();
+    }
+  });
 }
 
 /**
  * Opens a dedicated printable view in a clean top-level window using in-memory ticket data.
+ * Uses a real Blob URL so Chrome commits navigation immediately with a valid blob: URL,
+ * preventing about:blank hangs.
  */
 export async function openPrintSlip(ticket: Ticket, format: string): Promise<void> {
   const shop = await loadShop();
@@ -457,7 +471,14 @@ export async function openPrintSlip(ticket: Ticket, format: string): Promise<voi
   } else {
     html = buildLetterInvoiceHtml(ticket, shop);
   }
-  await printDirectDocument(html);
+
+  const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+  const blobUrl = URL.createObjectURL(blob);
+  const win = window.open(blobUrl, '_blank');
+  if (win) {
+    win.focus();
+    setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+  }
 }
 
 /** Prints a thermal receipt (80mm or 58mm) directly from in-memory ticket data. */

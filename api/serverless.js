@@ -3002,8 +3002,7 @@ ${row("Paid", money(t.paidCents))}
 <div class="big">${row("BALANCE", money(Math.max(t.balanceCents, 0)), true)}</div>
 <div class="c b" style="margin-top:4px">*** ${status} ***</div>` : ""}
 <hr>
-${shop.warrantyDays ? `<div class="c small">${shop.warrantyDays}-day warranty on parts &amp; labour.</div>` : ""}
-${shop.receiptFooter ? `<div class="c small">${esc(shop.receiptFooter)}</div>` : "<div class=\"c small\">Thank you for your business!</div>"}
+<div class="c small">Thank you for your business!</div>
 </body></html>`;
 }
 /** Builds a self-contained thermal bench slip / device sticker HTML. */
@@ -3208,10 +3207,6 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
       <span>Total Paid to Date:</span>
       <span style="color:#059669">${money(t.paidCents)}</span>
     </div>
-    <div style="margin-top:6px;background:#eef2ff;border:1px solid #c7d2fe;padding:6px;border-radius:4px;font-size:10px;color:#3730a3">
-      <strong>Covered Under Faso Fix 90-Day Warranty</strong><br>
-      Covers component failure and workmanship. Excludes liquid or physical drop damage.
-    </div>
   </div>
 
   <div class="card">
@@ -3263,10 +3258,6 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
       <div style="font-size:9px;color:#059669;font-weight:bold">VERIFIED</div>
     </div>
   </div>
-</div>
-
-<div class="terms">
-  <strong>Service Terms &amp; Warranty Policy:</strong> Faso Fix warrants specified replacement components and craftsmanship for ninety (90) calendar days from device release. Warranty explicitly excludes secondary accidental drops, liquid immersion, or unauthorized tampering. Client acknowledges data retention is client's sole responsibility; all diagnostic checks were satisfactorily verified prior to release.
 </div>
 
 </body></html>`;

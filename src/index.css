@@ -55,6 +55,7 @@ body {
   }
 
   /* Hide app navigation, headers, and UI elements during modal print */
+  body:has([data-print-root]) #root > div > *:not(:has([data-print-root])):not([data-print-root]),
   body.printing-modal #root > div > *:not(:has([data-print-root])):not([data-print-root]),
   .print\:hidden {
     display: none !important;
