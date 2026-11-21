@@ -20,7 +20,7 @@ model Setting {
   warrantyDays          Int      @default(90)
   technicians           String   @default("") // newline separated
   benches               String   @default("") // newline separated
-  receiptFooter         String   @default("Please back up your data. Devices left unclaimed for 30 days may incur storage fees.")
+  receiptFooter         String   @default("Thank you for your business!")
   nextTicketNumber      Int      @default(1) // sequential work order counter
   defaultLaborRateCents Int      @default(8500) // basis cents: 8500 = $85.00
   enableSoundBeeps      Boolean  @default(true)

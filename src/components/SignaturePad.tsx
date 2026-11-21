@@ -161,7 +161,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
       </div>
 
       <p className="text-[10px] text-slate-400 leading-tight">
-        Authorized customer signature confirms device intake condition, disclaims pre-existing liquid damage, and acknowledges the standard 90-day parts warranty.
+        Authorized customer signature confirms device intake condition and diagnostic authorization.
       </p>
     </div>
   );

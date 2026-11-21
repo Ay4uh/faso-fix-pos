@@ -137,7 +137,7 @@ CREATE TABLE IF NOT EXISTS "Setting" (
     "warrantyDays" INTEGER NOT NULL DEFAULT 90,
     "technicians" TEXT NOT NULL DEFAULT '',
     "benches" TEXT NOT NULL DEFAULT '',
-    "receiptFooter" TEXT NOT NULL DEFAULT 'Please back up your data. Devices left unclaimed for 30 days may incur storage fees.',
+    "receiptFooter" TEXT NOT NULL DEFAULT 'Thank you for your business!',
     "nextTicketNumber" INTEGER NOT NULL DEFAULT 1,
     "defaultLaborRateCents" INTEGER NOT NULL DEFAULT 8500,
     "enableSoundBeeps" BOOLEAN NOT NULL DEFAULT true,
@@ -293,6 +293,13 @@ export async function ensureDatabaseSchema() {
       await prisma.$executeRawUnsafe(alter);
     } catch {}
   }
+
+  // Ensure default receipt footer doesn't contain unwanted disclaimers
+  try {
+    await prisma.$executeRawUnsafe(
+      `UPDATE "Setting" SET "receiptFooter" = 'Thank you for your business!' WHERE "receiptFooter" LIKE '%storage%' OR "receiptFooter" LIKE '%90-day%'`
+    );
+  } catch {}
 }
 
 export async function ensureInitialInventory() {

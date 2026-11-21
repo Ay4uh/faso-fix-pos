@@ -137,7 +137,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setPhone(data.phone || '(647) 740-0566');
         setEmail(data.email || 'service@fasofix.ca');
         setAddress(data.address || '123 Tech Boulevard, Suite 400');
-        setReceiptFooter(data.receiptFooter || 'Standard 90-day warranty on parts and labor. Devices left unclaimed for 30 days are subject to storage fees.');
+        setReceiptFooter(data.receiptFooter || 'Thank you for your business!');
         setTaxLabel(data.taxLabel || 'HST');
         setTaxRatePercent(((data.taxRateBps || 1300) / 100).toFixed(2));
         setWarrantyDays(data.warrantyDays || 90);

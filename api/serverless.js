@@ -538,10 +538,13 @@ async function loadTicket(tx, id) {
 	return t;
 }
 async function getTicket(id) {
+	const cleanId = (id || "").trim();
+	const numericMatch = cleanId.replace(/^(wo\s*)?#?/i, "");
+	const isNumeric = /^\d+$/.test(numericMatch);
 	const t = await prisma.ticket.findFirst({
 		where: {
-			id,
-			deletedAt: null
+			deletedAt: null,
+			OR: [{ id: cleanId }, ...isNumeric ? [{ ticketNumber: Number(numericMatch) }] : []]
 		},
 		include: {
 			...ticketInclude,
@@ -553,7 +556,7 @@ async function getTicket(id) {
 		where: {
 			customerId: t.customerId,
 			deletedAt: null,
-			NOT: { id }
+			NOT: { id: t.id }
 		},
 		select: {
 			id: true,
@@ -1765,7 +1768,7 @@ CREATE TABLE IF NOT EXISTS "Setting" (
     "warrantyDays" INTEGER NOT NULL DEFAULT 90,
     "technicians" TEXT NOT NULL DEFAULT '',
     "benches" TEXT NOT NULL DEFAULT '',
-    "receiptFooter" TEXT NOT NULL DEFAULT 'Please back up your data. Devices left unclaimed for 30 days may incur storage fees.',
+    "receiptFooter" TEXT NOT NULL DEFAULT 'Thank you for your business!',
     "nextTicketNumber" INTEGER NOT NULL DEFAULT 1,
     "defaultLaborRateCents" INTEGER NOT NULL DEFAULT 8500,
     "enableSoundBeeps" BOOLEAN NOT NULL DEFAULT true,
@@ -1908,6 +1911,9 @@ async function ensureDatabaseSchema() {
 		"ALTER TABLE \"User\" ADD COLUMN \"sin\" TEXT;"
 	]) try {
 		await prisma.$executeRawUnsafe(alter);
+	} catch {}
+	try {
+		await prisma.$executeRawUnsafe(`UPDATE "Setting" SET "receiptFooter" = 'Thank you for your business!' WHERE "receiptFooter" LIKE '%storage%' OR "receiptFooter" LIKE '%90-day%'`);
 	} catch {}
 }
 async function ensureInitialInventory() {

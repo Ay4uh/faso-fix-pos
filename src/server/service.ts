@@ -126,13 +126,23 @@ async function loadTicket(tx: Tx | typeof prisma, id: string) {
 }
 
 export async function getTicket(id: string) {
+  const cleanId = (id || '').trim();
+  const numericMatch = cleanId.replace(/^(wo\s*)?#?/i, '');
+  const isNumeric = /^\d+$/.test(numericMatch);
+
   const t = await prisma.ticket.findFirst({
-    where: { id, deletedAt: null },
+    where: {
+      deletedAt: null,
+      OR: [
+        { id: cleanId },
+        ...(isNumeric ? [{ ticketNumber: Number(numericMatch) }] : []),
+      ],
+    },
     include: { ...ticketInclude, events: { orderBy: { createdAt: 'desc' } } },
   });
   if (!t) throw new HttpError(404, 'Work order not found');
   const otherTickets = await prisma.ticket.findMany({
-    where: { customerId: t.customerId, deletedAt: null, NOT: { id } },
+    where: { customerId: t.customerId, deletedAt: null, NOT: { id: t.id } },
     select: { id: true, ticketNumber: true, status: true, createdAt: true, device: { select: { name: true } } },
     orderBy: { createdAt: 'desc' },
     take: 10,
