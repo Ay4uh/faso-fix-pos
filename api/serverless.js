@@ -6,7 +6,8 @@ import { PrismaClient } from "@prisma/client";
 import fs from "node:fs";
 import path from "node:path";
 // src/server/prisma.ts
-if (process.env.VERCEL) {
+var isPostgres = !!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")));
+if (process.env.VERCEL && !isPostgres) {
 	const tmpDb = "/tmp/dev.db";
 	if (!fs.existsSync(tmpDb)) {
 		const candidates = [
@@ -4308,6 +4309,14 @@ app.get("/api/tickets/:id/print", requireAuth, wrap(async (req, res) => {
   </body>`);
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
 	res.send(html);
+}));
+app.post("/api/kiosk/checkin", wrap(async (req, res) => {
+	const ticket = await createTicket(req.body);
+	broadcastLiveEvent("ticket_created", ticket);
+	res.status(201).json({
+		success: true,
+		data: ticket
+	});
 }));
 app.post("/api/tickets", requireAuth, wrap(async (req, res) => {
 	const ticket = await createTicket(req.body);

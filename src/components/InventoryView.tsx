@@ -1,5 +1,19 @@
 import React, { useEffect, useState } from 'react';
-import { Package, AlertTriangle, CheckCircle2, Search, Plus, X, Trash2, ArrowUp, ArrowDown } from 'lucide-react';
+import {
+  Package,
+  AlertTriangle,
+  CheckCircle2,
+  Search,
+  Plus,
+  X,
+  Trash2,
+  ArrowUp,
+  ArrowDown,
+  ShoppingCart,
+  Download,
+  Printer,
+  FileSpreadsheet,
+} from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
 
@@ -32,6 +46,144 @@ export const InventoryView: React.FC = () => {
   const [supplier, setSupplier] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+
+  // Purchase Order Generation Modal
+  const [isPoModalOpen, setIsPoModalOpen] = useState(false);
+  const [poSupplierFilter, setPoSupplierFilter] = useState('ALL');
+  const [poQuantities, setPoQuantities] = useState<Record<string, number>>({});
+
+  const handleOpenPoModal = () => {
+    const initial: Record<string, number> = {};
+    parts.forEach((p) => {
+      if (p.stock <= p.reorderPoint) {
+        initial[p.id] = Math.max(5, p.reorderPoint * 3 - p.stock);
+      }
+    });
+    setPoQuantities(initial);
+    setIsPoModalOpen(true);
+  };
+
+  const handleExportCsv = (format: 'mobilesentrix' | 'injuredgadgets' | 'standard') => {
+    const selectedIds = Object.keys(poQuantities).filter((id) => (poQuantities[id] || 0) > 0);
+    const selectedParts = parts.filter(
+      (p) =>
+        selectedIds.includes(p.id) &&
+        (poSupplierFilter === 'ALL' || (p.supplier || '').toLowerCase().includes(poSupplierFilter.toLowerCase()))
+    );
+
+    if (selectedParts.length === 0) {
+      alert('No parts selected for Purchase Order.');
+      return;
+    }
+
+    let csvContent = '';
+    let fileName = `Purchase_Order_${new Date().toISOString().slice(0, 10)}.csv`;
+
+    if (format === 'mobilesentrix') {
+      csvContent = 'SKU,Quantity,Notes\n';
+      selectedParts.forEach((p) => {
+        csvContent += `"${p.sku || p.name}",${poQuantities[p.id]},"Faso Fix Restock"\n`;
+      });
+      fileName = `MobileSentrix_PO_${new Date().toISOString().slice(0, 10)}.csv`;
+    } else if (format === 'injuredgadgets') {
+      csvContent = 'Part Number,Quantity,Description\n';
+      selectedParts.forEach((p) => {
+        csvContent += `"${p.sku || ''}",${poQuantities[p.id]},"${p.name}"\n`;
+      });
+      fileName = `InjuredGadgets_PO_${new Date().toISOString().slice(0, 10)}.csv`;
+    } else {
+      csvContent = 'SKU,Part Name,Supplier,Current Stock,Order Qty,Wholesale Cost,Total Cost\n';
+      selectedParts.forEach((p) => {
+        const qty = poQuantities[p.id];
+        const cost = (p.costCents / 100).toFixed(2);
+        const total = ((p.costCents * qty) / 100).toFixed(2);
+        csvContent += `"${p.sku}","${p.name}","${p.supplier || 'N/A'}",${p.stock},${qty},"$${cost}","$${total}"\n`;
+      });
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = fileName;
+    link.click();
+    URL.revokeObjectURL(url);
+    posAudio.playSuccessChime();
+  };
+
+  const handlePrintPo = () => {
+    const selectedIds = Object.keys(poQuantities).filter((id) => (poQuantities[id] || 0) > 0);
+    const selectedParts = parts.filter(
+      (p) =>
+        selectedIds.includes(p.id) &&
+        (poSupplierFilter === 'ALL' || (p.supplier || '').toLowerCase().includes(poSupplierFilter.toLowerCase()))
+    );
+
+    if (selectedParts.length === 0) {
+      alert('No parts selected for Purchase Order.');
+      return;
+    }
+
+    let totalCents = 0;
+    const rowsHtml = selectedParts
+      .map((p) => {
+        const qty = poQuantities[p.id];
+        const extCents = p.costCents * qty;
+        totalCents += extCents;
+        return `<tr>
+          <td style="padding:6px;border-bottom:1px solid #ddd;font-family:monospace;font-weight:bold">${p.sku}</td>
+          <td style="padding:6px;border-bottom:1px solid #ddd">${p.name}</td>
+          <td style="padding:6px;border-bottom:1px solid #ddd">${p.supplier || 'Vendor'}</td>
+          <td style="padding:6px;border-bottom:1px solid #ddd;text-align:center">${p.stock}</td>
+          <td style="padding:6px;border-bottom:1px solid #ddd;text-align:center;font-weight:bold">${qty}</td>
+          <td style="padding:6px;border-bottom:1px solid #ddd;text-align:right">$${(p.costCents / 100).toFixed(2)}</td>
+          <td style="padding:6px;border-bottom:1px solid #ddd;text-align:right;font-weight:bold">$${(extCents / 100).toFixed(2)}</td>
+        </tr>`;
+      })
+      .join('');
+
+    const poNumber = `PO-${Date.now().toString().slice(-6)}`;
+    const html = `<!doctype html><html><head><title>Purchase Order ${poNumber}</title>
+    <style>
+      body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; font-size: 12px; color: #1e293b; padding: 20px; }
+      table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+      th { background: #f1f5f9; padding: 8px; text-align: left; font-size: 11px; text-transform: uppercase; border-bottom: 2px solid #cbd5e1; }
+      .header { display: flex; justify-content: space-between; border-bottom: 2px solid #4f46e5; padding-bottom: 10px; margin-bottom: 15px; }
+      .total-row { font-size: 14px; font-weight: bold; text-align: right; margin-top: 15px; }
+    </style></head><body>
+      <div class="header">
+        <div>
+          <h1 style="margin:0;font-size:20px;color:#1e1b4b">FASO FIX ELECTRONICS</h1>
+          <div style="font-size:11px;color:#64748b">Inventory Re-order Purchase Order</div>
+        </div>
+        <div style="text-align:right">
+          <h2 style="margin:0;font-size:16px;color:#4f46e5">${poNumber}</h2>
+          <div style="font-size:11px;color:#64748b">Date: ${new Date().toLocaleDateString()}</div>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>SKU</th><th>Part Description</th><th>Supplier</th><th style="text-align:center">In Stock</th><th style="text-align:center">Order Qty</th><th style="text-align:right">Wholesale Cost</th><th style="text-align:right">Extended Total</th>
+          </tr>
+        </thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <div class="total-row">Estimated Total Cost: $${(totalCents / 100).toFixed(2)} CAD</div>
+      <div style="margin-top:40px;border-top:1px solid #ccc;padding-top:10px;display:flex;justify-content:space-between;font-size:11px;color:#64748b">
+        <span>Authorized Signature: _______________________________</span>
+        <span>Account: FASO-REPAIR-VENDOR</span>
+      </div>
+    </body></html>`;
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank');
+    if (win) {
+      win.focus();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
+  };
 
   const fetchInventory = () => {
     setLoading(true);
@@ -165,6 +317,21 @@ export const InventoryView: React.FC = () => {
               className="w-full pl-9 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
             />
           </div>
+
+          <button
+            onClick={handleOpenPoModal}
+            title="Generate Purchase Order for Low-Stock Items"
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold shadow-xs cursor-pointer transition whitespace-nowrap ${
+              parts.some((p) => p.stock <= p.reorderPoint)
+                ? 'bg-amber-500 hover:bg-amber-600 text-white'
+                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200'
+            }`}
+          >
+            <ShoppingCart className="w-3.5 h-3.5" />
+            <span>
+              Restock PO {parts.filter((p) => p.stock <= p.reorderPoint).length > 0 && `(${parts.filter((p) => p.stock <= p.reorderPoint).length})`}
+            </span>
+          </button>
 
           <button
             onClick={() => setIsAddModalOpen(true)}
@@ -448,6 +615,170 @@ export const InventoryView: React.FC = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          PURCHASE ORDER RESTOCK MODAL (MobileSentrix / Injured Gadgets)
+         ======================================================== */}
+      {isPoModalOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4">
+          <div className="bg-white rounded-2xl max-w-3xl w-full p-5 sm:p-6 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95 max-h-[90vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3 shrink-0">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center font-bold">
+                  <ShoppingCart className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-bold text-sm text-slate-900 leading-tight">
+                    Supplier Purchase Order Builder
+                  </h3>
+                  <p className="text-[11px] text-slate-500">
+                    Auto-compiled from low stock thresholds. Ready for 1-click supplier catalog import.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsPoModalOpen(false)}
+                className="p-1 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Supplier Filter */}
+            <div className="flex items-center justify-between gap-3 bg-slate-50 p-2.5 rounded-xl border border-slate-200/80 text-xs shrink-0">
+              <span className="font-bold text-slate-700">Filter by Supplier:</span>
+              <div className="flex gap-1.5 overflow-x-auto">
+                {['ALL', 'MobileSentrix', 'Injured Gadgets'].map((supp) => (
+                  <button
+                    key={supp}
+                    type="button"
+                    onClick={() => setPoSupplierFilter(supp)}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition cursor-pointer ${
+                      poSupplierFilter === supp
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    }`}
+                  >
+                    {supp}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Reorder Table */}
+            <div className="flex-1 overflow-y-auto border border-slate-200 rounded-xl">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead className="bg-slate-50 sticky top-0 border-b border-slate-200 text-[10px] font-bold text-slate-500 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-2 px-3">SKU</th>
+                    <th className="py-2 px-3">Component</th>
+                    <th className="py-2 px-3">Supplier</th>
+                    <th className="py-2 px-3 text-center">On Hand</th>
+                    <th className="py-2 px-3 text-center w-28">Order Qty</th>
+                    <th className="py-2 px-3 text-right">Unit Cost</th>
+                    <th className="py-2 px-3 text-right">Total</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {parts
+                    .filter(
+                      (p) =>
+                        poSupplierFilter === 'ALL' ||
+                        (p.supplier || '').toLowerCase().includes(poSupplierFilter.toLowerCase())
+                    )
+                    .map((p) => {
+                      const qty = poQuantities[p.id] || 0;
+                      const isLow = p.stock <= p.reorderPoint;
+                      return (
+                        <tr
+                          key={p.id}
+                          className={`hover:bg-slate-50/80 transition ${
+                            isLow ? 'bg-amber-50/30' : ''
+                          }`}
+                        >
+                          <td className="py-2 px-3 font-mono font-bold text-indigo-700">
+                            {p.sku}
+                          </td>
+                          <td className="py-2 px-3">
+                            <div className="font-semibold text-slate-800">{p.name}</div>
+                            {isLow && (
+                              <span className="text-[10px] text-amber-700 font-bold">
+                                Low Stock Alert
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2 px-3 text-slate-500">{p.supplier || 'N/A'}</td>
+                          <td className="py-2 px-3 text-center font-mono font-bold">
+                            {p.stock}
+                          </td>
+                          <td className="py-2 px-3 text-center">
+                            <input
+                              type="number"
+                              min="0"
+                              value={qty}
+                              onChange={(e) => {
+                                const val = Math.max(0, parseInt(e.target.value, 10) || 0);
+                                setPoQuantities((prev) => ({ ...prev, [p.id]: val }));
+                              }}
+                              className="w-16 px-2 py-1 text-center font-mono font-bold bg-white border border-slate-300 rounded-md focus:border-indigo-600 focus:outline-none"
+                            />
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono text-slate-600">
+                            ${(p.costCents / 100).toFixed(2)}
+                          </td>
+                          <td className="py-2 px-3 text-right font-mono font-bold text-slate-900">
+                            ${((p.costCents * qty) / 100).toFixed(2)}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Bottom Actions Bar */}
+            <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 shrink-0">
+              <div className="text-xs">
+                <span className="text-slate-500">Estimated PO Spend: </span>
+                <span className="font-mono font-black text-sm text-indigo-700">
+                  $
+                  {(
+                    parts.reduce((sum, p) => sum + p.costCents * (poQuantities[p.id] || 0), 0) /
+                    100
+                  ).toFixed(2)}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleExportCsv('mobilesentrix')}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>MobileSentrix CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleExportCsv('injuredgadgets')}
+                  className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                >
+                  <Download className="w-3.5 h-3.5" />
+                  <span>Injured Gadgets CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintPo}
+                  className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-2xs transition cursor-pointer"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>Print PO Slip</span>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

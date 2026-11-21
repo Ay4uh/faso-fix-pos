@@ -17,6 +17,8 @@ import { LoginPage } from './components/LoginPage';
 import { MobileDrawer } from './components/MobileDrawer';
 import { MobileBottomNav } from './components/MobileBottomNav';
 import { TimeClockModal } from './components/TimeClockModal';
+import { KioskMode } from './components/KioskMode';
+import { useBarcodeScanner } from './hooks/useBarcodeScanner';
 import { Ticket, Customer, DashboardStats, User } from './types';
 import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
@@ -94,10 +96,43 @@ export function App() {
   const [smsTicket, setSmsTicket] = useState<Ticket | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const [isKioskMode, setIsKioskMode] = useState(() => {
+    return typeof window !== 'undefined' && window.location.hash === '#kiosk';
+  });
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
+
+  useEffect(() => {
+    const handleHash = () => {
+      setIsKioskMode(window.location.hash === '#kiosk');
+    };
+    window.addEventListener('hashchange', handleHash);
+    return () => window.removeEventListener('hashchange', handleHash);
+  }, []);
+
+  useBarcodeScanner({
+    enabled: !isKioskMode && !!currentUser,
+    onScanTicket: (ticketNum) => {
+      const num = parseInt(ticketNum, 10);
+      const found = tickets.find((t) => t.ticketNumber === num || t.id === ticketNum);
+      if (found) {
+        handleSelectTicket(found);
+        showToast(`📦 Scanned Work Order #${found.ticketNumber}`);
+      } else {
+        setSearchQuery(ticketNum);
+        setCurrentTab('repairs');
+        showToast(`🔍 Searching scanned Work Order: ${ticketNum}`);
+      }
+    },
+    onScanItem: (sku) => {
+      setCurrentTab('inventory');
+      setSearchQuery(sku);
+      showToast(`📦 Scanned Inventory SKU: ${sku}`);
+    },
+  });
 
   // Check auth session on startup
   useEffect(() => {
@@ -649,6 +684,19 @@ export function App() {
     );
   }
 
+  // Kiosk Mode for front counter tablet customer intake
+  if (isKioskMode) {
+    return (
+      <KioskMode
+        onExit={() => {
+          setIsKioskMode(false);
+          window.location.hash = '';
+          fetchData(true);
+        }}
+      />
+    );
+  }
+
   // 2. Strict Entry Gate: Unauthenticated users MUST log in first
   if (!currentUser) {
     return (
@@ -697,6 +745,10 @@ export function App() {
         onLogout={handleLogout}
         onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
         onOpenTimeClock={() => setIsTimeClockModalOpen(true)}
+        onOpenKiosk={() => {
+          setIsKioskMode(true);
+          window.location.hash = 'kiosk';
+        }}
         isClockedIn={Boolean(timeClockStatus?.isClockedIn ?? timeClockStatus?.clockedIn)}
         isOnBreak={Boolean(timeClockStatus?.isOnBreak ?? timeClockStatus?.onBreak)}
         clockInTime={timeClockStatus?.activeShift?.clockIn}

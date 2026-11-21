@@ -16,9 +16,12 @@ import {
   Mail,
   MapPin,
   ExternalLink,
+  Zap,
+  Usb,
 } from 'lucide-react';
 import { Barcode } from './Barcode';
-import { printReceipt, printBenchSlip, printLetterInvoice, openPrintSlip } from '../utils/receipt';
+import { printReceipt, printBenchSlip, printLetterInvoice, openPrintSlip, printDeviceStickerLabel } from '../utils/receipt';
+import { buildTicketEscPos, printDirectWebUsb, printDirectWebSerial } from '../utils/escpos';
 
 interface PrintTicketModalProps {
   ticket: Ticket | null;
@@ -28,7 +31,9 @@ interface PrintTicketModalProps {
 export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onClose }) => {
   if (!ticket) return null;
 
-  const [paperFormat, setPaperFormat] = useState<'letter' | 'receipt'>('letter');
+  const [paperFormat, setPaperFormat] = useState<'letter' | 'receipt' | 'sticker'>('letter');
+  const [isEscPosPrinting, setIsEscPosPrinting] = useState(false);
+  const [escPosStatus, setEscPosStatus] = useState<string | null>(null);
 
   const totals = ticket.totals || {
     subtotalCents: ticket.laborCents,
@@ -49,8 +54,37 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
   const handlePrint = () => {
     if (paperFormat === 'letter') {
       printLetterInvoice(ticket);
+    } else if (paperFormat === 'sticker') {
+      printDeviceStickerLabel(ticket);
     } else {
       printBenchSlip(ticket);
+    }
+  };
+
+  const handleEscPosDirect = async (type: 'usb' | 'serial') => {
+    try {
+      setIsEscPosPrinting(true);
+      setEscPosStatus(`Connecting to ${type.toUpperCase()} printer...`);
+      const rawData = buildTicketEscPos(ticket, {
+        shopName: 'Faso Fix Electronics',
+        address: '1084 Tech Boulevard, Suite 200, San Jose, CA',
+        phone: '(555) 902-3482',
+        currencySymbol: '$',
+        warrantyDays: 90,
+      });
+
+      if (type === 'usb') {
+        await printDirectWebUsb(rawData);
+      } else {
+        await printDirectWebSerial(rawData);
+      }
+      setEscPosStatus('✅ Printed successfully via direct hardware!');
+      setTimeout(() => setEscPosStatus(null), 3000);
+    } catch (err: any) {
+      setEscPosStatus(`❌ Hardware print: ${err.message || 'Printer unavailable'}`);
+      setTimeout(() => setEscPosStatus(null), 4000);
+    } finally {
+      setIsEscPosPrinting(false);
     }
   };
 
@@ -94,9 +128,32 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                 }`}
               >
                 <Tag className="w-3.5 h-3.5" />
-                <span>Compact Thermal Slip</span>
+                <span>Compact Slip</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setPaperFormat('sticker')}
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition ${
+                  paperFormat === 'sticker'
+                    ? 'bg-white text-indigo-700 font-bold shadow-xs'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                <span>🏷️ Device Sticker</span>
               </button>
             </div>
+
+            {/* Direct Hardware ESC/POS Action */}
+            <button
+              type="button"
+              disabled={isEscPosPrinting}
+              onClick={() => handleEscPosDirect('usb')}
+              title="Print directly to USB thermal receipt printer via WebUSB"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition disabled:opacity-50"
+            >
+              <Usb className="w-3.5 h-3.5" />
+              <span>{isEscPosPrinting ? 'Printing...' : 'Direct ESC/POS'}</span>
+            </button>
 
             <button
               type="button"
@@ -109,19 +166,11 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             </button>
             <button
               type="button"
-              onClick={() => printReceipt(ticket, '58mm')}
-              title="Print 58mm thermal receipt"
-              className="px-2.5 py-1.5 bg-slate-200 text-slate-800 rounded-lg text-xs font-bold hover:bg-slate-300 cursor-pointer transition"
-            >
-              58mm
-            </button>
-            <button
-              type="button"
               onClick={handlePrint}
               className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-xs cursor-pointer transition"
             >
               <Printer className="w-3.5 h-3.5" />
-              <span>Print {paperFormat === 'letter' ? 'Letter' : 'Slip'}</span>
+              <span>Print {paperFormat === 'letter' ? 'Letter' : paperFormat === 'sticker' ? 'Sticker' : 'Slip'}</span>
             </button>
             <button
               type="button"
@@ -141,6 +190,16 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             </button>
           </div>
         </div>
+
+        {/* ESC/POS Status Notification */}
+        {escPosStatus && (
+          <div className="px-5 py-2 bg-slate-900 text-white text-xs font-semibold flex items-center justify-between">
+            <span>{escPosStatus}</span>
+            <button onClick={() => setEscPosStatus(null)} className="text-slate-400 hover:text-white">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
 
         {/* ========================================================
             FORMAT 1: LETTER (8.5x11) FULL INVOICE & WORK ORDER (Stitch Screen a7773021)
@@ -628,6 +687,16 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
           </div>
         )}
 
+        {/* ESC/POS Status Notification */}
+        {escPosStatus && (
+          <div className="px-5 py-2 bg-slate-900 text-white text-xs font-semibold flex items-center justify-between">
+            <span>{escPosStatus}</span>
+            <button onClick={() => setEscPosStatus(null)} className="text-slate-400 hover:text-white">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* ========================================================
             FORMAT 2: COMPACT THERMAL BENCH SLIP (2"x1" or 4"x2" Sticker)
            ======================================================== */}
@@ -671,6 +740,55 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                 </span>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* ========================================================
+            FORMAT 3: ADHESIVE DEVICE STICKER (2" x 1.25" / 54x32mm)
+           ======================================================== */}
+        {paperFormat === 'sticker' && (
+          <div className="p-8 flex flex-col items-center justify-center bg-slate-100 print:bg-white print:p-0">
+            <div className="w-[320px] bg-white border-2 border-slate-300 shadow-xl p-4 rounded-xl font-sans text-xs space-y-2 print:border-none print:shadow-none">
+              <div className="flex items-center justify-between border-b-2 border-slate-900 pb-1.5">
+                <span className="font-extrabold text-xs tracking-wider uppercase">FASO FIX</span>
+                <span className="font-mono font-black text-base text-indigo-700">WO #{ticket.ticketNumber}</span>
+              </div>
+
+              <div className="space-y-1">
+                <div className="flex justify-between items-baseline text-[11px]">
+                  <span className="text-slate-500 uppercase font-semibold text-[9px]">Customer:</span>
+                  <span className="font-bold truncate max-w-[200px]">{ticket.customer?.fullName}</span>
+                </div>
+                <div className="flex justify-between items-baseline text-[11px]">
+                  <span className="text-slate-500 uppercase font-semibold text-[9px]">Phone:</span>
+                  <span className="font-mono font-semibold">{ticket.customer?.phone}</span>
+                </div>
+                <div className="flex justify-between items-baseline text-[11px]">
+                  <span className="text-slate-500 uppercase font-semibold text-[9px]">Device:</span>
+                  <span className="font-bold truncate max-w-[200px] text-slate-800">{ticket.device?.name || 'Device'}</span>
+                </div>
+                {ticket.device?.serialNumber && (
+                  <div className="flex justify-between items-baseline text-[11px]">
+                    <span className="text-slate-500 uppercase font-semibold text-[9px]">Serial/IMEI:</span>
+                    <span className="font-mono text-[10px] text-slate-600 truncate max-w-[200px]">{ticket.device.serialNumber}</span>
+                  </div>
+                )}
+                <div className="flex justify-between items-baseline text-[11px] pt-1">
+                  <span className="text-slate-500 uppercase font-semibold text-[9px]">Security:</span>
+                  <span className="font-mono font-black bg-slate-100 px-2 py-0.5 rounded text-indigo-900">
+                    {ticket.device?.passcode || ticket.device?.pattern ? `PIN: ${ticket.device.passcode || ''} ${ticket.device.pattern ? `[Pattern ${ticket.device.pattern}]` : ''}` : 'NO LOCK'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-200 flex flex-col items-center">
+                <Barcode value={woBarcode} width={220} height={32} />
+                <span className="text-[9px] text-slate-400 font-mono mt-0.5">*{woBarcode}*</span>
+              </div>
+            </div>
+            <p className="mt-4 text-xs text-slate-500 text-center max-w-sm">
+              Standard 2&quot; × 1.25&quot; adhesive label roll. Stick directly on back of device upon intake.
+            </p>
           </div>
         )}
       </div>

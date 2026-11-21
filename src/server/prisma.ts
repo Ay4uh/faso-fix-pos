@@ -2,7 +2,12 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'node:fs';
 import path from 'node:path';
 
-if (process.env.VERCEL) {
+const isPostgres = !!(
+  process.env.DATABASE_URL &&
+  (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))
+);
+
+if (process.env.VERCEL && !isPostgres) {
   const tmpDb = '/tmp/dev.db';
   if (!fs.existsSync(tmpDb)) {
     const candidates = [

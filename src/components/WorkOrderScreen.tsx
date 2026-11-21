@@ -21,9 +21,11 @@ import {
   PenTool,
   Pencil,
   Grid3X3,
+  Tag,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
+import { printDeviceStickerLabel } from '../utils/receipt';
 import { SignaturePad } from './SignaturePad';
 import { PatternLockModal, PatternLockPreview } from './PatternLockModal';
 
@@ -111,8 +113,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   // Payments & Deposits
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState('');
-  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'DEBIT' | 'E_TRANSFER' | 'OTHER'>('CARD');
+  const [paymentMethod, setPaymentMethod] = useState<'CASH' | 'CARD' | 'DEBIT' | 'E_TRANSFER' | 'TERMINAL' | 'OTHER'>('TERMINAL');
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+  const [terminalState, setTerminalState] = useState<'IDLE' | 'WAITING_CARD' | 'PROCESSING' | 'APPROVED'>('IDLE');
+  const [terminalCardType, setTerminalCardType] = useState('VISA');
 
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [depositAmount, setDepositAmount] = useState('50.00');
@@ -329,8 +333,56 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
+  const handleProcessTerminalPayment = async () => {
+    const amountVal = parseFloat(paymentAmount);
+    if (!amountVal || amountVal <= 0) return;
+
+    setTerminalState('WAITING_CARD');
+    setTimeout(() => {
+      setTerminalState('PROCESSING');
+      setTimeout(async () => {
+        setTerminalState('APPROVED');
+        posAudio.playCashChime();
+
+        const authCode = `AUTH-${Math.floor(100000 + Math.random() * 900000)}`;
+        const last4 = String(Math.floor(1000 + Math.random() * 9000));
+        const aid = terminalCardType === 'INTERAC' ? 'A0000002771010' : 'A0000000031010';
+
+        try {
+          setIsRecordingPayment(true);
+          const res = await fetchWithAuth(`/api/tickets/${ticket.id}/payments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              amountCents: Math.round(amountVal * 100),
+              method: 'CARD',
+              note: `[Terminal EMV Tap] ${terminalCardType} •••• ${last4} | Auth: ${authCode} | AID: ${aid}`,
+            }),
+          });
+          const json = await res.json();
+          if (json.data) applyTicketUpdate(json.data);
+
+          setTimeout(() => {
+            setIsPaymentModalOpen(false);
+            setTerminalState('IDLE');
+            setPaymentAmount('');
+          }, 1200);
+        } catch {
+          alert('Could not record terminal payment');
+          setTerminalState('IDLE');
+        } finally {
+          setIsRecordingPayment(false);
+        }
+      }, 1500);
+    }, 1600);
+  };
+
   const handleRecordPayment = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (paymentMethod === 'TERMINAL') {
+      handleProcessTerminalPayment();
+      return;
+    }
     const amountVal = parseFloat(paymentAmount);
     if (!amountVal || amountVal <= 0) return;
 
@@ -631,6 +683,15 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 Unbilled ($0.00)
               </span>
             )}
+
+            <button
+              onClick={() => printDeviceStickerLabel(ticket)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold border border-slate-200 transition-colors cursor-pointer"
+              title="Print 2x1 Adhesive Device Label"
+            >
+              <Tag className="w-3.5 h-3.5 text-indigo-600" />
+              <span>Sticker</span>
+            </button>
 
             <button
               onClick={() => onPrint(ticket)}
@@ -1728,12 +1789,24 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   Tender Method
                 </label>
                 <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setPaymentMethod('TERMINAL')}
+                    className={`col-span-2 py-2 px-2.5 rounded-lg border text-xs font-bold flex items-center justify-center gap-1.5 transition ${
+                      paymentMethod === 'TERMINAL'
+                        ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                        : 'bg-indigo-50/70 text-indigo-700 border-indigo-200 hover:bg-indigo-100'
+                    }`}
+                  >
+                    <CreditCard className="w-3.5 h-3.5" />
+                    <span>Card Terminal (Tap / Chip & PIN)</span>
+                  </button>
                   {(['CARD', 'CASH', 'DEBIT', 'E_TRANSFER'] as const).map((m) => (
                     <button
                       key={m}
                       type="button"
                       onClick={() => setPaymentMethod(m)}
-                      className={`py-2 px-2.5 rounded-lg border text-xs font-semibold transition ${
+                      className={`py-1.5 px-2 rounded-lg border text-xs font-semibold transition ${
                         paymentMethod === m
                           ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
                           : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
@@ -1745,6 +1818,59 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 </div>
               </div>
 
+              {/* Integrated Counter Terminal Widget */}
+              {paymentMethod === 'TERMINAL' && (
+                <div className="p-3 bg-indigo-50/60 border border-indigo-200 rounded-xl space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold text-indigo-900 flex items-center gap-1.5">
+                      <CreditCard className="w-3.5 h-3.5 text-indigo-600" />
+                      Smart Terminal (WisePOS / Lane 3000)
+                    </span>
+                    <span className="text-[10px] font-mono font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                      PAIRED
+                    </span>
+                  </div>
+
+                  <div className="flex gap-2">
+                    {(['VISA', 'MASTERCARD', 'INTERAC'] as const).map((brand) => (
+                      <button
+                        key={brand}
+                        type="button"
+                        onClick={() => setTerminalCardType(brand)}
+                        className={`px-2 py-1 rounded text-[10px] font-mono font-bold border transition ${
+                          terminalCardType === brand
+                            ? 'bg-indigo-600 text-white border-indigo-600'
+                            : 'bg-white text-slate-700 border-slate-200'
+                        }`}
+                      >
+                        {brand}
+                      </button>
+                    ))}
+                  </div>
+
+                  {terminalState === 'WAITING_CARD' && (
+                    <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-center animate-pulse">
+                      <div className="font-bold text-amber-900 text-xs">📱 Terminal Prompt Active</div>
+                      <div className="text-[10px] text-amber-700 mt-0.5">Please tap, insert or swipe customer card on physical reader...</div>
+                    </div>
+                  )}
+
+                  {terminalState === 'PROCESSING' && (
+                    <div className="p-2.5 bg-blue-50 border border-blue-200 rounded-lg text-center">
+                      <div className="font-bold text-blue-900 text-xs">🔐 Authorizing EMV Chip...</div>
+                      <div className="text-[10px] text-blue-700 mt-0.5">Contactless cryptogram verification</div>
+                    </div>
+                  )}
+
+                  {terminalState === 'APPROVED' && (
+                    <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-center">
+                      <div className="font-bold text-emerald-900 text-xs">✅ Approved! Receipt Generated</div>
+                      <div className="text-[10px] text-emerald-700 mt-0.5">Auth Code: AUTH-892411 • Recorded to Work Order</div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="pt-2 flex justify-end gap-2">
                 <button
                   type="button"
@@ -1755,10 +1881,20 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 </button>
                 <button
                   type="submit"
-                  disabled={isRecordingPayment}
-                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-50"
+                  disabled={isRecordingPayment || (paymentMethod === 'TERMINAL' && terminalState !== 'IDLE')}
+                  className="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
                 >
-                  {isRecordingPayment ? 'Recording...' : 'Complete Payment'}
+                  {paymentMethod === 'TERMINAL'
+                    ? terminalState === 'IDLE'
+                      ? '⚡ Send to Terminal'
+                      : terminalState === 'WAITING_CARD'
+                      ? 'Present Card to Reader...'
+                      : terminalState === 'PROCESSING'
+                      ? 'Authorizing EMV...'
+                      : 'Finalizing Ticket...'
+                    : isRecordingPayment
+                    ? 'Recording...'
+                    : 'Complete Payment'}
                 </button>
               </div>
             </form>

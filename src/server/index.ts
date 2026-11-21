@@ -502,6 +502,13 @@ app.get('/api/tickets/:id/print', requireAuth, wrap(async (req, res) => {
   res.send(html);
 }));
 
+// Public customer self-checkin kiosk endpoint (tablet at counter)
+app.post('/api/kiosk/checkin', wrap(async (req, res) => {
+  const ticket = await createTicket(req.body);
+  broadcastLiveEvent('ticket_created', ticket);
+  res.status(201).json({ success: true, data: ticket });
+}));
+
 app.post('/api/tickets', requireAuth, wrap(async (req, res) => {
   const ticket = await createTicket(req.body);
   broadcastLiveEvent('ticket_created', ticket);

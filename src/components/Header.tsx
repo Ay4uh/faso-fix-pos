@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Play, Square, Coffee, Zap } from 'lucide-react';
+import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Play, Square, Coffee, Zap, Tablet, WifiOff } from 'lucide-react';
 import { Ticket, User } from '../types';
+import { flushOfflineQueue } from '../utils/offlineSync';
 
 interface HeaderProps {
   currentTab: string;
@@ -13,6 +14,7 @@ interface HeaderProps {
   onLogout?: () => void;
   onOpenMobileMenu?: () => void;
   onOpenTimeClock?: () => void;
+  onOpenKiosk?: () => void;
   isClockedIn?: boolean;
   isOnBreak?: boolean;
   timeClockElapsed?: string;
@@ -33,6 +35,7 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   onOpenMobileMenu,
   onOpenTimeClock,
+  onOpenKiosk,
   isClockedIn,
   isOnBreak,
   timeClockElapsed,
@@ -45,6 +48,26 @@ export const Header: React.FC<HeaderProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [liveElapsed, setLiveElapsed] = useState('');
+  const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
+  const [queuedCount, setQueuedCount] = useState(0);
+
+  useEffect(() => {
+    const handleOnline = () => {
+      setIsOnline(true);
+      flushOfflineQueue();
+    };
+    const handleOffline = () => setIsOnline(false);
+    const handleQueue = (e: any) => setQueuedCount(e.detail?.count || 0);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    window.addEventListener('offline-queue-updated', handleQueue);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('offline-queue-updated', handleQueue);
+    };
+  }, []);
 
   // Real-time ticking second counter for active shift
   useEffect(() => {
@@ -151,6 +174,12 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="text-slate-900 font-semibold capitalize truncate max-w-[100px] sm:max-w-none">
             {currentTab.replace('-', ' ')}
           </span>
+          {!isOnline && (
+            <span className="px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold border border-amber-300 animate-pulse flex items-center gap-1 shrink-0">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              Offline {queuedCount > 0 ? `(${queuedCount})` : ''}
+            </span>
+          )}
         </div>
       </div>
 
@@ -267,6 +296,18 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
         </div>
+
+        {onOpenKiosk && (
+          <button
+            type="button"
+            onClick={onOpenKiosk}
+            title="Launch Counter Self Check-in Kiosk"
+            className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
+          >
+            <Tablet className="w-3.5 h-3.5 text-indigo-600" />
+            <span className="hidden lg:inline">Kiosk Mode</span>
+          </button>
+        )}
 
         <button
           onClick={openCreateModal}

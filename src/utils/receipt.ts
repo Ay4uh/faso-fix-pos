@@ -495,6 +495,54 @@ export async function printBenchSlip(ticket: Ticket): Promise<void> {
   await printDirectDocument(html);
 }
 
+/** Builds a self-contained adhesive sticker label HTML document (e.g. 2"x1" or 54mm x 30mm for Brother/Dymo label rolls) */
+export function buildDeviceStickerHtml(ticket: Ticket, shop: ReceiptShop): string {
+  const barcodeSvg = generateBarcodeSvg(`WO-${String(ticket.ticketNumber).padStart(4, '0')}`, 140, 28);
+  const passcode = ticket.device?.passcode || ticket.device?.pattern ? `LOCK: ${ticket.device.passcode || ''} ${ticket.device.pattern ? `[Pattern ${ticket.device.pattern}]` : ''}` : 'NO LOCK';
+
+  return `<!doctype html><html><head><meta charset="utf-8"><title>Sticker WO #${ticket.ticketNumber}</title>
+<style>
+@page { size: 54mm 32mm; margin: 0; }
+* { box-sizing: border-box; }
+body { margin: 0; width: 54mm; height: 32mm; padding: 2mm; font: 9px/1.1 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #000; background: #fff; overflow: hidden; display: flex; flex-direction: column; justify-content: space-between; }
+.header { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1.5px solid #000; padding-bottom: 1.5px; }
+.shop { font-weight: 800; font-size: 8px; text-transform: uppercase; letter-spacing: 0.5px; }
+.wo { font-weight: 900; font-size: 13px; font-family: monospace; }
+.row { display: flex; justify-content: space-between; margin-top: 1px; }
+.label { font-size: 7.5px; color: #444; text-transform: uppercase; }
+.val { font-weight: bold; font-size: 8.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 36mm; }
+.lock { font-family: monospace; font-weight: 800; font-size: 8.5px; background: #eee; padding: 1px 3px; border-radius: 2px; }
+.barcode { text-align: center; margin-top: 1px; }
+</style></head><body>
+<div class="header">
+  <span class="shop">${esc(shop.shopName || 'FASO FIX')}</span>
+  <span class="wo">#${ticket.ticketNumber}</span>
+</div>
+<div class="row">
+  <span class="label">Customer:</span>
+  <span class="val">${esc(ticket.customer?.fullName)} (${esc(ticket.customer?.phone || '')})</span>
+</div>
+<div class="row">
+  <span class="label">Device:</span>
+  <span class="val">${esc(ticket.device?.name || 'Device')}</span>
+</div>
+<div class="row">
+  <span class="label">Security:</span>
+  <span class="lock">${esc(passcode)}</span>
+</div>
+<div class="barcode">
+  ${barcodeSvg}
+</div>
+</body></html>`;
+}
+
+/** Prints a 2"x1" / 54x32mm adhesive sticker label directly from in-memory ticket data. */
+export async function printDeviceStickerLabel(ticket: Ticket): Promise<void> {
+  const shop = await loadShop();
+  const html = buildDeviceStickerHtml(ticket, shop);
+  await printDirectDocument(html);
+}
+
 /** Prints a full Letter (8.5×11) Work Order & Invoice directly from in-memory ticket data. */
 export async function printLetterInvoice(ticket: Ticket): Promise<void> {
   const shop = await loadShop();
