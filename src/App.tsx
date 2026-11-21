@@ -691,7 +691,7 @@ export function App() {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         openCreateModal={() => setIsCreateModalOpen(true)}
-        tickets={tickets}
+        tickets={tickets.filter((t) => !isDummyTicket(t))}
         onSelectTicket={handleSelectTicket}
         currentUser={currentUser}
         onLogout={handleLogout}
@@ -731,8 +731,8 @@ export function App() {
 
               {/* Main Ticket Queue Table */}
               <TicketTable
-                tickets={tickets}
-                totalTicketsCount={stats?.totalActive ? stats.totalActive + (stats.completed || 0) : tickets.length}
+                tickets={tickets.filter((t) => !isDummyTicket(t))}
+                totalTicketsCount={tickets.filter((t) => !isDummyTicket(t)).length}
                 activeFilter={activeFilter}
                 setActiveFilter={setActiveFilter}
                 currentUser={currentUser}
@@ -750,7 +750,7 @@ export function App() {
           {currentTab === 'customers' && (
             <CustomersView
               customers={customers}
-              tickets={tickets}
+              tickets={tickets.filter((t) => !isDummyTicket(t))}
               onOpenCreateWithCustomer={(_c) => {
                 setIsCreateModalOpen(true);
               }}

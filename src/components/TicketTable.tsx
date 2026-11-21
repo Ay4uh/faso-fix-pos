@@ -109,7 +109,25 @@ export const TicketTable: React.FC<TicketTableProps> = ({
     return tStatus === filterId;
   };
 
-  const filteredTickets = tickets.filter((t) => statusMatches(t.status, activeFilter));
+  const DUMMY_IDS = new Set([
+    'tkt-test-sync-1',
+    '58e737c6-f590-4e65-8e28-3541f5e277e7',
+    'cd2f4c06-4d00-4364-958d-fd7bc86e35a2',
+    '7070afde-bbb6-421a-af5a-7aa0639fa31d',
+    '751fa998-ba4c-4104-a0a9-68718e906d5d',
+  ]);
+  const DUMMY_NAMES = new Set(['sarah connor', 'john wick', 'arteen', 'marcus vance']);
+
+  const isDummy = (t: any) => {
+    if (!t) return false;
+    if (DUMMY_IDS.has(t.id)) return true;
+    const name = (t.customer?.fullName || '').trim().toLowerCase();
+    if (DUMMY_NAMES.has(name)) return true;
+    return false;
+  };
+
+  const validTickets = tickets.filter((t) => !isDummy(t));
+  const filteredTickets = validTickets.filter((t) => statusMatches(t.status, activeFilter));
 
   const filterPills = [
     { id: 'ALL', label: 'All' },
@@ -140,7 +158,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
               {item.label}
               {item.id !== 'ALL' && (
                 <span className="ml-1.5 opacity-80 font-bold">
-                  ({tickets.filter((t) => statusMatches(t.status, item.id)).length})
+                  ({validTickets.filter((t) => statusMatches(t.status, item.id)).length})
                 </span>
               )}
             </button>

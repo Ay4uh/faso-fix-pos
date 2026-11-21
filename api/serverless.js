@@ -3880,6 +3880,12 @@ var app = express();
 var PORT = process.env.PORT || 4e3;
 app.use(cors());
 app.use(express.json());
+app.use((_req, res, next) => {
+	res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+	res.setHeader("Pragma", "no-cache");
+	res.setHeader("Expires", "0");
+	next();
+});
 app.use(async (req, _res, next) => {
 	try {
 		const authHeader = req.headers.authorization;

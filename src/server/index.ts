@@ -78,6 +78,14 @@ const PORT = process.env.PORT || 4000;
 app.use(cors());
 app.use(express.json());
 
+// Prevent any browser or CDN edge caching of dynamic POS API responses
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
+  next();
+});
+
 // Session resolution middleware
 app.use(async (req: Request, _res: Response, next: NextFunction) => {
   try {

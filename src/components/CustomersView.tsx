@@ -39,10 +39,15 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   const [search, setSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
-  const activeCustomer =
-    customers.find((c) => c.id === selectedCustomerId) || (customers.length > 0 ? customers[0] : null);
+  const DUMMY_NAMES = new Set(['sarah connor', 'john wick', 'arteen', 'marcus vance']);
+  const validCustomers = customers.filter(
+    (c) => !DUMMY_NAMES.has((c.fullName || '').trim().toLowerCase())
+  );
 
-  const filteredCustomers = customers.filter(
+  const activeCustomer =
+    validCustomers.find((c) => c.id === selectedCustomerId) || (validCustomers.length > 0 ? validCustomers[0] : null);
+
+  const filteredCustomers = validCustomers.filter(
     (c) =>
       c.fullName.toLowerCase().includes(search.toLowerCase()) ||
       c.phone.includes(search) ||
