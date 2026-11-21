@@ -758,7 +758,7 @@ app.post('/api/timeclock/clock-out', requireAuth, wrap(async (req, res) => {
 }));
 
 app.post('/api/sync/tickets', requireAuth, wrap(async (req, res) => {
-  const { deletedIds, tickets } = req.body || {};
+  const { deletedIds } = req.body || {};
   if (Array.isArray(deletedIds) && deletedIds.length > 0) {
     await prisma.ticket.updateMany({
       where: { id: { in: deletedIds } },
@@ -769,104 +769,7 @@ app.post('/api/sync/tickets', requireAuth, wrap(async (req, res) => {
     }).catch(() => {});
   }
 
-  if (Array.isArray(tickets) && tickets.length > 0) {
-    const deletedSet = new Set(Array.isArray(deletedIds) ? deletedIds : []);
-    for (const t of tickets) {
-      if (!t || !t.id || deletedSet.has(t.id)) continue;
-      try {
-        const existing = await prisma.ticket.findFirst({ where: { id: t.id } });
-        if (existing) continue;
-
-        const phoneDigits = (t.customer?.phone || '').replace(/\D/g, '') || '0000000000';
-        let customer = await prisma.customer.findFirst({
-          where: { OR: [{ id: t.customerId || '' }, { phoneDigits }] },
-        });
-        if (!customer) {
-          customer = await prisma.customer.create({
-            data: {
-              id: t.customerId || t.customer?.id,
-              fullName: t.customer?.fullName || 'Walk-in Customer',
-              phone: t.customer?.phone || '(555) 000-0000',
-              phoneDigits,
-              email: t.customer?.email || null,
-            },
-          });
-        }
-
-        let device = await prisma.device.findFirst({
-          where: { id: t.deviceId || t.device?.id || '' },
-        });
-        if (!device) {
-          device = await prisma.device.create({
-            data: {
-              id: t.deviceId || t.device?.id,
-              customerId: customer.id,
-              name: t.device?.name || 'Customer Device',
-              serialNumber: t.device?.serialNumber || null,
-              passcode: t.device?.passcode || null,
-              pattern: t.device?.pattern || null,
-              condition: t.device?.condition || 'Good',
-            },
-          });
-        }
-
-        // Prevent ticketNumber collision on sync
-        let assignedTicketNumber = t.ticketNumber || 1;
-        const numberCollision = await prisma.ticket.findFirst({
-          where: { ticketNumber: assignedTicketNumber, NOT: { id: t.id } },
-          select: { id: true },
-        });
-
-        if (numberCollision) {
-          const maxTicket = await prisma.ticket.findFirst({
-            orderBy: { ticketNumber: 'desc' },
-            select: { ticketNumber: true },
-          });
-          assignedTicketNumber = (maxTicket?.ticketNumber ?? 0) + 1;
-        }
-
-        await prisma.ticket.create({
-          data: {
-            id: t.id,
-            ticketNumber: assignedTicketNumber,
-            customerId: customer.id,
-            deviceId: device.id,
-            status: t.status || 'PENDING',
-            priority: t.priority || 'STANDARD',
-            faultDescription: t.faultDescription || 'Diagnostics & Repair',
-            laborCents: t.laborCents || 0,
-            discountCents: t.discountCents || 0,
-            taxRateBps: t.taxRateBps || 1300,
-            technician: t.technician || null,
-            bench: t.bench || null,
-            storageBin: t.storageBin || null,
-            signature: t.signature || null,
-            diagnostics: JSON.stringify(t.diagnostics || {}),
-            dueDate: t.dueDate ? new Date(t.dueDate) : new Date(Date.now() + 86400000),
-            createdAt: t.createdAt ? new Date(t.createdAt) : new Date(),
-          },
-        });
-      } catch {
-        // Ignored to allow other tickets to sync
-      }
-    }
-
-    // Keep Setting.nextTicketNumber strictly above the max ticketNumber in the database
-    try {
-      const maxOverall = await prisma.ticket.findFirst({
-        orderBy: { ticketNumber: 'desc' },
-        select: { ticketNumber: true },
-      });
-      if (maxOverall?.ticketNumber) {
-        await prisma.setting.update({
-          where: { id: 1 },
-          data: { nextTicketNumber: maxOverall.ticketNumber + 1 },
-        });
-      }
-    } catch {}
-  }
-
-  res.json({ success: true });
+  res.json({ success: true, message: 'Sync complete' });
 }));
 
 app.post('/api/timeclock/break-start', requireAuth, wrap(async (req, res) => {

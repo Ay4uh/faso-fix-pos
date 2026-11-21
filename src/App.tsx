@@ -34,16 +34,25 @@ const getInitialUser = (): User | null => {
   return null;
 };
 
-const PURGE_VERSION = 'v3_production_clean_slate';
+export const DUMMY_TICKET_IDS = new Set([
+  'tkt-test-sync-1',
+  '58e737c6-f590-4e65-8e28-3541f5e277e7',
+  'cd2f4c06-4d00-4364-958d-fd7bc86e35a2',
+  '7070afde-bbb6-421a-af5a-7aa0639fa31d',
+  '751fa998-ba4c-4104-a0a9-68718e906d5d',
+]);
+export const DUMMY_CUSTOMER_NAMES = new Set(['sarah connor', 'john wick', 'arteen', 'marcus vance']);
+
+export const isDummyTicket = (t: Ticket | any): boolean => {
+  if (!t) return false;
+  if (DUMMY_TICKET_IDS.has(t.id)) return true;
+  const name = (t.customer?.fullName || '').trim().toLowerCase();
+  if (DUMMY_CUSTOMER_NAMES.has(name)) return true;
+  return false;
+};
 
 const getDeletedTicketIds = (): Set<string> => {
   try {
-    if (localStorage.getItem('apexfix_purge_version') !== PURGE_VERSION) {
-      localStorage.removeItem('apexfix_deleted_ticket_ids');
-      localStorage.removeItem('apexfix_cached_tickets');
-      localStorage.setItem('apexfix_purge_version', PURGE_VERSION);
-      return new Set();
-    }
     const raw = localStorage.getItem('apexfix_deleted_ticket_ids');
     if (raw) return new Set(JSON.parse(raw));
   } catch {}
@@ -52,18 +61,7 @@ const getDeletedTicketIds = (): Set<string> => {
 
 const getInitialTickets = (): Ticket[] => {
   try {
-    if (localStorage.getItem('apexfix_purge_version') !== PURGE_VERSION) {
-      localStorage.removeItem('apexfix_deleted_ticket_ids');
-      localStorage.removeItem('apexfix_cached_tickets');
-      localStorage.setItem('apexfix_purge_version', PURGE_VERSION);
-      return [];
-    }
-    const deletedIds = getDeletedTicketIds();
-    const raw = localStorage.getItem('apexfix_cached_tickets');
-    if (raw) {
-      const parsed: Ticket[] = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed.filter((t) => !deletedIds.has(t.id)) : [];
-    }
+    localStorage.removeItem('apexfix_cached_tickets');
   } catch {}
   return [];
 };
@@ -409,57 +407,24 @@ export function App() {
         const serverList: Ticket[] = data.data || [];
         const deletedIds = deletedTicketIdsRef.current;
 
-        // Clean server list: filter out any optimistically deleted tickets
-        const cleanServerList = serverList.filter((t) => !deletedIds.has(t.id));
+        // Clean server list: filter out any deleted or dummy tickets
+        const cleanServerList = serverList.filter((t) => !deletedIds.has(t.id) && !isDummyTicket(t));
 
-        setTickets((prev) => {
-          let updatedList: Ticket[];
-          if (cleanServerList.length > 0) {
-            const serverIds = new Set(cleanServerList.map((t) => t.id));
-            const unsynced = prev.filter(
-              (t) =>
-                !deletedIds.has(t.id) &&
-                !serverIds.has(t.id) &&
-                (activeFilter === 'ALL' || t.status === activeFilter)
-            );
-            updatedList = [...cleanServerList, ...unsynced];
-          } else {
-            // When server returns empty and not filtering, ticket list is truly empty
-            updatedList = activeFilter === 'ALL' && !searchQuery.trim()
-              ? []
-              : prev.filter((t) => !deletedIds.has(t.id) && (activeFilter === 'ALL' || t.status === activeFilter));
+        setTickets(cleanServerList);
+        try {
+          localStorage.setItem('apexfix_cached_tickets', JSON.stringify(cleanServerList));
+        } catch {}
+
+        if (selectedTicketIdRef.current) {
+          const currentId = selectedTicketIdRef.current;
+          const matched = cleanServerList.find((t) => t.id === currentId);
+          if (matched && selectedTicketIdRef.current === currentId) {
+            setSelectedTicket((curr) => {
+              if (!curr || curr.id !== currentId) return null;
+              return JSON.stringify(matched) !== JSON.stringify(curr) ? matched : curr;
+            });
           }
-
-          try {
-            localStorage.setItem('apexfix_cached_tickets', JSON.stringify(updatedList));
-          } catch {}
-
-          // Keep selectedTicket in sync ONLY if currently open
-          if (selectedTicketIdRef.current) {
-            const currentId = selectedTicketIdRef.current;
-            const matched = updatedList.find((t) => t.id === currentId);
-            if (matched && selectedTicketIdRef.current === currentId) {
-              setSelectedTicket((curr) => {
-                if (!curr || curr.id !== currentId) return null;
-                return JSON.stringify(matched) !== JSON.stringify(curr) ? matched : curr;
-              });
-            }
-          }
-
-          // Sync tickets & deleted IDs to server so cold containers stay populated
-          if (updatedList.length > 0 || deletedIds.size > 0) {
-            fetchWithAuth('/api/sync/tickets', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                deletedIds: Array.from(deletedIds),
-                tickets: updatedList,
-              }),
-            }).catch(() => {});
-          }
-
-          return updatedList;
-        });
+        }
       }
 
       if (statsRes.ok) {

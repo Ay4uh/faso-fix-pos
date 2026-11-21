@@ -152,9 +152,22 @@ export async function getTicket(id: string) {
   return { ...withTotals(t), otherTickets };
 }
 
+export const DUMMY_TICKET_IDS = [
+  'tkt-test-sync-1',
+  '58e737c6-f590-4e65-8e28-3541f5e277e7',
+  'cd2f4c06-4d00-4364-958d-fd7bc86e35a2',
+  '7070afde-bbb6-421a-af5a-7aa0639fa31d',
+  '751fa998-ba4c-4104-a0a9-68718e906d5d',
+];
+export const DUMMY_CUSTOMER_NAMES = ['Sarah Connor', 'John Wick', 'arteen', 'Marcus Vance'];
+
 export async function listTickets(params: { view?: string; search?: string; bench?: string }) {
   const view = params.view || 'OPEN';
-  const where: Prisma.TicketWhereInput = { deletedAt: null };
+  const where: Prisma.TicketWhereInput = {
+    deletedAt: null,
+    id: { notIn: DUMMY_TICKET_IDS },
+    customer: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } },
+  };
 
   if (view === 'OPEN') where.status = { in: OPEN_STATUSES };
   else if (view !== 'ALL') where.status = view;
@@ -498,13 +511,16 @@ export async function listCustomers(search?: string) {
   const digits = digitsOnly(q);
   const where: Prisma.CustomerWhereInput = q
     ? {
+        fullName: { notIn: DUMMY_CUSTOMER_NAMES },
         OR: [
           { fullName: { contains: q } },
           { email: { contains: q } },
           ...(digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []),
         ],
       }
-    : {};
+    : {
+        fullName: { notIn: DUMMY_CUSTOMER_NAMES },
+      };
   const customers = await prisma.customer.findMany({
     where,
     orderBy: { updatedAt: 'desc' },
@@ -634,7 +650,11 @@ export async function getDashboard() {
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
   const tickets = await prisma.ticket.findMany({
-    where: { deletedAt: null },
+    where: {
+      deletedAt: null,
+      id: { notIn: DUMMY_TICKET_IDS },
+      customer: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } },
+    },
     select: {
       status: true,
       dueDate: true,
@@ -668,7 +688,9 @@ export async function getDashboard() {
     awaitingPickupCents: readyUnpaid.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
     collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
     collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
-    customerCount: await prisma.customer.count(),
+    customerCount: await prisma.customer.count({
+      where: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } },
+    }),
     lowStock,
   };
 }

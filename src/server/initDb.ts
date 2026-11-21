@@ -306,6 +306,62 @@ export async function ensureDatabaseSchema() {
     await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "Ticket_ticketNumber_key"`);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Ticket_ticketNumber_idx" ON "Ticket"("ticketNumber")`);
   } catch {}
+
+  // Permanently purge any legacy dummy test tickets and dummy customers
+  try {
+    const dummyNames = ['Sarah Connor', 'John Wick', 'arteen', 'Marcus Vance'];
+    const dummyIds = [
+      'tkt-test-sync-1',
+      '58e737c6-f590-4e65-8e28-3541f5e277e7',
+      'cd2f4c06-4d00-4364-958d-fd7bc86e35a2',
+      '7070afde-bbb6-421a-af5a-7aa0639fa31d',
+      '751fa998-ba4c-4104-a0a9-68718e906d5d',
+    ];
+
+    await prisma.ticketEvent.deleteMany({
+      where: {
+        OR: [
+          { ticketId: { in: dummyIds } },
+          { ticket: { customer: { fullName: { in: dummyNames } } } },
+        ],
+      },
+    }).catch(() => {});
+
+    await prisma.ticketItem.deleteMany({
+      where: {
+        OR: [
+          { ticketId: { in: dummyIds } },
+          { ticket: { customer: { fullName: { in: dummyNames } } } },
+        ],
+      },
+    }).catch(() => {});
+
+    await prisma.payment.deleteMany({
+      where: {
+        OR: [
+          { ticketId: { in: dummyIds } },
+          { ticket: { customer: { fullName: { in: dummyNames } } } },
+        ],
+      },
+    }).catch(() => {});
+
+    await prisma.ticket.deleteMany({
+      where: {
+        OR: [
+          { id: { in: dummyIds } },
+          { customer: { fullName: { in: dummyNames } } },
+        ],
+      },
+    }).catch(() => {});
+
+    await prisma.device.deleteMany({
+      where: { customer: { fullName: { in: dummyNames } } },
+    }).catch(() => {});
+
+    await prisma.customer.deleteMany({
+      where: { fullName: { in: dummyNames } },
+    }).catch(() => {});
+  } catch {}
 }
 
 export async function ensureInitialInventory() {

@@ -630,9 +630,26 @@ async function getTicket(id) {
 		otherTickets
 	};
 }
+var DUMMY_TICKET_IDS = [
+	"tkt-test-sync-1",
+	"58e737c6-f590-4e65-8e28-3541f5e277e7",
+	"cd2f4c06-4d00-4364-958d-fd7bc86e35a2",
+	"7070afde-bbb6-421a-af5a-7aa0639fa31d",
+	"751fa998-ba4c-4104-a0a9-68718e906d5d"
+];
+var DUMMY_CUSTOMER_NAMES = [
+	"Sarah Connor",
+	"John Wick",
+	"arteen",
+	"Marcus Vance"
+];
 async function listTickets(params) {
 	const view = params.view || "OPEN";
-	const where = { deletedAt: null };
+	const where = {
+		deletedAt: null,
+		id: { notIn: DUMMY_TICKET_IDS },
+		customer: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } }
+	};
 	if (view === "OPEN") where.status = { in: OPEN_STATUSES };
 	else if (view !== "ALL") where.status = view;
 	if (params.bench && params.bench !== "ALL") where.bench = params.bench;
@@ -955,11 +972,14 @@ async function deleteNote(ticketId, noteId) {
 async function listCustomers(search) {
 	const q = (search || "").trim();
 	const digits = digitsOnly(q);
-	const where = q ? { OR: [
-		{ fullName: { contains: q } },
-		{ email: { contains: q } },
-		...digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []
-	] } : {};
+	const where = q ? {
+		fullName: { notIn: DUMMY_CUSTOMER_NAMES },
+		OR: [
+			{ fullName: { contains: q } },
+			{ email: { contains: q } },
+			...digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []
+		]
+	} : { fullName: { notIn: DUMMY_CUSTOMER_NAMES } };
 	return (await prisma.customer.findMany({
 		where,
 		orderBy: { updatedAt: "desc" },
@@ -1095,7 +1115,11 @@ async function getDashboard() {
 	const tomorrow = new Date(today.getTime() + 864e5);
 	const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 	const tickets = await prisma.ticket.findMany({
-		where: { deletedAt: null },
+		where: {
+			deletedAt: null,
+			id: { notIn: DUMMY_TICKET_IDS },
+			customer: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } }
+		},
 		select: {
 			status: true,
 			dueDate: true,
@@ -1136,7 +1160,7 @@ async function getDashboard() {
 		awaitingPickupCents: readyUnpaid.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
 		collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
 		collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
-		customerCount: await prisma.customer.count(),
+		customerCount: await prisma.customer.count({ where: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } } }),
 		lowStock
 	};
 }
@@ -2063,6 +2087,27 @@ async function ensureDatabaseSchema() {
 	try {
 		await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "Ticket_ticketNumber_key"`);
 		await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Ticket_ticketNumber_idx" ON "Ticket"("ticketNumber")`);
+	} catch {}
+	try {
+		const dummyNames = [
+			"Sarah Connor",
+			"John Wick",
+			"arteen",
+			"Marcus Vance"
+		];
+		const dummyIds = [
+			"tkt-test-sync-1",
+			"58e737c6-f590-4e65-8e28-3541f5e277e7",
+			"cd2f4c06-4d00-4364-958d-fd7bc86e35a2",
+			"7070afde-bbb6-421a-af5a-7aa0639fa31d",
+			"751fa998-ba4c-4104-a0a9-68718e906d5d"
+		];
+		await prisma.ticketEvent.deleteMany({ where: { OR: [{ ticketId: { in: dummyIds } }, { ticket: { customer: { fullName: { in: dummyNames } } } }] } }).catch(() => {});
+		await prisma.ticketItem.deleteMany({ where: { OR: [{ ticketId: { in: dummyIds } }, { ticket: { customer: { fullName: { in: dummyNames } } } }] } }).catch(() => {});
+		await prisma.payment.deleteMany({ where: { OR: [{ ticketId: { in: dummyIds } }, { ticket: { customer: { fullName: { in: dummyNames } } } }] } }).catch(() => {});
+		await prisma.ticket.deleteMany({ where: { OR: [{ id: { in: dummyIds } }, { customer: { fullName: { in: dummyNames } } }] } }).catch(() => {});
+		await prisma.device.deleteMany({ where: { customer: { fullName: { in: dummyNames } } } }).catch(() => {});
+		await prisma.customer.deleteMany({ where: { fullName: { in: dummyNames } } }).catch(() => {});
 	} catch {}
 }
 async function ensureInitialInventory() {
@@ -4558,7 +4603,7 @@ app.post("/api/timeclock/clock-out", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.post("/api/sync/tickets", requireAuth, wrap(async (req, res) => {
-	const { deletedIds, tickets } = req.body || {};
+	const { deletedIds } = req.body || {};
 	if (Array.isArray(deletedIds) && deletedIds.length > 0) {
 		await prisma.ticket.updateMany({
 			where: { id: { in: deletedIds } },
@@ -4566,75 +4611,10 @@ app.post("/api/sync/tickets", requireAuth, wrap(async (req, res) => {
 		}).catch(() => {});
 		await prisma.ticket.deleteMany({ where: { id: { in: deletedIds } } }).catch(() => {});
 	}
-	if (Array.isArray(tickets) && tickets.length > 0) {
-		const deletedSet = new Set(Array.isArray(deletedIds) ? deletedIds : []);
-		for (const t of tickets) {
-			if (!t || !t.id || deletedSet.has(t.id)) continue;
-			try {
-				if (await prisma.ticket.findFirst({ where: { id: t.id } })) continue;
-				const phoneDigits = (t.customer?.phone || "").replace(/\D/g, "") || "0000000000";
-				let customer = await prisma.customer.findFirst({ where: { OR: [{ id: t.customerId || "" }, { phoneDigits }] } });
-				if (!customer) customer = await prisma.customer.create({ data: {
-					id: t.customerId || t.customer?.id,
-					fullName: t.customer?.fullName || "Walk-in Customer",
-					phone: t.customer?.phone || "(555) 000-0000",
-					phoneDigits,
-					email: t.customer?.email || null
-				} });
-				let device = await prisma.device.findFirst({ where: { id: t.deviceId || t.device?.id || "" } });
-				if (!device) device = await prisma.device.create({ data: {
-					id: t.deviceId || t.device?.id,
-					customerId: customer.id,
-					name: t.device?.name || "Customer Device",
-					serialNumber: t.device?.serialNumber || null,
-					passcode: t.device?.passcode || null,
-					pattern: t.device?.pattern || null,
-					condition: t.device?.condition || "Good"
-				} });
-				let assignedTicketNumber = t.ticketNumber || 1;
-				if (await prisma.ticket.findFirst({
-					where: {
-						ticketNumber: assignedTicketNumber,
-						NOT: { id: t.id }
-					},
-					select: { id: true }
-				})) assignedTicketNumber = ((await prisma.ticket.findFirst({
-					orderBy: { ticketNumber: "desc" },
-					select: { ticketNumber: true }
-				}))?.ticketNumber ?? 0) + 1;
-				await prisma.ticket.create({ data: {
-					id: t.id,
-					ticketNumber: assignedTicketNumber,
-					customerId: customer.id,
-					deviceId: device.id,
-					status: t.status || "PENDING",
-					priority: t.priority || "STANDARD",
-					faultDescription: t.faultDescription || "Diagnostics & Repair",
-					laborCents: t.laborCents || 0,
-					discountCents: t.discountCents || 0,
-					taxRateBps: t.taxRateBps || 1300,
-					technician: t.technician || null,
-					bench: t.bench || null,
-					storageBin: t.storageBin || null,
-					signature: t.signature || null,
-					diagnostics: JSON.stringify(t.diagnostics || {}),
-					dueDate: t.dueDate ? new Date(t.dueDate) : new Date(Date.now() + 864e5),
-					createdAt: t.createdAt ? new Date(t.createdAt) : /* @__PURE__ */ new Date()
-				} });
-			} catch {}
-		}
-		try {
-			const maxOverall = await prisma.ticket.findFirst({
-				orderBy: { ticketNumber: "desc" },
-				select: { ticketNumber: true }
-			});
-			if (maxOverall?.ticketNumber) await prisma.setting.update({
-				where: { id: 1 },
-				data: { nextTicketNumber: maxOverall.ticketNumber + 1 }
-			});
-		} catch {}
-	}
-	res.json({ success: true });
+	res.json({
+		success: true,
+		message: "Sync complete"
+	});
 }));
 app.post("/api/timeclock/break-start", requireAuth, wrap(async (req, res) => {
 	const brk = await startBreak(req.user.id, req.body?.type);
