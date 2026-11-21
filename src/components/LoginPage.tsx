@@ -14,6 +14,7 @@ import {
 import { setToken } from '../utils/auth';
 import { posAudio } from '../utils/audio';
 import { User as UserType } from '../types';
+import { getCachedRegisteredUsers, saveRegisteredUsers } from '../utils/userSync';
 
 interface LoginPageProps {
   onLoginSuccess: (user: UserType, targetView: 'repairs' | 'admin') => void;
@@ -39,6 +40,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     setErrorMessage(null);
 
     try {
+      const clientUsers = getCachedRegisteredUsers();
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -46,6 +48,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           usernameOrEmail: usernameOrEmail.trim(),
           password,
           adminMode: isAdminMode,
+          clientUsers,
         }),
       });
 

@@ -30,6 +30,7 @@ import { posAudio } from '../utils/audio';
 import { User, AdminOverview, AuditLog, UserRole, UserStatus, Ticket } from '../types';
 import { AdminAttendanceTab } from './admin/AdminAttendanceTab';
 import { AdminPayrollTab } from './admin/AdminPayrollTab';
+import { saveRegisteredUsers, recordDeletedUser } from '../utils/userSync';
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -98,6 +99,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (res.ok) {
         const json = await res.json();
         setUsers(json.data || []);
+        if (Array.isArray(json.data)) {
+          saveRegisteredUsers(json.data);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -196,6 +200,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to delete user');
 
+      recordDeletedUser(deletingUser.id);
       posAudio.playSuccessChime();
       showToast(`User ${deletingUser.username} permanently deleted`);
       setDeletingUser(null);
@@ -1165,6 +1170,10 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to create user');
 
+      if (data.data?.syncPayload) {
+        saveRegisteredUsers([data.data]);
+      }
+
       posAudio.playSuccessChime();
       onSuccess();
     } catch (err: any) {
@@ -1608,6 +1617,10 @@ const ResetPasswordModal: React.FC<ResetPasswordModalProps> = ({ user, onClose, 
 
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to reset password');
+
+      if (data.syncPayload) {
+        saveRegisteredUsers([{ ...user, syncPayload: data.syncPayload }]);
+      }
 
       posAudio.playSuccessChime();
       onSuccess();

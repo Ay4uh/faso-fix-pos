@@ -3,6 +3,7 @@ import { ShieldAlert, Lock, User, Eye, EyeOff, X, KeyRound, AlertCircle, CheckCi
 import { setToken } from '../utils/auth';
 import { posAudio } from '../utils/audio';
 import { User as UserType } from '../types';
+import { getCachedRegisteredUsers } from '../utils/userSync';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -34,6 +35,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setErrorMessage(null);
 
     try {
+      const clientUsers = getCachedRegisteredUsers();
       const res = await fetch('/api/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -41,6 +43,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
           usernameOrEmail: usernameOrEmail.trim(),
           password,
           adminMode: true,
+          clientUsers,
         }),
       });
 

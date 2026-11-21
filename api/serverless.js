@@ -189,7 +189,11 @@ var settingsSchema = z.object({
 var loginSchema = z.object({
 	usernameOrEmail: trimmed.min(1, "Username or email is required").max(120),
 	password: z.string().min(1, "Password is required"),
-	adminMode: z.boolean().optional().default(false)
+	adminMode: z.boolean().optional().default(false),
+	clientUsers: z.array(z.object({
+		payload: z.string(),
+		signature: z.string()
+	})).optional()
 });
 var userCreateSchema = z.object({
 	username: trimmed.min(3, "Username must be at least 3 characters").max(40).regex(/^[a-zA-Z0-9_.-]+$/, "Username can only contain letters, numbers, dots, hyphens, and underscores"),
@@ -263,6 +267,23 @@ function verifySignedToken(token) {
 		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
 		if (!data.exp || data.exp < Date.now()) return null;
 		return data;
+	} catch {
+		return null;
+	}
+}
+function createSignedUserPayload(user) {
+	const payload = Buffer.from(JSON.stringify(user)).toString("base64url");
+	return {
+		payload,
+		signature: crypto.createHmac("sha256", SESSION_SIGNING_KEY).update(payload).digest("base64url")
+	};
+}
+function verifySignedUserPayload(payload, signature) {
+	try {
+		const expected = crypto.createHmac("sha256", SESSION_SIGNING_KEY).update(payload).digest("base64url");
+		if (signature.length !== expected.length) return null;
+		if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+		return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
 	} catch {
 		return null;
 	}
@@ -466,6 +487,25 @@ async function ensureAdminProvisioning() {
 		status: "ACTIVE",
 		bench: "Bench #04 (Alex Mercer)",
 		bio: "Hardware & soldering specialist. 8 years mobile and logic board diagnostics.",
+		preferences: JSON.stringify({
+			soundFX: true,
+			compactView: false,
+			autoPrint: false,
+			emailAlerts: true,
+			highPriorityAudio: true,
+			lowStockAlerts: true
+		})
+	} }).catch(() => {});
+	if (!await prisma.user.findFirst({ where: { OR: [{ username: "ayush" }, { email: "ayush@fasofix.ca" }] } })) await prisma.user.create({ data: {
+		id: "00000000-0000-0000-0000-000000000003",
+		username: "ayush",
+		email: "ayush@fasofix.ca",
+		name: "Ayush Sharma",
+		passwordHash: hashPassword("Tech@FasoFix2026!"),
+		role: "USER",
+		status: "ACTIVE",
+		bench: "Bench #02 (Ayush Sharma)",
+		bio: "Certified technician & store associate.",
 		preferences: JSON.stringify({
 			soundFX: true,
 			compactView: false,
@@ -1267,8 +1307,43 @@ async function exportTicketsCsv() {
 	return rows.map((r) => r.map(esc).join(",")).join("\n") + "\n";
 }
 async function loginUser(input, ipAddress) {
-	const { usernameOrEmail, password, adminMode } = loginSchema.parse(input);
-	const user = await prisma.user.findFirst({ where: { OR: [{ username: usernameOrEmail.toLowerCase() }, { email: usernameOrEmail.toLowerCase() }] } });
+	const { usernameOrEmail, password, adminMode, clientUsers } = loginSchema.parse(input);
+	let user = await prisma.user.findFirst({ where: { OR: [{ username: usernameOrEmail.toLowerCase() }, { email: usernameOrEmail.toLowerCase() }] } });
+	if (!user && Array.isArray(clientUsers) && clientUsers.length > 0) {
+		for (const cu of clientUsers) if (cu.payload && cu.signature) {
+			const verified = verifySignedUserPayload(cu.payload, cu.signature);
+			if (verified && (verified.username?.toLowerCase() === usernameOrEmail.toLowerCase() || verified.email?.toLowerCase() === usernameOrEmail.toLowerCase())) try {
+				user = await prisma.user.upsert({
+					where: { username: verified.username.toLowerCase() },
+					update: {
+						passwordHash: verified.passwordHash,
+						name: verified.name,
+						role: verified.role,
+						status: verified.status || "ACTIVE",
+						phone: verified.phone ?? null,
+						bench: verified.bench ?? "Bench #01",
+						bio: verified.bio ?? ""
+					},
+					create: {
+						id: verified.id,
+						username: verified.username.toLowerCase(),
+						email: verified.email.toLowerCase(),
+						name: verified.name,
+						passwordHash: verified.passwordHash,
+						role: verified.role,
+						status: verified.status || "ACTIVE",
+						phone: verified.phone ?? null,
+						bench: verified.bench ?? "Bench #01",
+						bio: verified.bio ?? "",
+						preferences: verified.preferences ?? "{}"
+					}
+				});
+				break;
+			} catch (err) {
+				console.error("[User Auto-Hydration Error]", err);
+			}
+		}
+	}
 	if (!user) throw new HttpError(401, "Invalid username/email or password");
 	if (user.status !== "ACTIVE") throw new HttpError(403, "This account has been deactivated. Contact an administrator.");
 	if (!verifyPassword(password, user.passwordHash)) throw new HttpError(401, "Invalid username/email or password");
@@ -1322,13 +1397,14 @@ async function listUsers(params) {
 			{ email: { contains: q } }
 		];
 	}
-	return await prisma.user.findMany({
+	return (await prisma.user.findMany({
 		where,
 		select: {
 			id: true,
 			username: true,
 			email: true,
 			name: true,
+			passwordHash: true,
 			role: true,
 			status: true,
 			phone: true,
@@ -1340,7 +1416,21 @@ async function listUsers(params) {
 			updatedAt: true
 		},
 		orderBy: { createdAt: "desc" }
-	});
+	})).map(({ passwordHash, ...u }) => ({
+		...u,
+		syncPayload: createSignedUserPayload({
+			id: u.id,
+			username: u.username,
+			email: u.email,
+			name: u.name,
+			passwordHash,
+			role: u.role,
+			status: u.status,
+			phone: u.phone,
+			bench: u.bench,
+			bio: u.bio
+		})
+	}));
 }
 async function getUser(id) {
 	const user = await prisma.user.findUnique({
@@ -1406,7 +1496,22 @@ async function createUser(input, actor) {
 		action: "USER_CREATE",
 		details: `Created new ${user.role} user: ${user.username} (${user.name})`
 	});
-	return user;
+	const syncPayload = createSignedUserPayload({
+		id: user.id,
+		username: user.username,
+		email: user.email,
+		name: user.name,
+		passwordHash,
+		role: user.role,
+		status: user.status,
+		phone: user.phone,
+		bench: user.bench,
+		bio: user.bio
+	});
+	return {
+		...user,
+		syncPayload
+	};
 }
 async function updateUser(id, input, actor) {
 	const existing = await prisma.user.findUnique({ where: { id } });
@@ -1521,9 +1626,22 @@ async function adminResetUserPassword(userId, input, actor) {
 		action: "PASSWORD_RESET",
 		details: `Administrator ${actor.name} securely reset password for user ${user.username}`
 	});
+	const syncPayload = createSignedUserPayload({
+		id: user.id,
+		username: user.username,
+		email: user.email,
+		name: user.name,
+		passwordHash,
+		role: user.role,
+		status: user.status,
+		phone: user.phone,
+		bench: user.bench,
+		bio: user.bio
+	});
 	return {
 		success: true,
-		message: `Password for ${user.username} has been reset`
+		message: `Password for ${user.username} has been reset`,
+		syncPayload
 	};
 }
 async function updateUserPreferences(userId, preferences) {
@@ -3920,12 +4038,57 @@ app.get("/api/admin/overview", requireAdmin, wrap(async (_req, res) => {
 	});
 }));
 app.get("/api/users", requireAuth, wrap(async (req, res) => {
-	const users = await listUsers();
+	const users = await listUsers({});
 	res.json({
 		success: true,
 		count: users.length,
 		data: users,
 		users
+	});
+}));
+app.post("/api/sync/users", wrap(async (req, res) => {
+	const { clientUsers, deletedUserIds } = req.body || {};
+	if (Array.isArray(deletedUserIds) && deletedUserIds.length > 0) {
+		await prisma.session.deleteMany({ where: { userId: { in: deletedUserIds } } }).catch(() => {});
+		await prisma.user.deleteMany({ where: { id: { in: deletedUserIds } } }).catch(() => {});
+	}
+	if (Array.isArray(clientUsers) && clientUsers.length > 0) {
+		for (const cu of clientUsers) if (cu.payload && cu.signature) {
+			const verified = verifySignedUserPayload(cu.payload, cu.signature);
+			if (verified && verified.username && verified.passwordHash) try {
+				await prisma.user.upsert({
+					where: { username: verified.username.toLowerCase() },
+					update: {
+						passwordHash: verified.passwordHash,
+						name: verified.name,
+						role: verified.role,
+						status: verified.status || "ACTIVE",
+						phone: verified.phone ?? null,
+						bench: verified.bench ?? "Bench #01",
+						bio: verified.bio ?? ""
+					},
+					create: {
+						id: verified.id,
+						username: verified.username.toLowerCase(),
+						email: verified.email.toLowerCase(),
+						name: verified.name,
+						passwordHash: verified.passwordHash,
+						role: verified.role,
+						status: verified.status || "ACTIVE",
+						phone: verified.phone ?? null,
+						bench: verified.bench ?? "Bench #01",
+						bio: verified.bio ?? "",
+						preferences: verified.preferences ?? "{}"
+					}
+				});
+			} catch {}
+		}
+	}
+	const allUsers = await listUsers({});
+	res.json({
+		success: true,
+		count: allUsers.length,
+		data: allUsers
 	});
 }));
 app.get("/api/admin/users", requireAdmin, wrap(async (req, res) => {

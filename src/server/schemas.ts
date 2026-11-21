@@ -152,6 +152,10 @@ export const loginSchema = z.object({
   usernameOrEmail: trimmed.min(1, 'Username or email is required').max(120),
   password: z.string().min(1, 'Password is required'),
   adminMode: z.boolean().optional().default(false),
+  clientUsers: z.array(z.object({
+    payload: z.string(),
+    signature: z.string(),
+  })).optional(),
 });
 
 export const userCreateSchema = z.object({

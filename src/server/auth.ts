@@ -49,6 +49,35 @@ export function verifySignedToken(token: string): { uid: string; u: string; r: s
   }
 }
 
+export function createSignedUserPayload(user: {
+  id: string;
+  username: string;
+  email: string;
+  name: string;
+  passwordHash: string;
+  role: string;
+  status?: string;
+  phone?: string | null;
+  bench?: string | null;
+  bio?: string | null;
+  preferences?: string | null;
+}): { payload: string; signature: string } {
+  const payload = Buffer.from(JSON.stringify(user)).toString('base64url');
+  const signature = crypto.createHmac('sha256', SESSION_SIGNING_KEY).update(payload).digest('base64url');
+  return { payload, signature };
+}
+
+export function verifySignedUserPayload(payload: string, signature: string): any | null {
+  try {
+    const expected = crypto.createHmac('sha256', SESSION_SIGNING_KEY).update(payload).digest('base64url');
+    if (signature.length !== expected.length) return null;
+    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
+    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Generate a cryptographically secure random session token.
  */
@@ -338,6 +367,34 @@ export async function ensureAdminProvisioning(): Promise<void> {
         status: 'ACTIVE',
         bench: 'Bench #04 (Alex Mercer)',
         bio: 'Hardware & soldering specialist. 8 years mobile and logic board diagnostics.',
+        preferences: JSON.stringify({
+          soundFX: true,
+          compactView: false,
+          autoPrint: false,
+          emailAlerts: true,
+          highPriorityAudio: true,
+          lowStockAlerts: true,
+        }),
+      },
+    }).catch(() => {});
+  }
+
+  // Ensure Ayush technician is always provisioned on initial boot
+  const ayushUser = await prisma.user.findFirst({
+    where: { OR: [{ username: 'ayush' }, { email: 'ayush@fasofix.ca' }] },
+  });
+  if (!ayushUser) {
+    await prisma.user.create({
+      data: {
+        id: '00000000-0000-0000-0000-000000000003',
+        username: 'ayush',
+        email: 'ayush@fasofix.ca',
+        name: 'Ayush Sharma',
+        passwordHash: hashPassword('Tech@FasoFix2026!'),
+        role: 'USER',
+        status: 'ACTIVE',
+        bench: 'Bench #02 (Ayush Sharma)',
+        bio: 'Certified technician & store associate.',
         preferences: JSON.stringify({
           soundFX: true,
           compactView: false,

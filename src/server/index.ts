@@ -43,7 +43,7 @@ import {
   listAuditLogs,
   getAdminOverview,
 } from './service';
-import { authenticateSession, ensureAdminProvisioning, recordAudit } from './auth';
+import { authenticateSession, ensureAdminProvisioning, recordAudit, verifySignedUserPayload } from './auth';
 import { configureSqlite, createBackup, listBackups, resolveBackup, startBackupSchedule } from './backup';
 import { ensureDatabaseSchema, ensureInitialInventory } from './initDb';
 import * as payrollService from './payrollService';
@@ -282,8 +282,54 @@ app.get('/api/admin/overview', requireAdmin, wrap(async (_req, res) => {
 }));
 
 app.get('/api/users', requireAuth, wrap(async (req, res) => {
-  const users = await listUsers();
+  const users = await listUsers({});
   res.json({ success: true, count: users.length, data: users, users });
+}));
+
+app.post('/api/sync/users', wrap(async (req, res) => {
+  const { clientUsers, deletedUserIds } = req.body || {};
+  if (Array.isArray(deletedUserIds) && deletedUserIds.length > 0) {
+    await prisma.session.deleteMany({ where: { userId: { in: deletedUserIds } } }).catch(() => {});
+    await prisma.user.deleteMany({ where: { id: { in: deletedUserIds } } }).catch(() => {});
+  }
+  if (Array.isArray(clientUsers) && clientUsers.length > 0) {
+    for (const cu of clientUsers) {
+      if (cu.payload && cu.signature) {
+        const verified = verifySignedUserPayload(cu.payload, cu.signature);
+        if (verified && verified.username && verified.passwordHash) {
+          try {
+            await prisma.user.upsert({
+              where: { username: verified.username.toLowerCase() },
+              update: {
+                passwordHash: verified.passwordHash,
+                name: verified.name,
+                role: verified.role,
+                status: verified.status || 'ACTIVE',
+                phone: verified.phone ?? null,
+                bench: verified.bench ?? 'Bench #01',
+                bio: verified.bio ?? '',
+              },
+              create: {
+                id: verified.id,
+                username: verified.username.toLowerCase(),
+                email: verified.email.toLowerCase(),
+                name: verified.name,
+                passwordHash: verified.passwordHash,
+                role: verified.role,
+                status: verified.status || 'ACTIVE',
+                phone: verified.phone ?? null,
+                bench: verified.bench ?? 'Bench #01',
+                bio: verified.bio ?? '',
+                preferences: verified.preferences ?? '{}',
+              },
+            });
+          } catch {}
+        }
+      }
+    }
+  }
+  const allUsers = await listUsers({});
+  res.json({ success: true, count: allUsers.length, data: allUsers });
 }));
 
 app.get('/api/admin/users', requireAdmin, wrap(async (req, res) => {

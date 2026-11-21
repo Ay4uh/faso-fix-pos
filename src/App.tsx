@@ -21,6 +21,7 @@ import { Ticket, Customer, DashboardStats, User } from './types';
 import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
 import { fetchWithAuth, removeToken } from './utils/auth';
+import { syncUsersWithServer } from './utils/userSync';
 
 const getInitialUser = (): User | null => {
   try {
@@ -113,6 +114,7 @@ export function App() {
       }
     };
     verifySession();
+    syncUsersWithServer().catch(() => {});
   }, []);
 
   const fetchTimeClockStatus = async () => {
