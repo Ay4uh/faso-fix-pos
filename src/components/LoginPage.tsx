@@ -82,13 +82,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleFillStandardTech = () => {
-    setIsAdminMode(false);
-    setUsernameOrEmail('tech');
-    if (import.meta.env.DEV) setPassword('Tech@FasoFix2026!');
-    setErrorMessage(null);
-  };
-
   const handleFillAdmin = () => {
     setIsAdminMode(true);
     setUsernameOrEmail('admin');
@@ -282,15 +275,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
           {/* Dev Demo Fill Helper (Dev only) */}
           {import.meta.env.DEV && (
             <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-              <span className="font-semibold text-slate-500">Dev Quick Fill:</span>
+              <span className="font-semibold text-slate-500">Dev Helper:</span>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleFillStandardTech}
-                  className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-indigo-700 font-semibold shadow-2xs hover:bg-indigo-50 transition cursor-pointer"
-                >
-                  Standard Tech
-                </button>
                 <button
                   type="button"
                   onClick={handleFillAdmin}

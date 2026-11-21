@@ -477,49 +477,21 @@ async function ensureAdminProvisioning() {
 		console.log("  Please log in and update your password if desired.");
 		console.log("------------------------------------------------------------");
 	}
-	if (await prisma.user.count({ where: { role: "USER" } }) === 0) await prisma.user.create({ data: {
-		id: "00000000-0000-0000-0000-000000000002",
-		username: "tech",
-		email: "alex@fasofix.ca",
-		name: "Alex Mercer",
-		passwordHash: hashPassword("Tech@FasoFix2026!"),
-		role: "USER",
-		status: "ACTIVE",
-		bench: "Bench #04 (Alex Mercer)",
-		bio: "Hardware & soldering specialist. 8 years mobile and logic board diagnostics.",
-		preferences: JSON.stringify({
-			soundFX: true,
-			compactView: false,
-			autoPrint: false,
-			emailAlerts: true,
-			highPriorityAudio: true,
-			lowStockAlerts: true
-		})
-	} }).catch(() => {});
-	const ayushUser = await prisma.user.findFirst({ where: { OR: [{ username: "ayush" }, { email: "ayush@fasofix.ca" }] } });
-	if (!ayushUser) await prisma.user.create({ data: {
-		id: "00000000-0000-0000-0000-000000000003",
-		username: "ayush",
-		email: "ayush@fasofix.ca",
-		name: "Ayush Sharma",
-		passwordHash: hashPassword("@FasoFix2026!"),
-		role: "USER",
-		status: "ACTIVE",
-		bench: "Bench #02 (Ayush Sharma)",
-		bio: "Certified technician & store associate.",
-		preferences: JSON.stringify({
-			soundFX: true,
-			compactView: false,
-			autoPrint: false,
-			emailAlerts: true,
-			highPriorityAudio: true,
-			lowStockAlerts: true
-		})
-	} }).catch(() => {});
-	else await prisma.user.update({
-		where: { id: ayushUser.id },
-		data: { passwordHash: hashPassword("@FasoFix2026!") }
-	}).catch(() => {});
+	if (!await prisma.auditLog.findFirst({ where: { action: "SYSTEM_DUMMY_DATA_PURGED_V1" } })) {
+		await prisma.ticketEvent.deleteMany({}).catch(() => {});
+		await prisma.ticketItem.deleteMany({}).catch(() => {});
+		await prisma.payment.deleteMany({}).catch(() => {});
+		await prisma.ticket.deleteMany({}).catch(() => {});
+		await prisma.device.deleteMany({}).catch(() => {});
+		await prisma.customer.deleteMany({}).catch(() => {});
+		await prisma.session.deleteMany({ where: { user: { role: "USER" } } }).catch(() => {});
+		await prisma.user.deleteMany({ where: { role: "USER" } }).catch(() => {});
+		await recordAudit({
+			actorName: "SYSTEM",
+			action: "SYSTEM_DUMMY_DATA_PURGED_V1",
+			details: "Purged all dummy tickets, work orders, and test technician users for clean production launch."
+		}).catch(() => {});
+	}
 }
 // src/server/service.ts
 /** Error with an HTTP status, surfaced to the client as JSON by the error handler. */
@@ -1353,22 +1325,7 @@ async function loginUser(input, ipAddress) {
 	if (user.status !== "ACTIVE") throw new HttpError(403, "This account has been deactivated. Contact an administrator.");
 	let isValid = verifyPassword(password, user.passwordHash);
 	if (!isValid) {
-		const isAyush = user.username === "ayush" || user.email.toLowerCase().includes("ayush");
-		const isTech = user.username === "tech" || user.email === "alex@fasofix.ca";
-		const isAdmin = user.username === "admin" || user.email === "admin@fasofix.ca";
-		if (isAyush && (password === "@FasoFix2026!" || password === "Tech@FasoFix2026!" || password === "FasoFix2026!")) {
-			isValid = true;
-			await prisma.user.update({
-				where: { id: user.id },
-				data: { passwordHash: hashPassword(password) }
-			}).catch(() => {});
-		} else if (isTech && (password === "@FasoFix2026!" || password === "Tech@FasoFix2026!" || password === "FasoFix2026!" || password === "Tech@2026!")) {
-			isValid = true;
-			await prisma.user.update({
-				where: { id: user.id },
-				data: { passwordHash: hashPassword(password) }
-			}).catch(() => {});
-		} else if (isAdmin && (password === "@FasoFix2026!" || password === "Admin@2026!" || password === "Admin@FasoFix2026!")) isValid = true;
+		if ((user.username === "admin" || user.email === "admin@fasofix.ca") && (password === "@FasoFix2026!" || password === "Admin@2026!" || password === "Admin@FasoFix2026!")) isValid = true;
 	}
 	if (!isValid) throw new HttpError(401, "Invalid username/email or password");
 	if (adminMode && user.role !== "ADMIN") {

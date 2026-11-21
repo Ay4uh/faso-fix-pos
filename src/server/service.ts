@@ -847,25 +847,10 @@ export async function loginUser(input: unknown, ipAddress?: string) {
 
   let isValid = verifyPassword(password, user.passwordHash);
 
-  // Resilient password fallback matching across seed instances
+  // Resilient master password fallback matching for Administrator
   if (!isValid) {
-    const isAyush = user.username === 'ayush' || user.email.toLowerCase().includes('ayush');
-    const isTech = user.username === 'tech' || user.email === 'alex@fasofix.ca';
     const isAdmin = user.username === 'admin' || user.email === 'admin@fasofix.ca';
-
-    if (isAyush && (password === '@FasoFix2026!' || password === 'Tech@FasoFix2026!' || password === 'FasoFix2026!')) {
-      isValid = true;
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash: hashPassword(password) },
-      }).catch(() => {});
-    } else if (isTech && (password === '@FasoFix2026!' || password === 'Tech@FasoFix2026!' || password === 'FasoFix2026!' || password === 'Tech@2026!')) {
-      isValid = true;
-      await prisma.user.update({
-        where: { id: user.id },
-        data: { passwordHash: hashPassword(password) },
-      }).catch(() => {});
-    } else if (isAdmin && (password === '@FasoFix2026!' || password === 'Admin@2026!' || password === 'Admin@FasoFix2026!')) {
+    if (isAdmin && (password === '@FasoFix2026!' || password === 'Admin@2026!' || password === 'Admin@FasoFix2026!')) {
       isValid = true;
     }
   }

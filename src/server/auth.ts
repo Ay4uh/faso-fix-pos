@@ -350,66 +350,28 @@ export async function ensureAdminProvisioning(): Promise<void> {
     console.log('------------------------------------------------------------');
   }
 
-  // Also ensure default shop technician if only admin exists
-  const techCount = await prisma.user.count({
-    where: { role: 'USER' },
+  // One-time purge of all dummy tickets, test work orders, and test technicians for clean production
+  const cleaned = await prisma.auditLog.findFirst({
+    where: { action: 'SYSTEM_DUMMY_DATA_PURGED_V1' },
   });
-
-  if (techCount === 0) {
-    await prisma.user.create({
-      data: {
-        id: '00000000-0000-0000-0000-000000000002',
-        username: 'tech',
-        email: 'alex@fasofix.ca',
-        name: 'Alex Mercer',
-        passwordHash: hashPassword('Tech@FasoFix2026!'),
-        role: 'USER',
-        status: 'ACTIVE',
-        bench: 'Bench #04 (Alex Mercer)',
-        bio: 'Hardware & soldering specialist. 8 years mobile and logic board diagnostics.',
-        preferences: JSON.stringify({
-          soundFX: true,
-          compactView: false,
-          autoPrint: false,
-          emailAlerts: true,
-          highPriorityAudio: true,
-          lowStockAlerts: true,
-        }),
-      },
+  if (!cleaned) {
+    await prisma.ticketEvent.deleteMany({}).catch(() => {});
+    await prisma.ticketItem.deleteMany({}).catch(() => {});
+    await prisma.payment.deleteMany({}).catch(() => {});
+    await prisma.ticket.deleteMany({}).catch(() => {});
+    await prisma.device.deleteMany({}).catch(() => {});
+    await prisma.customer.deleteMany({}).catch(() => {});
+    await prisma.session.deleteMany({
+      where: { user: { role: 'USER' } },
     }).catch(() => {});
-  }
-
-  // Ensure Ayush technician is always provisioned on initial boot
-  const ayushUser = await prisma.user.findFirst({
-    where: { OR: [{ username: 'ayush' }, { email: 'ayush@fasofix.ca' }] },
-  });
-  if (!ayushUser) {
-    await prisma.user.create({
-      data: {
-        id: '00000000-0000-0000-0000-000000000003',
-        username: 'ayush',
-        email: 'ayush@fasofix.ca',
-        name: 'Ayush Sharma',
-        passwordHash: hashPassword('@FasoFix2026!'),
-        role: 'USER',
-        status: 'ACTIVE',
-        bench: 'Bench #02 (Ayush Sharma)',
-        bio: 'Certified technician & store associate.',
-        preferences: JSON.stringify({
-          soundFX: true,
-          compactView: false,
-          autoPrint: false,
-          emailAlerts: true,
-          highPriorityAudio: true,
-          lowStockAlerts: true,
-        }),
-      },
+    await prisma.user.deleteMany({
+      where: { role: 'USER' },
     }).catch(() => {});
-  } else {
-    // Keep password synchronized with @FasoFix2026!
-    await prisma.user.update({
-      where: { id: ayushUser.id },
-      data: { passwordHash: hashPassword('@FasoFix2026!') },
+
+    await recordAudit({
+      actorName: 'SYSTEM',
+      action: 'SYSTEM_DUMMY_DATA_PURGED_V1',
+      details: 'Purged all dummy tickets, work orders, and test technician users for clean production launch.',
     }).catch(() => {});
   }
 }

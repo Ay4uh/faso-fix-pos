@@ -34,8 +34,16 @@ const getInitialUser = (): User | null => {
   return null;
 };
 
+const PURGE_VERSION = 'v3_production_clean_slate';
+
 const getDeletedTicketIds = (): Set<string> => {
   try {
+    if (localStorage.getItem('apexfix_purge_version') !== PURGE_VERSION) {
+      localStorage.removeItem('apexfix_deleted_ticket_ids');
+      localStorage.removeItem('apexfix_cached_tickets');
+      localStorage.setItem('apexfix_purge_version', PURGE_VERSION);
+      return new Set();
+    }
     const raw = localStorage.getItem('apexfix_deleted_ticket_ids');
     if (raw) return new Set(JSON.parse(raw));
   } catch {}
@@ -44,6 +52,12 @@ const getDeletedTicketIds = (): Set<string> => {
 
 const getInitialTickets = (): Ticket[] => {
   try {
+    if (localStorage.getItem('apexfix_purge_version') !== PURGE_VERSION) {
+      localStorage.removeItem('apexfix_deleted_ticket_ids');
+      localStorage.removeItem('apexfix_cached_tickets');
+      localStorage.setItem('apexfix_purge_version', PURGE_VERSION);
+      return [];
+    }
     const deletedIds = getDeletedTicketIds();
     const raw = localStorage.getItem('apexfix_cached_tickets');
     if (raw) {
@@ -410,10 +424,10 @@ export function App() {
             );
             updatedList = [...cleanServerList, ...unsynced];
           } else {
-            // Preserve existing local non-deleted tickets if server container returned empty
-            updatedList = prev.filter(
-              (t) => !deletedIds.has(t.id) && (activeFilter === 'ALL' || t.status === activeFilter)
-            );
+            // When server returns empty and not filtering, ticket list is truly empty
+            updatedList = activeFilter === 'ALL' && !searchQuery.trim()
+              ? []
+              : prev.filter((t) => !deletedIds.has(t.id) && (activeFilter === 'ALL' || t.status === activeFilter));
           }
 
           try {

@@ -47,8 +47,19 @@ describe('Faso Fix POS - Complete Pre-Release Testing Suite', () => {
   let adminToken = '';
 
   before(async () => {
-    techToken = await login(TECH);
     adminToken = await login(ADMIN, true);
+    await call('/api/admin/users', {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        username: 'tech',
+        email: 'tech@fasofix.ca',
+        name: 'Alex Mercer',
+        password: 'Tech@FasoFix2026!',
+        role: 'USER',
+      },
+    });
+    techToken = await login(TECH);
   });
 
   // =========================================================================

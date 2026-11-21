@@ -32,6 +32,21 @@ async function login(creds: object, adminMode = false) {
 }
 
 describe('Authentication & access control', () => {
+  before(async () => {
+    const adminToken = await login(ADMIN, true);
+    await call('/api/admin/users', {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        username: 'tech',
+        email: 'tech@fasofix.ca',
+        name: 'Alex Mercer',
+        password: 'Tech@FasoFix2026!',
+        role: 'USER',
+      },
+    });
+  });
+
   test('unauthenticated requests to POS data are rejected', async () => {
     for (const p of ['/api/tickets', '/api/customers', '/api/stats', '/api/settings', '/api/inventory']) {
       assert.equal((await call(p)).status, 401, p);
