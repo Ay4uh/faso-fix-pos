@@ -24,6 +24,8 @@ export function getAuthHeaders(): Record<string, string> {
   return headers;
 }
 
+let isCheckingAuth = false;
+
 export async function fetchWithAuth(url: string, options: RequestInit = {}): Promise<Response> {
   const headers = {
     ...getAuthHeaders(),
@@ -31,8 +33,24 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
   };
   const res = await fetch(url, { ...options, headers });
   if (res.status === 401 && !url.includes('/api/auth/')) {
-    removeToken();
-    window.dispatchEvent(new CustomEvent('apexfix_auth_unauthorized'));
+    // Double check with dedicated /api/auth/me before forcibly terminating session
+    if (!isCheckingAuth) {
+      isCheckingAuth = true;
+      try {
+        const verifyRes = await fetch('/api/auth/me', { headers: getAuthHeaders() });
+        const verifyJson = await verifyRes.json().catch(() => ({ authenticated: false }));
+        if (!verifyJson.authenticated) {
+          removeToken();
+          window.dispatchEvent(new CustomEvent('apexfix_auth_unauthorized'));
+        }
+      } catch {
+        // Transient network issue, do not log user out
+      } finally {
+        setTimeout(() => {
+          isCheckingAuth = false;
+        }, 2000);
+      }
+    }
   }
   return res;
 }

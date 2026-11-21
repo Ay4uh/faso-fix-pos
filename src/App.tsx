@@ -22,6 +22,17 @@ import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
 import { fetchWithAuth, removeToken } from './utils/auth';
 
+const getInitialUser = (): User | null => {
+  try {
+    const raw = localStorage.getItem('apexfix_cached_user');
+    const token = localStorage.getItem('apexfix_session_token');
+    if (raw && token) {
+      return JSON.parse(raw);
+    }
+  } catch {}
+  return null;
+};
+
 const getDeletedTicketIds = (): Set<string> => {
   try {
     const raw = localStorage.getItem('apexfix_deleted_ticket_ids');
@@ -55,8 +66,8 @@ export function App() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Authentication & Session
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isVerifyingSession, setIsVerifyingSession] = useState(true);
+  const [currentUser, setCurrentUser] = useState<User | null>(getInitialUser);
+  const [isVerifyingSession, setIsVerifyingSession] = useState(!getInitialUser());
   const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
 
   // Modals / Screens
@@ -65,6 +76,7 @@ export function App() {
   const [isTimeClockModalOpen, setIsTimeClockModalOpen] = useState(false);
   const [timeClockStatus, setTimeClockStatus] = useState<any | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
+  const selectedTicketIdRef = useRef<string | null>(null);
   const [printTicket, setPrintTicket] = useState<Ticket | null>(null);
   const [smsTicket, setSmsTicket] = useState<Ticket | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -83,15 +95,16 @@ export function App() {
           const json = await res.json();
           if (json.authenticated && json.user) {
             setCurrentUser(json.user);
-          } else {
+            try {
+              localStorage.setItem('apexfix_cached_user', JSON.stringify(json.user));
+            } catch {}
+          } else if (json.authenticated === false) {
             setCurrentUser(null);
+            localStorage.removeItem('apexfix_cached_user');
           }
-        } else {
-          setCurrentUser(null);
         }
       } catch (err) {
         console.error('[Session Check Error]', err);
-        setCurrentUser(null);
       } finally {
         setIsVerifyingSession(false);
       }
@@ -140,6 +153,7 @@ export function App() {
   useEffect(() => {
     const handleUnauthorized = () => {
       setCurrentUser(null);
+      localStorage.removeItem('apexfix_cached_user');
       showToast('Session expired or unauthorized. Please sign in.');
     };
     window.addEventListener('apexfix_auth_unauthorized', handleUnauthorized);
@@ -159,6 +173,7 @@ export function App() {
     // 1. Immediately wipe local auth credentials
     removeToken();
     localStorage.removeItem('apexfix_session_token');
+    localStorage.removeItem('apexfix_cached_user');
     sessionStorage.clear();
 
     // 2. Synchronously clear active user state to render LoginPage immediately
@@ -204,7 +219,8 @@ export function App() {
         return next;
       });
 
-      if (selectedTicket && selectedTicket.id === ticketId) {
+      if (selectedTicketIdRef.current === ticketId || (selectedTicket && selectedTicket.id === ticketId)) {
+        selectedTicketIdRef.current = null;
         setSelectedTicket(null);
       }
 
@@ -237,6 +253,7 @@ export function App() {
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        selectedTicketIdRef.current = null;
         if (selectedTicket) setSelectedTicket(null);
         if (printTicket) setPrintTicket(null);
         if (smsTicket) setSmsTicket(null);
@@ -295,11 +312,15 @@ export function App() {
             localStorage.setItem('apexfix_cached_tickets', JSON.stringify(updatedList));
           } catch {}
 
-          // Keep selectedTicket in sync if open
-          if (selectedTicket) {
-            const matched = updatedList.find((t) => t.id === selectedTicket.id);
-            if (matched && JSON.stringify(matched) !== JSON.stringify(selectedTicket)) {
-              setSelectedTicket(matched);
+          // Keep selectedTicket in sync ONLY if currently open
+          if (selectedTicketIdRef.current) {
+            const currentId = selectedTicketIdRef.current;
+            const matched = updatedList.find((t) => t.id === currentId);
+            if (matched && selectedTicketIdRef.current === currentId) {
+              setSelectedTicket((curr) => {
+                if (!curr || curr.id !== currentId) return null;
+                return JSON.stringify(matched) !== JSON.stringify(curr) ? matched : curr;
+              });
             }
           }
 
@@ -442,11 +463,14 @@ export function App() {
 
   const handleSelectTicket = async (t: Ticket) => {
     try {
+      selectedTicketIdRef.current = t.id;
       setSelectedTicket(t);
       const res = await fetchWithAuth(`/api/tickets/${t.id}`);
       if (res.ok) {
         const full = await res.json();
-        if (full.data) setSelectedTicket(full.data);
+        if (full.data && selectedTicketIdRef.current === t.id) {
+          setSelectedTicket(full.data);
+        }
       }
     } catch (err) {
       console.error(err);
@@ -544,6 +568,9 @@ export function App() {
       <LoginPage
         onLoginSuccess={(user, targetView) => {
           setCurrentUser(user);
+          try {
+            localStorage.setItem('apexfix_cached_user', JSON.stringify(user));
+          } catch {}
           if (user.role === 'ADMIN' && targetView === 'admin') {
             setCurrentTab('admin');
           } else {
@@ -736,15 +763,28 @@ export function App() {
           ticket={selectedTicket}
           currentUser={currentUser}
           onClose={() => {
+            selectedTicketIdRef.current = null;
             setSelectedTicket(null);
             fetchData(true);
           }}
           onUpdateStatus={handleUpdateStatus}
           onRefresh={() => {
-            if (selectedTicket) handleSelectTicket(selectedTicket);
+            if (selectedTicketIdRef.current) {
+              const currentId = selectedTicketIdRef.current;
+              fetchWithAuth(`/api/tickets/${currentId}`)
+                .then((r) => r.json())
+                .then((j) => {
+                  if (j.data && selectedTicketIdRef.current === currentId) {
+                    setSelectedTicket(j.data);
+                  }
+                })
+                .catch(() => {});
+            }
           }}
           onTicketUpdated={(updated) => {
-            setSelectedTicket(updated);
+            if (selectedTicketIdRef.current === updated.id) {
+              setSelectedTicket(updated);
+            }
             setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
             fetchData(true);
           }}
@@ -768,6 +808,7 @@ export function App() {
               } catch {}
               return next;
             });
+            selectedTicketIdRef.current = createdTicket.id;
             setSelectedTicket(createdTicket);
           }
           showToast(`Work order #${createdTicket?.ticketNumber || ''} created successfully`);
