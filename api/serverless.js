@@ -4311,13 +4311,60 @@ app.post("/api/timeclock/clock-out", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.post("/api/sync/tickets", requireAuth, wrap(async (req, res) => {
-	const { deletedIds } = req.body || {};
+	const { deletedIds, tickets } = req.body || {};
 	if (Array.isArray(deletedIds) && deletedIds.length > 0) {
 		await prisma.ticket.updateMany({
 			where: { id: { in: deletedIds } },
 			data: { deletedAt: /* @__PURE__ */ new Date() }
 		}).catch(() => {});
 		await prisma.ticket.deleteMany({ where: { id: { in: deletedIds } } }).catch(() => {});
+	}
+	if (Array.isArray(tickets) && tickets.length > 0) {
+		const deletedSet = new Set(Array.isArray(deletedIds) ? deletedIds : []);
+		for (const t of tickets) {
+			if (!t || !t.id || deletedSet.has(t.id)) continue;
+			try {
+				if (await prisma.ticket.findFirst({ where: { id: t.id } })) continue;
+				const phoneDigits = (t.customer?.phone || "").replace(/\D/g, "") || "0000000000";
+				let customer = await prisma.customer.findFirst({ where: { OR: [{ id: t.customerId || "" }, { phoneDigits }] } });
+				if (!customer) customer = await prisma.customer.create({ data: {
+					id: t.customerId || t.customer?.id,
+					fullName: t.customer?.fullName || "Walk-in Customer",
+					phone: t.customer?.phone || "(555) 000-0000",
+					phoneDigits,
+					email: t.customer?.email || null
+				} });
+				let device = await prisma.device.findFirst({ where: { id: t.deviceId || t.device?.id || "" } });
+				if (!device) device = await prisma.device.create({ data: {
+					id: t.deviceId || t.device?.id,
+					customerId: customer.id,
+					name: t.device?.name || "Customer Device",
+					serialNumber: t.device?.serialNumber || null,
+					passcode: t.device?.passcode || null,
+					pattern: t.device?.pattern || null,
+					condition: t.device?.condition || "Good"
+				} });
+				await prisma.ticket.create({ data: {
+					id: t.id,
+					ticketNumber: t.ticketNumber || 1,
+					customerId: customer.id,
+					deviceId: device.id,
+					status: t.status || "PENDING",
+					priority: t.priority || "STANDARD",
+					faultDescription: t.faultDescription || "Diagnostics & Repair",
+					laborCents: t.laborCents || 0,
+					discountCents: t.discountCents || 0,
+					taxRateBps: t.taxRateBps || 1300,
+					technician: t.technician || null,
+					bench: t.bench || null,
+					storageBin: t.storageBin || null,
+					signature: t.signature || null,
+					diagnostics: JSON.stringify(t.diagnostics || {}),
+					dueDate: t.dueDate ? new Date(t.dueDate) : new Date(Date.now() + 864e5),
+					createdAt: t.createdAt ? new Date(t.createdAt) : /* @__PURE__ */ new Date()
+				} });
+			} catch {}
+		}
 	}
 	res.json({ success: true });
 }));

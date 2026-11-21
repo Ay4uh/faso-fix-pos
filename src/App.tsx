@@ -273,27 +273,50 @@ export function App() {
         // Clean server list: filter out any optimistically deleted tickets
         const cleanServerList = serverList.filter((t) => !deletedIds.has(t.id));
 
-        setTickets(cleanServerList);
-        try {
-          localStorage.setItem('apexfix_cached_tickets', JSON.stringify(cleanServerList));
-        } catch {}
-
-        // Keep selectedTicket in sync if open
-        if (selectedTicket) {
-          const matched = cleanServerList.find((t) => t.id === selectedTicket.id);
-          if (matched && JSON.stringify(matched) !== JSON.stringify(selectedTicket)) {
-            setSelectedTicket(matched);
+        setTickets((prev) => {
+          let updatedList: Ticket[];
+          if (cleanServerList.length > 0) {
+            const serverIds = new Set(cleanServerList.map((t) => t.id));
+            const unsynced = prev.filter(
+              (t) =>
+                !deletedIds.has(t.id) &&
+                !serverIds.has(t.id) &&
+                (activeFilter === 'ALL' || t.status === activeFilter)
+            );
+            updatedList = [...cleanServerList, ...unsynced];
+          } else {
+            // Preserve existing local non-deleted tickets if server container returned empty
+            updatedList = prev.filter(
+              (t) => !deletedIds.has(t.id) && (activeFilter === 'ALL' || t.status === activeFilter)
+            );
           }
-        }
 
-        // Sync deleted IDs if container needs cleanup
-        if (deletedIds.size > 0) {
-          fetchWithAuth('/api/sync/tickets', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ deletedIds: Array.from(deletedIds) }),
-          }).catch(() => {});
-        }
+          try {
+            localStorage.setItem('apexfix_cached_tickets', JSON.stringify(updatedList));
+          } catch {}
+
+          // Keep selectedTicket in sync if open
+          if (selectedTicket) {
+            const matched = updatedList.find((t) => t.id === selectedTicket.id);
+            if (matched && JSON.stringify(matched) !== JSON.stringify(selectedTicket)) {
+              setSelectedTicket(matched);
+            }
+          }
+
+          // Sync tickets & deleted IDs to server so cold containers stay populated
+          if (updatedList.length > 0 || deletedIds.size > 0) {
+            fetchWithAuth('/api/sync/tickets', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                deletedIds: Array.from(deletedIds),
+                tickets: updatedList,
+              }),
+            }).catch(() => {});
+          }
+
+          return updatedList;
+        });
       }
 
       if (statsRes.ok) {
