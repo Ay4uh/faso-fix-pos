@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   LogOut,
   Lock,
+  Clock,
 } from 'lucide-react';
 import { DashboardStats, User as UserType } from '../types';
 
@@ -21,6 +22,7 @@ interface SidebarProps {
   onOpenAdminLogin: () => void;
   onLogout: () => void;
   openCreateModal: () => void;
+  onOpenTimeClock?: () => void;
 }
 
 export const Sidebar: React.FC<SidebarProps> = ({
@@ -31,6 +33,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenAdminLogin,
   onLogout,
   openCreateModal,
+  onOpenTimeClock,
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN';
 
@@ -127,6 +130,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>Analytics</span>
             </div>
           </button>
+
+          {onOpenTimeClock && (
+            <button
+              onClick={onOpenTimeClock}
+              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+            >
+              <div className="flex items-center space-x-3">
+                <Clock className="w-4 h-4 text-emerald-600" />
+                <span>Time Clock</span>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                Shifts
+              </span>
+            </button>
+          )}
 
           <button
             onClick={() => setCurrentTab('settings')}

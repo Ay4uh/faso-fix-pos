@@ -103,6 +103,8 @@ export async function getTimeClockStatus(userId: string) {
     todayHours: Number((todayMinutes / 60).toFixed(2)),
     weekMinutes,
     weekHours: Number((weekMinutes / 60).toFixed(2)),
+    weeklyHours: Number((weekMinutes / 60).toFixed(2)),
+    hourlyRateCents: user.hourlyRateCents,
     isApproachingOvertime: weekMinutes / 60 >= 40,
     isOvertime: weekMinutes / 60 > CRA_2026.ONTARIO_OVERTIME_WEEKLY_HOURS,
   };

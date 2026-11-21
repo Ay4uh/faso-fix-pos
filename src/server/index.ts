@@ -45,6 +45,7 @@ import {
 } from './service';
 import { authenticateSession, ensureAdminProvisioning, recordAudit } from './auth';
 import { configureSqlite, createBackup, listBackups, resolveBackup, startBackupSchedule } from './backup';
+import { ensureDatabaseSchema, ensureInitialInventory } from './initDb';
 import * as payrollService from './payrollService';
 import { prisma } from './prisma';
 import { buildReceiptHtml, buildBenchSlipHtml, buildLetterInvoiceHtml } from '../utils/receipt';
@@ -703,6 +704,10 @@ app.post('/api/timeclock/clock-out', requireAuth, wrap(async (req, res) => {
 app.post('/api/sync/tickets', requireAuth, wrap(async (req, res) => {
   const { deletedIds } = req.body || {};
   if (Array.isArray(deletedIds) && deletedIds.length > 0) {
+    await prisma.ticket.updateMany({
+      where: { id: { in: deletedIds } },
+      data: { deletedAt: new Date() },
+    }).catch(() => {});
     await prisma.ticket.deleteMany({
       where: { id: { in: deletedIds } },
     }).catch(() => {});
@@ -922,7 +927,9 @@ if (!process.env.VERCEL) {
     console.log(`[Faso Fix API] Running on http://localhost:${PORT}`);
     try {
       await configureSqlite();
+      await ensureDatabaseSchema();
       await ensureAdminProvisioning();
+      await ensureInitialInventory();
       if (process.env.NODE_ENV !== 'test') startBackupSchedule();
     } catch (err) {
       console.error('[Startup Error]', err);

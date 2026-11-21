@@ -15,7 +15,7 @@ import {
   TrendingUp,
   Percent,
 } from 'lucide-react';
-import { fetchWithAuth } from '../../utils/auth';
+import { fetchWithAuth, getToken } from '../../utils/auth';
 import { PaystubModal } from '../PaystubModal';
 
 export const AdminPayrollTab: React.FC = () => {
@@ -222,7 +222,9 @@ export const AdminPayrollTab: React.FC = () => {
   };
 
   const handleExportCsv = (periodId: string) => {
-    window.open(`/api/admin/payroll/periods/${periodId}/export`, '_blank');
+    const token = getToken();
+    const q = token ? `?token=${encodeURIComponent(token)}` : '';
+    window.open(`/api/admin/payroll/periods/${periodId}/export${q}`, '_blank');
   };
 
   const fmtCurrency = (cents: number) => `$${((cents || 0) / 100).toFixed(2)}`;

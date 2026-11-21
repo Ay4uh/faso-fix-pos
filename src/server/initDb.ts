@@ -294,3 +294,100 @@ export async function ensureDatabaseSchema() {
     } catch {}
   }
 }
+
+export async function ensureInitialInventory() {
+  try {
+    const count = await prisma.inventoryPart.count();
+    if (count === 0) {
+      const defaultParts = [
+        {
+          id: 'part_ip15p_oled',
+          sku: 'SCR-IP15P-OEM',
+          name: 'iPhone 15 Pro OLED Display & Touch Digitizer',
+          category: 'SCREENS',
+          costCents: 12000,
+          priceCents: 21900,
+          stock: 8,
+          reorderPoint: 2,
+          supplier: 'MobileSentrix Canada',
+        },
+        {
+          id: 'part_ip14_oled',
+          sku: 'SCR-IP14-OEM',
+          name: 'iPhone 14 OLED Screen Assembly',
+          category: 'SCREENS',
+          costCents: 8500,
+          priceCents: 15900,
+          stock: 12,
+          reorderPoint: 3,
+          supplier: 'MobileSentrix Canada',
+        },
+        {
+          id: 'part_s24u_amoled',
+          sku: 'SCR-S24U-DYNAMIC',
+          name: 'Samsung Galaxy S24 Ultra Dynamic AMOLED',
+          category: 'SCREENS',
+          costCents: 17500,
+          priceCents: 28900,
+          stock: 5,
+          reorderPoint: 2,
+          supplier: 'Injured Gadgets',
+        },
+        {
+          id: 'part_bat_ip15',
+          sku: 'BAT-IP15-TI',
+          name: 'iPhone 15 High-Capacity Zero-Cycle Battery',
+          category: 'BATTERIES',
+          costCents: 2800,
+          priceCents: 6900,
+          stock: 15,
+          reorderPoint: 4,
+          supplier: 'MobileSentrix Canada',
+        },
+        {
+          id: 'part_bat_s23',
+          sku: 'BAT-S23-OEM',
+          name: 'Samsung Galaxy S23 Series Battery Pack',
+          category: 'BATTERIES',
+          costCents: 2400,
+          priceCents: 6500,
+          stock: 10,
+          reorderPoint: 3,
+          supplier: 'Injured Gadgets',
+        },
+        {
+          id: 'part_port_usbc',
+          sku: 'PORT-USBC-UNIV',
+          name: 'Universal USB-C Port Daughterboard Sub-Assembly',
+          category: 'COMPONENTS',
+          costCents: 1400,
+          priceCents: 4500,
+          stock: 20,
+          reorderPoint: 5,
+          supplier: 'MobileSentrix Canada',
+        },
+        {
+          id: 'part_seal_thermal',
+          sku: 'MISC-THERMAL-KIT',
+          name: 'Thermal Dissipation Pad & IP68 Waterproof Gasket Kit',
+          category: 'GENERAL',
+          costCents: 450,
+          priceCents: 1900,
+          stock: 35,
+          reorderPoint: 10,
+          supplier: 'Faso Supply Co',
+        },
+      ];
+
+      for (const part of defaultParts) {
+        await prisma.inventoryPart.upsert({
+          where: { sku: part.sku },
+          update: {},
+          create: part,
+        }).catch(() => {});
+      }
+    }
+  } catch (err) {
+    console.error('[Inventory Provisioning Error]', err);
+  }
+}

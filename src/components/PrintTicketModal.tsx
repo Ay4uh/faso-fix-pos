@@ -328,9 +328,9 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px]">Passcode / PIN:</span>
-                      <span className="text-indigo-600 font-bold">
-                        {ticket.device?.passcode || 'Verified by Owner'}
+                      <span className="text-slate-400 block text-[10px]">Passcode / Pattern:</span>
+                      <span className="text-indigo-600 font-bold block truncate">
+                        {ticket.device?.pattern ? `Pattern: ${ticket.device.pattern}` : (ticket.device?.passcode || 'Verified by Owner')}
                       </span>
                     </div>
                   </div>
@@ -651,6 +651,9 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                 <div className="font-bold truncate">{ticket.device?.name || 'Device'}</div>
                 {ticket.device?.passcode && (
                   <div className="font-bold text-slate-900">PIN: {ticket.device.passcode}</div>
+                )}
+                {ticket.device?.pattern && (
+                  <div className="font-bold text-purple-700 font-mono">Pattern: {ticket.device.pattern}</div>
                 )}
                 {ticket.device?.serialNumber && (
                   <div className="text-[9px] text-slate-500 truncate">{ticket.device.serialNumber}</div>

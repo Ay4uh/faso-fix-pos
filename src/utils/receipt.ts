@@ -270,7 +270,7 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
       S/N: ${esc(ticket.device?.serialNumber || 'N/A')}
     </div>
     <div style="font-size:11px;color:#4f46e5;font-weight:bold">
-      Passcode / PIN: ${esc(ticket.device?.passcode || 'Verified by Owner')}
+      ${ticket.device?.pattern ? `Pattern: ${esc(ticket.device.pattern)}${ticket.device.passcode ? ` • PIN: ${esc(ticket.device.passcode)}` : ''}` : `Passcode / PIN: ${esc(ticket.device?.passcode || 'Verified by Owner')}`}
     </div>
     <div style="font-size:10px;color:#64748b;margin-top:2px">Condition: ${esc(ticket.device?.condition || 'Standard')}</div>
   </div>

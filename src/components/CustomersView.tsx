@@ -330,6 +330,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                             <div className="flex items-center gap-2 text-slate-400 font-mono text-xs mt-0.5">
                               <span>Work Order: <strong className="text-indigo-600">#{t.ticketNumber}</strong></span>
                               {t.device?.passcode && <span>• PIN: {t.device.passcode}</span>}
+                              {t.device?.pattern && <span>• Pattern: {t.device.pattern}</span>}
                             </div>
                           </div>
                         </div>

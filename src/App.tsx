@@ -22,20 +22,24 @@ import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
 import { fetchWithAuth, removeToken } from './utils/auth';
 
-const getInitialTickets = (): Ticket[] => {
-  try {
-    const raw = localStorage.getItem('apexfix_cached_tickets');
-    if (raw) return JSON.parse(raw);
-  } catch {}
-  return [];
-};
-
 const getDeletedTicketIds = (): Set<string> => {
   try {
     const raw = localStorage.getItem('apexfix_deleted_ticket_ids');
     if (raw) return new Set(JSON.parse(raw));
   } catch {}
   return new Set();
+};
+
+const getInitialTickets = (): Ticket[] => {
+  try {
+    const deletedIds = getDeletedTicketIds();
+    const raw = localStorage.getItem('apexfix_cached_tickets');
+    if (raw) {
+      const parsed: Ticket[] = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed.filter((t) => !deletedIds.has(t.id)) : [];
+    }
+  } catch {}
+  return [];
 };
 
 export function App() {
@@ -266,36 +270,21 @@ export function App() {
         const serverList: Ticket[] = data.data || [];
         const deletedIds = deletedTicketIdsRef.current;
 
-        // 1. Strict anti-fluctuation filter: filter out any deleted tickets
+        // Clean server list: filter out any optimistically deleted tickets
         const cleanServerList = serverList.filter((t) => !deletedIds.has(t.id));
 
-        // 2. Multi-container reconciliation: preserve recent local tickets created within 15 minutes
-        setTickets((prevList) => {
-          const serverIds = new Set(cleanServerList.map((t) => t.id));
-          const now = Date.now();
+        setTickets(cleanServerList);
+        try {
+          localStorage.setItem('apexfix_cached_tickets', JSON.stringify(cleanServerList));
+        } catch {}
 
-          const preservedLocal = prevList.filter((t) => {
-            if (deletedIds.has(t.id)) return false;
-            if (serverIds.has(t.id)) return false;
-            const ageMs = now - new Date(t.createdAt || 0).getTime();
-            return ageMs < 15 * 60 * 1000;
-          });
-
-          const merged = [...cleanServerList, ...preservedLocal];
-          try {
-            localStorage.setItem('apexfix_cached_tickets', JSON.stringify(merged));
-          } catch {}
-
-          // Keep selectedTicket in sync if open
-          if (selectedTicket) {
-            const matched = merged.find((t) => t.id === selectedTicket.id);
-            if (matched && JSON.stringify(matched) !== JSON.stringify(selectedTicket)) {
-              setSelectedTicket(matched);
-            }
+        // Keep selectedTicket in sync if open
+        if (selectedTicket) {
+          const matched = cleanServerList.find((t) => t.id === selectedTicket.id);
+          if (matched && JSON.stringify(matched) !== JSON.stringify(selectedTicket)) {
+            setSelectedTicket(matched);
           }
-
-          return merged;
-        });
+        }
 
         // Sync deleted IDs if container needs cleanup
         if (deletedIds.size > 0) {
@@ -592,6 +581,7 @@ export function App() {
             onOpenAdminLogin={() => setIsAdminLoginModalOpen(true)}
             onLogout={handleLogout}
             openCreateModal={() => setIsCreateModalOpen(true)}
+            onOpenTimeClock={() => setIsTimeClockModalOpen(true)}
           />
         </div>
 
@@ -703,6 +693,7 @@ export function App() {
         currentUser={currentUser}
         onLogout={handleLogout}
         openCreateModal={() => setIsCreateModalOpen(true)}
+        onOpenTimeClock={() => setIsTimeClockModalOpen(true)}
       />
 
       {/* Mobile Fixed Bottom Navigation Bar */}

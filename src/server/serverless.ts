@@ -1,5 +1,5 @@
 import app from './index';
-import { ensureDatabaseSchema } from './initDb';
+import { ensureDatabaseSchema, ensureInitialInventory } from './initDb';
 import { ensureAdminProvisioning } from './auth';
 import { configureSqlite } from './backup';
 
@@ -14,6 +14,7 @@ async function initServerless() {
         await configureSqlite();
         await ensureDatabaseSchema();
         await ensureAdminProvisioning();
+        await ensureInitialInventory();
         initialized = true;
       } catch (err) {
         console.error('[Serverless Init Error]', err);

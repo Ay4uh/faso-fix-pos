@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { X, Printer, ShieldCheck, DollarSign } from 'lucide-react';
+import { getToken } from '../utils/auth';
 
 interface PaystubModalProps {
   paystub: any | null;
@@ -13,7 +14,9 @@ export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) 
 
   const handlePrint = () => {
     // Open printable HTML view directly for crisp native vector printing
-    const printUrl = `/api/timeclock/my-paystubs/${paystub.id}/html`;
+    const token = getToken();
+    const q = token ? `?token=${encodeURIComponent(token)}` : '';
+    const printUrl = `/api/timeclock/my-paystubs/${paystub.id}/html${q}`;
     const win = window.open(printUrl, '_blank', 'width=900,height=1000');
     if (win) {
       win.focus();

@@ -8,7 +8,7 @@ import {
   CheckCircle2,
   X,
 } from 'lucide-react';
-import { fetchWithAuth } from '../../utils/auth';
+import { fetchWithAuth, getToken } from '../../utils/auth';
 
 export const AdminAttendanceTab: React.FC = () => {
   const [liveRoster, setLiveRoster] = useState<any[]>([]);
@@ -198,6 +198,8 @@ export const AdminAttendanceTab: React.FC = () => {
     if (selectedUser !== 'ALL') params.set('userId', selectedUser);
     if (startDate) params.set('startDate', startDate);
     if (endDate) params.set('endDate', endDate);
+    const token = getToken();
+    if (token) params.set('token', token);
     window.open(`/api/admin/attendance/export?${params.toString()}`, '_blank');
   };
 

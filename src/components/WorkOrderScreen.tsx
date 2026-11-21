@@ -726,6 +726,49 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               </div>
             </div>
 
+            {/* Device & Security Profile */}
+            <div className="bg-slate-50 rounded-xl p-3.5 space-y-2 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-bold text-slate-800">
+                  Device &amp; Security
+                </span>
+                <span className="px-2 py-0.5 rounded bg-white text-indigo-700 font-bold text-[10px] border border-slate-200">
+                  {ticket.device?.name || 'Device'}
+                </span>
+              </div>
+              {ticket.device?.serialNumber && (
+                <div className="flex justify-between items-center text-[11px]">
+                  <span className="text-slate-400">S/N:</span>
+                  <span className="font-mono text-slate-700 font-semibold">{ticket.device.serialNumber}</span>
+                </div>
+              )}
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-slate-400">PIN / Passcode:</span>
+                <span className="font-mono font-bold text-indigo-600">{passcode || 'None'}</span>
+              </div>
+              <div className="flex justify-between items-center text-[11px]">
+                <span className="text-slate-400">Pattern Lock:</span>
+                {pattern ? (
+                  <button
+                    type="button"
+                    onClick={() => setIsPatternModalOpen(true)}
+                    className="inline-flex items-center gap-1 text-purple-700 font-bold hover:underline cursor-pointer"
+                  >
+                    <PatternLockPreview pattern={pattern} size={14} />
+                    <span>{pattern}</span>
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setIsPatternModalOpen(true)}
+                    className="text-indigo-600 font-medium hover:underline text-[10px] cursor-pointer"
+                  >
+                    + Add Pattern
+                  </button>
+                )}
+              </div>
+            </div>
+
             {/* Timelines Box */}
             <div className="bg-slate-50 rounded-xl p-3.5 space-y-2 text-xs">
               <span className="text-xs font-bold text-slate-800 block">

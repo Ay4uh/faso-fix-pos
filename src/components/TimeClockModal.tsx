@@ -176,7 +176,6 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   };
 
   const handleClockOut = async () => {
-    if (!window.confirm('Are you sure you want to clock out and end your shift?')) return;
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -456,7 +455,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                     {/* Clock Out Control */}
                     <button
                       onClick={handleClockOut}
-                      disabled={loading || isOnBreak}
+                      disabled={loading}
                       className="py-3 px-4 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold rounded-xl shadow-xs flex items-center justify-center space-x-2 transition cursor-pointer text-xs disabled:opacity-40"
                     >
                       <Square className="w-4 h-4 fill-current" />
@@ -492,13 +491,13 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
                 <span className="text-[10px] uppercase font-bold text-slate-500">This Week</span>
                 <p className="text-base font-black text-indigo-700 font-mono">
-                  {clockStatus?.weeklyHours ? `${clockStatus.weeklyHours} hrs` : '0.0 hrs'}
+                  {(clockStatus?.weeklyHours ?? clockStatus?.weekHours) ? `${clockStatus.weeklyHours ?? clockStatus.weekHours} hrs` : '0.0 hrs'}
                 </p>
               </div>
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
                 <span className="text-[10px] uppercase font-bold text-slate-500">Hourly Rate</span>
                 <p className="text-base font-black text-slate-900 font-mono">
-                  {fmtCurrency(clockStatus?.hourlyRateCents || 2200)}
+                  {fmtCurrency(clockStatus?.hourlyRateCents ?? clockStatus?.user?.hourlyRateCents ?? 2200)}
                 </p>
               </div>
               <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">

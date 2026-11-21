@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   LogOut,
   Wrench,
+  Clock,
 } from 'lucide-react';
 import { DashboardStats, User as UserType } from '../types';
 
@@ -22,6 +23,7 @@ interface MobileDrawerProps {
   currentUser: UserType | null;
   onLogout: () => void;
   openCreateModal: () => void;
+  onOpenTimeClock?: () => void;
 }
 
 export const MobileDrawer: React.FC<MobileDrawerProps> = ({
@@ -33,6 +35,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
   currentUser,
   onLogout,
   openCreateModal,
+  onOpenTimeClock,
 }) => {
   if (!isOpen) return null;
 
@@ -178,6 +181,24 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                 <span>Analytics &amp; Reports</span>
               </div>
             </button>
+
+            {onOpenTimeClock && (
+              <button
+                onClick={() => {
+                  onClose();
+                  onOpenTimeClock();
+                }}
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer min-h-[44px] text-slate-700 hover:bg-slate-50"
+              >
+                <div className="flex items-center space-x-3">
+                  <Clock className="w-4 h-4 text-emerald-600" />
+                  <span>Time Clock &amp; Shifts</span>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
+                  Staff
+                </span>
+              </button>
+            )}
 
             <button
               onClick={() => handleSelectTab('settings')}
