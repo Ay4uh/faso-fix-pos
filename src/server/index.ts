@@ -754,10 +754,25 @@ app.post('/api/sync/tickets', requireAuth, wrap(async (req, res) => {
           });
         }
 
+        // Prevent ticketNumber collision on sync
+        let assignedTicketNumber = t.ticketNumber || 1;
+        const numberCollision = await prisma.ticket.findFirst({
+          where: { ticketNumber: assignedTicketNumber, NOT: { id: t.id } },
+          select: { id: true },
+        });
+
+        if (numberCollision) {
+          const maxTicket = await prisma.ticket.findFirst({
+            orderBy: { ticketNumber: 'desc' },
+            select: { ticketNumber: true },
+          });
+          assignedTicketNumber = (maxTicket?.ticketNumber ?? 0) + 1;
+        }
+
         await prisma.ticket.create({
           data: {
             id: t.id,
-            ticketNumber: t.ticketNumber || 1,
+            ticketNumber: assignedTicketNumber,
             customerId: customer.id,
             deviceId: device.id,
             status: t.status || 'PENDING',
@@ -779,6 +794,20 @@ app.post('/api/sync/tickets', requireAuth, wrap(async (req, res) => {
         // Ignored to allow other tickets to sync
       }
     }
+
+    // Keep Setting.nextTicketNumber strictly above the max ticketNumber in the database
+    try {
+      const maxOverall = await prisma.ticket.findFirst({
+        orderBy: { ticketNumber: 'desc' },
+        select: { ticketNumber: true },
+      });
+      if (maxOverall?.ticketNumber) {
+        await prisma.setting.update({
+          where: { id: 1 },
+          data: { nextTicketNumber: maxOverall.ticketNumber + 1 },
+        });
+      }
+    } catch {}
   }
 
   res.json({ success: true });

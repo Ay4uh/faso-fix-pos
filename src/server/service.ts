@@ -194,13 +194,21 @@ export async function createTicket(input: unknown) {
   const id = await prisma.$transaction(async (tx) => {
     const settings = await getSettings(tx);
 
-    // Atomically claim the next sequential work order number (1, 2, 3, ...).
-    const counter = await tx.setting.update({
-      where: { id: 1 },
-      data: { nextTicketNumber: { increment: 1 } },
-      select: { nextTicketNumber: true },
+    // Atomically find the highest existing ticketNumber across all tickets
+    const maxTicket = await tx.ticket.findFirst({
+      orderBy: { ticketNumber: 'desc' },
+      select: { ticketNumber: true },
     });
-    const ticketNumber = counter.nextTicketNumber - 1;
+
+    const nextFromSetting = settings.nextTicketNumber || 1;
+    const nextFromMax = (maxTicket?.ticketNumber ?? 0) + 1;
+    const ticketNumber = Math.max(nextFromSetting, nextFromMax);
+
+    // Ensure nextTicketNumber is always strictly greater than ticketNumber
+    await tx.setting.update({
+      where: { id: 1 },
+      data: { nextTicketNumber: ticketNumber + 1 },
+    });
 
     // Customer: matched on phone digits so "(555) 123-4567" and "5551234567" are the same person.
     let customer = await tx.customer.findUnique({ where: { phoneDigits } });

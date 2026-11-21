@@ -609,11 +609,17 @@ async function createTicket(input) {
 	const phoneDigits = digitsOnly(data.customer.phone);
 	return getTicket(await prisma.$transaction(async (tx) => {
 		const settings = await getSettings(tx);
-		const ticketNumber = (await tx.setting.update({
+		const maxTicket = await tx.ticket.findFirst({
+			orderBy: { ticketNumber: "desc" },
+			select: { ticketNumber: true }
+		});
+		const nextFromSetting = settings.nextTicketNumber || 1;
+		const nextFromMax = (maxTicket?.ticketNumber ?? 0) + 1;
+		const ticketNumber = Math.max(nextFromSetting, nextFromMax);
+		await tx.setting.update({
 			where: { id: 1 },
-			data: { nextTicketNumber: { increment: 1 } },
-			select: { nextTicketNumber: true }
-		})).nextTicketNumber - 1;
+			data: { nextTicketNumber: ticketNumber + 1 }
+		});
 		let customer = await tx.customer.findUnique({ where: { phoneDigits } });
 		if (!customer) customer = await tx.customer.create({ data: {
 			fullName: data.customer.fullName,
@@ -4344,9 +4350,20 @@ app.post("/api/sync/tickets", requireAuth, wrap(async (req, res) => {
 					pattern: t.device?.pattern || null,
 					condition: t.device?.condition || "Good"
 				} });
+				let assignedTicketNumber = t.ticketNumber || 1;
+				if (await prisma.ticket.findFirst({
+					where: {
+						ticketNumber: assignedTicketNumber,
+						NOT: { id: t.id }
+					},
+					select: { id: true }
+				})) assignedTicketNumber = ((await prisma.ticket.findFirst({
+					orderBy: { ticketNumber: "desc" },
+					select: { ticketNumber: true }
+				}))?.ticketNumber ?? 0) + 1;
 				await prisma.ticket.create({ data: {
 					id: t.id,
-					ticketNumber: t.ticketNumber || 1,
+					ticketNumber: assignedTicketNumber,
 					customerId: customer.id,
 					deviceId: device.id,
 					status: t.status || "PENDING",
@@ -4365,6 +4382,16 @@ app.post("/api/sync/tickets", requireAuth, wrap(async (req, res) => {
 				} });
 			} catch {}
 		}
+		try {
+			const maxOverall = await prisma.ticket.findFirst({
+				orderBy: { ticketNumber: "desc" },
+				select: { ticketNumber: true }
+			});
+			if (maxOverall?.ticketNumber) await prisma.setting.update({
+				where: { id: 1 },
+				data: { nextTicketNumber: maxOverall.ticketNumber + 1 }
+			});
+		} catch {}
 	}
 	res.json({ success: true });
 }));
