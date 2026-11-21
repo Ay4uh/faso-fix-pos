@@ -411,11 +411,11 @@ export function printDirectDocument(html: string): Promise<void> {
 
       const iframe = document.createElement('iframe');
       iframe.id = 'pos-direct-print-frame';
-      // Use off-screen fixed positioning with realistic viewport dimensions so Chromium's layout
-      // engine computes media @page rules and vector dimensions without 0x0 clipping or preview deadlocks
+      // Use zero-opacity off-pointer fixed frame without visibility:hidden
+      // Chromium skips painting when visibility:hidden is set, causing Mac print preview to hang
       iframe.setAttribute(
         'style',
-        'position: fixed; left: -9999px; top: -9999px; width: 1024px; height: 1024px; border: 0; visibility: hidden;'
+        'position: fixed; right: 0; bottom: 0; width: 1024px; height: 1024px; border: 0; opacity: 0; pointer-events: none; z-index: -9999;'
       );
 
       document.body.appendChild(iframe);
@@ -430,7 +430,7 @@ export function printDirectDocument(html: string): Promise<void> {
       frameDoc.write(html);
       frameDoc.close();
 
-      // Wait 250ms for Chromium to lay out fonts, SVGs, and styles, then invoke print
+      // Wait 300ms for fonts, SVGs, and styles to complete paint, then trigger print
       setTimeout(() => {
         try {
           iframe.contentWindow?.focus();
@@ -440,13 +440,13 @@ export function printDirectDocument(html: string): Promise<void> {
         }
         resolve();
 
-        // Remove iframe after print dialog completes
+        // Clean up iframe after print dialog resolves
         setTimeout(() => {
           try {
             iframe.remove();
           } catch {}
-        }, 60000);
-      }, 250);
+        }, 30000);
+      }, 300);
     } catch (e) {
       console.error('Direct print failed:', e);
       resolve();

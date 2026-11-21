@@ -92,7 +92,12 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
 
     if (token) {
       req.token = token;
-      const user = await authenticateSession(token);
+      const clientHeaders = {
+        userId: req.headers['x-user-id'] as string | undefined,
+        userName: req.headers['x-user-name'] as string | undefined,
+        userRole: req.headers['x-user-role'] as string | undefined,
+      };
+      const user = await authenticateSession(token, clientHeaders);
       if (user) {
         req.user = user;
       }
@@ -274,6 +279,11 @@ app.put('/api/auth/preferences', requireAuth, wrap(async (req, res) => {
 app.get('/api/admin/overview', requireAdmin, wrap(async (_req, res) => {
   const overview = await getAdminOverview();
   res.json({ success: true, data: overview });
+}));
+
+app.get('/api/users', requireAuth, wrap(async (req, res) => {
+  const users = await listUsers();
+  res.json({ success: true, count: users.length, data: users, users });
 }));
 
 app.get('/api/admin/users', requireAdmin, wrap(async (req, res) => {

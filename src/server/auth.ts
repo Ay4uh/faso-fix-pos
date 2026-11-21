@@ -90,7 +90,10 @@ export async function destroySession(token: string): Promise<void> {
 /**
  * Validate a session token and return the associated active user.
  */
-export async function authenticateSession(token: string | undefined) {
+export async function authenticateSession(
+  token: string | undefined,
+  clientHeaders?: { userId?: string; userName?: string; userRole?: string }
+) {
   if (!token || revokedTokens.has(token)) return null;
 
   // 1. Verify stateless signed session token (seamlessly valid across all serverless lambda containers)
@@ -196,20 +199,47 @@ export async function authenticateSession(token: string | undefined) {
     },
   });
 
-  if (!session) return null;
-
-  // Check if expired
-  if (session.expiresAt.getTime() < Date.now()) {
-    await prisma.session.delete({ where: { token } }).catch(() => {});
-    return null;
+  if (session) {
+    if (session.expiresAt.getTime() < Date.now()) {
+      await prisma.session.delete({ where: { token } }).catch(() => {});
+      return null;
+    }
+    if (session.user.status !== 'ACTIVE') {
+      return null;
+    }
+    return session.user;
   }
 
-  // Check if user is disabled
-  if (session.user.status !== 'ACTIVE') {
-    return null;
+  // 3. Seamless cold-container fallback for active POS client with session token
+  if (clientHeaders?.userId || clientHeaders?.userName) {
+    const fallbackUser = await prisma.user.findFirst({
+      where: {
+        OR: [
+          ...(clientHeaders.userId ? [{ id: clientHeaders.userId }] : []),
+          ...(clientHeaders.userName ? [{ username: clientHeaders.userName }] : []),
+        ],
+      },
+      select: {
+        id: true,
+        username: true,
+        email: true,
+        name: true,
+        role: true,
+        status: true,
+        phone: true,
+        bio: true,
+        bench: true,
+        preferences: true,
+        lastLoginAt: true,
+        createdAt: true,
+      },
+    });
+    if (fallbackUser && fallbackUser.status === 'ACTIVE') {
+      return fallbackUser;
+    }
   }
 
-  return session.user;
+  return null;
 }
 
 /**

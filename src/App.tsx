@@ -90,6 +90,12 @@ export function App() {
   useEffect(() => {
     const verifySession = async () => {
       try {
+        const token = getToken();
+        if (!token) {
+          setCurrentUser(null);
+          localStorage.removeItem('apexfix_cached_user');
+          return;
+        }
         const res = await fetchWithAuth('/api/auth/me');
         if (res.ok) {
           const json = await res.json();
@@ -98,9 +104,6 @@ export function App() {
             try {
               localStorage.setItem('apexfix_cached_user', JSON.stringify(json.user));
             } catch {}
-          } else if (json.authenticated === false) {
-            setCurrentUser(null);
-            localStorage.removeItem('apexfix_cached_user');
           }
         }
       } catch (err) {
@@ -843,6 +846,9 @@ export function App() {
         onClose={() => setIsAdminLoginModalOpen(false)}
         onLoginSuccess={(user) => {
           setCurrentUser(user);
+          try {
+            localStorage.setItem('apexfix_cached_user', JSON.stringify(user));
+          } catch {}
           showToast(`Authenticated as ${user.name}`);
           if (user.role === 'ADMIN') {
             setCurrentTab('admin');

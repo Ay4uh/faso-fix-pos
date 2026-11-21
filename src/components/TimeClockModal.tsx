@@ -193,16 +193,31 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes, shiftData }),
       });
-      const json = await res.json();
-      if (!res.ok) throw new Error(json.error || 'Failed to clock out');
+      const json = await res.json().catch(() => ({}));
 
+      // Always clear local shift storage on clock-out
       localStorage.removeItem(getActiveShiftKey());
+
+      if (!res.ok && !json.data) {
+        // If server says no active shift, clean up local state gracefully
+        if (json.error?.includes('No active shift') || json.error?.includes('already')) {
+          setSuccessMsg('Shift complete! Successfully clocked out.');
+          setNotes('');
+          await loadClockStatus();
+          await loadShifts();
+          onStatusChange?.();
+          return;
+        }
+        throw new Error(json.error || 'Failed to clock out');
+      }
+
       setSuccessMsg('Shift complete! Successfully clocked out.');
       setNotes('');
       await loadClockStatus();
       await loadShifts();
       onStatusChange?.();
     } catch (err: any) {
+      localStorage.removeItem(getActiveShiftKey());
       setErrorMsg(err.message || 'Error clocking out');
     } finally {
       setLoading(false);

@@ -77,7 +77,7 @@ export const AdminAttendanceTab: React.FC = () => {
 
   const loadEmployees = async () => {
     try {
-      const res = await fetchWithAuth('/api/users');
+      const res = await fetchWithAuth('/api/admin/users');
       if (res.ok) {
         const json = await res.json();
         setEmployees(json.users || json.data || []);

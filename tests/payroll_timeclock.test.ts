@@ -253,6 +253,22 @@ describe('Employee Time Tracking & Canadian CRA Payroll System', async () => {
     assert.equal(delResult.success, true);
   });
 
+  test('4b. ClockOut Resilience: Duplicate ID or Already-Completed Shift Never Crashes', async () => {
+    // 1. Clock in
+    const shift = await clockIn(testTech1.id, 'Resilience test shift');
+    assert.ok(shift.id);
+
+    // 2. Clock out normally
+    const closed = await clockOut(testTech1.id, 'Clock out 1', { id: shift.id, clockIn: shift.clockIn });
+    assert.equal(closed.status, 'COMPLETED');
+
+    // 3. Second clock-out attempt with same shiftData (simulating double-click or stale localStorage)
+    // MUST NOT crash with "Unique constraint failed on the fields: (id)"
+    const duplicateOut = await clockOut(testTech1.id, 'Clock out retry', { id: shift.id, clockIn: shift.clockIn });
+    assert.equal(duplicateOut.status, 'COMPLETED');
+    assert.equal(duplicateOut.id, shift.id);
+  });
+
   test('5. Employee Wage Rate History & Effective Dates', async () => {
     const adminActor = { id: testAdmin.id, name: testAdmin.name };
 

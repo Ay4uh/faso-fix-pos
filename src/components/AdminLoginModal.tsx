@@ -62,6 +62,9 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
       }
 
       setToken(data.token);
+      try {
+        localStorage.setItem('apexfix_cached_user', JSON.stringify(data.user));
+      } catch {}
       posAudio.playSuccessChime();
       onLoginSuccess(data.user);
       onClose();

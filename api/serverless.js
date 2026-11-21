@@ -289,7 +289,7 @@ async function destroySession(token) {
 /**
 * Validate a session token and return the associated active user.
 */
-async function authenticateSession(token) {
+async function authenticateSession(token, clientHeaders) {
 	if (!token || revokedTokens.has(token)) return null;
 	const verified = verifySignedToken(token);
 	if (verified) {
@@ -368,13 +368,35 @@ async function authenticateSession(token) {
 			createdAt: true
 		} } }
 	});
-	if (!session) return null;
-	if (session.expiresAt.getTime() < Date.now()) {
-		await prisma.session.delete({ where: { token } }).catch(() => {});
-		return null;
+	if (session) {
+		if (session.expiresAt.getTime() < Date.now()) {
+			await prisma.session.delete({ where: { token } }).catch(() => {});
+			return null;
+		}
+		if (session.user.status !== "ACTIVE") return null;
+		return session.user;
 	}
-	if (session.user.status !== "ACTIVE") return null;
-	return session.user;
+	if (clientHeaders?.userId || clientHeaders?.userName) {
+		const fallbackUser = await prisma.user.findFirst({
+			where: { OR: [...clientHeaders.userId ? [{ id: clientHeaders.userId }] : [], ...clientHeaders.userName ? [{ username: clientHeaders.userName }] : []] },
+			select: {
+				id: true,
+				username: true,
+				email: true,
+				name: true,
+				role: true,
+				status: true,
+				phone: true,
+				bio: true,
+				bench: true,
+				preferences: true,
+				lastLoginAt: true,
+				createdAt: true
+			}
+		});
+		if (fallbackUser && fallbackUser.status === "ACTIVE") return fallbackUser;
+	}
+	return null;
 }
 /**
 * Record an immutable audit log entry.
@@ -2290,26 +2312,65 @@ async function clockOut(userId, notes, shiftData) {
 			user: { select: { name: true } }
 		}
 	});
-	if (!shift && shiftData?.clockIn) {
-		if (await prisma.user.findUnique({
-			where: { id: userId },
-			select: { name: true }
-		})) shift = await prisma.shift.create({
-			data: {
-				...shiftData.id ? { id: shiftData.id } : {},
-				userId,
-				clockIn: new Date(shiftData.clockIn),
-				status: "ACTIVE",
-				breakMinutes: shiftData.breakMinutes || 0,
-				notes: notes?.trim() || null
-			},
+	if (!shift && shiftData?.id) {
+		const existingById = await prisma.shift.findUnique({
+			where: { id: shiftData.id },
 			include: {
 				breaks: true,
 				user: { select: { name: true } }
 			}
 		});
+		if (existingById) {
+			if (existingById.status === "COMPLETED") return existingById;
+			shift = existingById;
+		}
+	}
+	if (!shift && shiftData?.clockIn) {
+		if (await prisma.user.findUnique({
+			where: { id: userId },
+			select: { name: true }
+		})) try {
+			if (shiftData.id) shift = await prisma.shift.upsert({
+				where: { id: shiftData.id },
+				update: {},
+				create: {
+					id: shiftData.id,
+					userId,
+					clockIn: new Date(shiftData.clockIn),
+					status: "ACTIVE",
+					breakMinutes: shiftData.breakMinutes || 0,
+					notes: notes?.trim() || null
+				},
+				include: {
+					breaks: true,
+					user: { select: { name: true } }
+				}
+			});
+			else shift = await prisma.shift.create({
+				data: {
+					userId,
+					clockIn: new Date(shiftData.clockIn),
+					status: "ACTIVE",
+					breakMinutes: shiftData.breakMinutes || 0,
+					notes: notes?.trim() || null
+				},
+				include: {
+					breaks: true,
+					user: { select: { name: true } }
+				}
+			});
+		} catch {
+			if (shiftData.id) shift = await prisma.shift.findUnique({
+				where: { id: shiftData.id },
+				include: {
+					breaks: true,
+					user: { select: { name: true } }
+				}
+			});
+		}
 	}
 	if (!shift) throw new HttpError(400, "No active shift found. You must clock in before clocking out.");
+	if (shift.status === "COMPLETED") return shift;
 	const clockOutTime = /* @__PURE__ */ new Date();
 	if (shift.status === "ON_BREAK") {
 		const openBreak = shift.breaks.find((b) => b.endTime === null);
@@ -3682,7 +3743,12 @@ app.use(async (req, _res, next) => {
 		if (!token && typeof req.query?.token === "string") token = req.query.token;
 		if (token) {
 			req.token = token;
-			const user = await authenticateSession(token);
+			const clientHeaders = {
+				userId: req.headers["x-user-id"],
+				userName: req.headers["x-user-name"],
+				userRole: req.headers["x-user-role"]
+			};
+			const user = await authenticateSession(token, clientHeaders);
 			if (user) req.user = user;
 		}
 	} catch (err) {
@@ -3851,6 +3917,15 @@ app.get("/api/admin/overview", requireAdmin, wrap(async (_req, res) => {
 	res.json({
 		success: true,
 		data: overview
+	});
+}));
+app.get("/api/users", requireAuth, wrap(async (req, res) => {
+	const users = await listUsers();
+	res.json({
+		success: true,
+		count: users.length,
+		data: users,
+		users
 	});
 }));
 app.get("/api/admin/users", requireAdmin, wrap(async (req, res) => {

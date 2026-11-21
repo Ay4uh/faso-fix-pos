@@ -153,6 +153,7 @@ export async function clockOut(
   notes?: string,
   shiftData?: { id?: string; clockIn?: string | Date; breakMinutes?: number }
 ) {
+  // 1. Try to find active or on-break shift for this user
   let shift = await prisma.shift.findFirst({
     where: {
       userId,
@@ -164,32 +165,85 @@ export async function clockOut(
     },
   });
 
-  // Serverless failover: if active shift was started on another container, reconstruct it here
+  // 2. If no active shift found, check if shiftData.id exists in the database
+  if (!shift && shiftData?.id) {
+    const existingById = await prisma.shift.findUnique({
+      where: { id: shiftData.id },
+      include: {
+        breaks: true,
+        user: { select: { name: true } },
+      },
+    });
+    if (existingById) {
+      if (existingById.status === 'COMPLETED') {
+        // Shift was already clocked out successfully (e.g. rapid double-click or stale state)
+        return existingById;
+      }
+      shift = existingById;
+    }
+  }
+
+  // 3. Serverless failover: if active shift was started on another container and not in DB yet
   if (!shift && shiftData?.clockIn) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
       select: { name: true },
     });
     if (user) {
-      shift = await prisma.shift.create({
-        data: {
-          ...(shiftData.id ? { id: shiftData.id } : {}),
-          userId,
-          clockIn: new Date(shiftData.clockIn),
-          status: 'ACTIVE',
-          breakMinutes: shiftData.breakMinutes || 0,
-          notes: notes?.trim() || null,
-        },
-        include: {
-          breaks: true,
-          user: { select: { name: true } },
-        },
-      });
+      try {
+        if (shiftData.id) {
+          shift = await prisma.shift.upsert({
+            where: { id: shiftData.id },
+            update: {},
+            create: {
+              id: shiftData.id,
+              userId,
+              clockIn: new Date(shiftData.clockIn),
+              status: 'ACTIVE',
+              breakMinutes: shiftData.breakMinutes || 0,
+              notes: notes?.trim() || null,
+            },
+            include: {
+              breaks: true,
+              user: { select: { name: true } },
+            },
+          });
+        } else {
+          shift = await prisma.shift.create({
+            data: {
+              userId,
+              clockIn: new Date(shiftData.clockIn),
+              status: 'ACTIVE',
+              breakMinutes: shiftData.breakMinutes || 0,
+              notes: notes?.trim() || null,
+            },
+            include: {
+              breaks: true,
+              user: { select: { name: true } },
+            },
+          });
+        }
+      } catch {
+        // Fallback: if upsert/create had an ID collision, fetch the existing record
+        if (shiftData.id) {
+          shift = await prisma.shift.findUnique({
+            where: { id: shiftData.id },
+            include: {
+              breaks: true,
+              user: { select: { name: true } },
+            },
+          });
+        }
+      }
     }
   }
 
   if (!shift) {
     throw new HttpError(400, 'No active shift found. You must clock in before clocking out.');
+  }
+
+  if (shift.status === 'COMPLETED') {
+    return shift;
   }
 
   const clockOutTime = new Date();
