@@ -124,7 +124,7 @@ model Device {
 
 model Ticket {
   id               String        @id @default(uuid())
-  ticketNumber     Int           @unique
+  ticketNumber     Int
   customerId       String
   deviceId         String
   status           String        @default("PENDING") // PENDING | IN_PROGRESS | WAITING_ON_PARTS | COMPLETED
@@ -149,6 +149,7 @@ model Ticket {
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
 
+  @@index([ticketNumber])
   @@index([status])
   @@index([dueDate])
   @@index([customerId])

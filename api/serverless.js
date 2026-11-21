@@ -1787,7 +1787,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS "Customer_phoneDigits_key" ON "Customer"("phon
 CREATE INDEX IF NOT EXISTS "Customer_fullName_idx" ON "Customer"("fullName");
 CREATE INDEX IF NOT EXISTS "Device_customerId_idx" ON "Device"("customerId");
 CREATE INDEX IF NOT EXISTS "Device_serialNumber_idx" ON "Device"("serialNumber");
-CREATE UNIQUE INDEX IF NOT EXISTS "Ticket_ticketNumber_key" ON "Ticket"("ticketNumber");
+CREATE INDEX IF NOT EXISTS "Ticket_ticketNumber_idx" ON "Ticket"("ticketNumber");
 CREATE INDEX IF NOT EXISTS "Ticket_status_idx" ON "Ticket"("status");
 CREATE INDEX IF NOT EXISTS "Ticket_dueDate_idx" ON "Ticket"("dueDate");
 CREATE INDEX IF NOT EXISTS "Ticket_customerId_idx" ON "Ticket"("customerId");
@@ -1920,6 +1920,10 @@ async function ensureDatabaseSchema() {
 	} catch {}
 	try {
 		await prisma.$executeRawUnsafe(`UPDATE "Setting" SET "receiptFooter" = 'Thank you for your business!' WHERE "receiptFooter" LIKE '%storage%' OR "receiptFooter" LIKE '%90-day%'`);
+	} catch {}
+	try {
+		await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "Ticket_ticketNumber_key"`);
+		await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Ticket_ticketNumber_idx" ON "Ticket"("ticketNumber")`);
 	} catch {}
 }
 async function ensureInitialInventory() {
