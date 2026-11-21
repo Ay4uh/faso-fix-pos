@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock } from 'lucide-react';
+import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Play, Square, Coffee, Zap } from 'lucide-react';
 import { Ticket, User } from '../types';
 
 interface HeaderProps {
@@ -16,6 +16,10 @@ interface HeaderProps {
   isClockedIn?: boolean;
   isOnBreak?: boolean;
   timeClockElapsed?: string;
+  clockInTime?: string | Date | null;
+  onQuickClockIn?: () => void;
+  onQuickClockOut?: () => void;
+  onQuickToggleBreak?: () => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -32,10 +36,41 @@ export const Header: React.FC<HeaderProps> = ({
   isClockedIn,
   isOnBreak,
   timeClockElapsed,
+  clockInTime,
+  onQuickClockIn,
+  onQuickClockOut,
+  onQuickToggleBreak,
 }) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [liveElapsed, setLiveElapsed] = useState('');
+
+  // Real-time ticking second counter for active shift
+  useEffect(() => {
+    if (!isClockedIn || !clockInTime) {
+      setLiveElapsed('');
+      return;
+    }
+
+    const updateTimer = () => {
+      const start = new Date(clockInTime).getTime();
+      const diffSec = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      const hrs = Math.floor(diffSec / 3600);
+      const mins = Math.floor((diffSec % 3600) / 60);
+      const secs = diffSec % 60;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      if (hrs > 0) {
+        setLiveElapsed(`${pad(hrs)}:${pad(mins)}:${pad(secs)}`);
+      } else {
+        setLiveElapsed(`${pad(mins)}:${pad(secs)}`);
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+    return () => clearInterval(interval);
+  }, [isClockedIn, clockInTime]);
 
   // Global hotkey: '/' or 'Cmd+K' to focus God Mode search
   useEffect(() => {
@@ -242,25 +277,76 @@ export const Header: React.FC<HeaderProps> = ({
           <span className="hidden md:inline">New Ticket</span>
         </button>
 
-        {/* Time Clock Status Widget */}
-        {currentUser && onOpenTimeClock && (
-          <button
-            type="button"
-            onClick={onOpenTimeClock}
-            title="Open Staff Time Clock & Paystubs"
-            className={`inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 border shadow-2xs ${
-              isOnBreak
-                ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
-                : isClockedIn
-                ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
-                : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
-            }`}
-          >
-            <Clock className={`w-3.5 h-3.5 ${isOnBreak ? 'text-amber-600' : isClockedIn ? 'text-emerald-600 animate-pulse' : 'text-slate-500'}`} />
-            <span className="hidden sm:inline">
-              {isOnBreak ? 'On Break' : isClockedIn ? `Clocked In${timeClockElapsed ? ` (${timeClockElapsed})` : ''}` : 'Clock In'}
-            </span>
-          </button>
+        {/* Time Clock Status & Quick Punch Widget */}
+        {currentUser && (
+          <div className="flex items-center space-x-1.5 shrink-0">
+            {onOpenTimeClock && (
+              <button
+                type="button"
+                onClick={onOpenTimeClock}
+                title="Open Staff Time Clock, History & Paystubs"
+                className={`inline-flex items-center space-x-1.5 px-2.5 sm:px-3 py-2 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 border shadow-2xs ${
+                  isOnBreak
+                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
+                    : isClockedIn
+                    ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border-emerald-300'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
+                }`}
+              >
+                <Clock className={`w-3.5 h-3.5 ${isOnBreak ? 'text-amber-600' : isClockedIn ? 'text-emerald-600 animate-pulse' : 'text-slate-500'}`} />
+                <span>
+                  {isOnBreak
+                    ? (liveElapsed ? `Break (${liveElapsed})` : 'On Break')
+                    : isClockedIn
+                    ? (liveElapsed ? `🟢 ${liveElapsed}` : 'Clocked In')
+                    : 'Clocked Out'}
+                </span>
+              </button>
+            )}
+
+            {/* Quick 1-click punch in when clocked out */}
+            {!isClockedIn && onQuickClockIn && (
+              <button
+                type="button"
+                onClick={onQuickClockIn}
+                title="Instant 1-Click Clock In"
+                className="inline-flex items-center space-x-1 px-2.5 py-2 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs transition cursor-pointer shrink-0"
+              >
+                <Zap className="w-3.5 h-3.5 fill-current" />
+                <span className="hidden sm:inline">Punch In</span>
+              </button>
+            )}
+
+            {/* Quick 1-click break & clock-out when clocked in */}
+            {isClockedIn && (
+              <div className="flex items-center space-x-1">
+                {onQuickToggleBreak && (
+                  <button
+                    type="button"
+                    onClick={onQuickToggleBreak}
+                    title={isOnBreak ? 'Resume Shift (End Break)' : 'Take Unpaid Break'}
+                    className={`p-2 rounded-lg text-xs font-bold transition cursor-pointer border shrink-0 ${
+                      isOnBreak
+                        ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
+                        : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200'
+                    }`}
+                  >
+                    <Coffee className="w-3.5 h-3.5" />
+                  </button>
+                )}
+                {onQuickClockOut && (
+                  <button
+                    type="button"
+                    onClick={onQuickClockOut}
+                    title="Instant 1-Click Clock Out"
+                    className="p-2 bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-700 hover:text-red-800 border border-red-200 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 shadow-2xs"
+                  >
+                    <Square className="w-3.5 h-3.5 fill-current" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
         )}
 
         {/* User Profile & Direct Logout Button */}

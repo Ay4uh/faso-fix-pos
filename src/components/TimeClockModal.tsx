@@ -133,6 +133,29 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
+    const nowIso = new Date().toISOString();
+    const tempShift = {
+      id: `shift_${Date.now()}`,
+      userId: currentUser?.id,
+      clockIn: nowIso,
+      status: 'ACTIVE',
+      breakMinutes: 0,
+    };
+    // Optimistic instant visual update
+    setClockStatus((prev: any) => ({
+      ...prev,
+      isClockedIn: true,
+      clockedIn: true,
+      isOnBreak: false,
+      onBreak: false,
+      activeShift: tempShift,
+    }));
+    try {
+      localStorage.setItem(getActiveShiftKey(), JSON.stringify(tempShift));
+    } catch {}
+    setSuccessMsg('Successfully clocked in for your shift.');
+    onStatusChange?.();
+
     try {
       const res = await fetchWithAuth('/api/timeclock/clock-in', {
         method: 'POST',
@@ -144,14 +167,8 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       if (!res.ok) {
         // If already clocked in, gracefully recover and sync active shift
         if (res.status === 409) {
-          const recoveredShift = json.activeShift || {
-            id: `shift_${Date.now()}`,
-            clockIn: new Date().toISOString(),
-            status: 'ACTIVE',
-            breakMinutes: 0,
-          };
+          const recoveredShift = json.activeShift || tempShift;
           localStorage.setItem(getActiveShiftKey(), JSON.stringify(recoveredShift));
-          setSuccessMsg('Shift active. Shift timer running.');
           await loadClockStatus();
           onStatusChange?.();
           return;
@@ -161,13 +178,14 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
 
       if (json.data) {
         localStorage.setItem(getActiveShiftKey(), JSON.stringify(json.data));
+        setClockStatus((prev: any) => ({
+          ...prev,
+          activeShift: json.data,
+        }));
       }
 
-      setSuccessMsg('Successfully clocked in for your shift.');
       setNotes('');
-      await loadClockStatus();
       await loadShifts();
-      onStatusChange?.();
     } catch (err: any) {
       setErrorMsg(err.message || 'Error clocking in');
     } finally {
@@ -179,15 +197,30 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
+    let localShift = null;
     try {
-      let localShift = null;
-      try {
-        const raw = localStorage.getItem(getActiveShiftKey());
-        if (raw) localShift = JSON.parse(raw);
-      } catch {}
+      const raw = localStorage.getItem(getActiveShiftKey());
+      if (raw) localShift = JSON.parse(raw);
+    } catch {}
 
-      const shiftData = activeShift || localShift || undefined;
+    const shiftData = activeShift || localShift || undefined;
 
+    // Optimistic instant visual update
+    setClockStatus((prev: any) => ({
+      ...prev,
+      isClockedIn: false,
+      clockedIn: false,
+      isOnBreak: false,
+      onBreak: false,
+      activeShift: null,
+    }));
+    try {
+      localStorage.removeItem(getActiveShiftKey());
+    } catch {}
+    setSuccessMsg('Shift complete! Successfully clocked out.');
+    onStatusChange?.();
+
+    try {
       const res = await fetchWithAuth('/api/timeclock/clock-out', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -195,29 +228,9 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       });
       const json = await res.json().catch(() => ({}));
 
-      // Always clear local shift storage on clock-out
-      localStorage.removeItem(getActiveShiftKey());
-
-      if (!res.ok && !json.data) {
-        // If server says no active shift, clean up local state gracefully
-        if (json.error?.includes('No active shift') || json.error?.includes('already')) {
-          setSuccessMsg('Shift complete! Successfully clocked out.');
-          setNotes('');
-          await loadClockStatus();
-          await loadShifts();
-          onStatusChange?.();
-          return;
-        }
-        throw new Error(json.error || 'Failed to clock out');
-      }
-
-      setSuccessMsg('Shift complete! Successfully clocked out.');
       setNotes('');
-      await loadClockStatus();
       await loadShifts();
-      onStatusChange?.();
     } catch (err: any) {
-      localStorage.removeItem(getActiveShiftKey());
       setErrorMsg(err.message || 'Error clocking out');
     } finally {
       setLoading(false);
@@ -228,6 +241,24 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
+
+    // Optimistic instant visual update
+    setClockStatus((prev: any) => ({
+      ...prev,
+      isOnBreak: true,
+      onBreak: true,
+    }));
+    try {
+      const raw = localStorage.getItem(getActiveShiftKey());
+      if (raw) {
+        const shift = JSON.parse(raw);
+        shift.status = 'ON_BREAK';
+        localStorage.setItem(getActiveShiftKey(), JSON.stringify(shift));
+      }
+    } catch {}
+    setSuccessMsg('Break timer started.');
+    onStatusChange?.();
+
     try {
       const res = await fetchWithAuth('/api/timeclock/break-start', {
         method: 'POST',
@@ -236,18 +267,6 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to start break');
-
-      setSuccessMsg('Break timer started.');
-      try {
-        const raw = localStorage.getItem(getActiveShiftKey());
-        if (raw) {
-          const shift = JSON.parse(raw);
-          shift.status = 'ON_BREAK';
-          localStorage.setItem(getActiveShiftKey(), JSON.stringify(shift));
-        }
-      } catch {}
-      await loadClockStatus();
-      onStatusChange?.();
     } catch (err: any) {
       setErrorMsg(err.message || 'Error starting break');
     } finally {
@@ -259,24 +278,30 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
+
+    // Optimistic instant visual update
+    setClockStatus((prev: any) => ({
+      ...prev,
+      isOnBreak: false,
+      onBreak: false,
+    }));
+    try {
+      const raw = localStorage.getItem(getActiveShiftKey());
+      if (raw) {
+        const shift = JSON.parse(raw);
+        shift.status = 'ACTIVE';
+        localStorage.setItem(getActiveShiftKey(), JSON.stringify(shift));
+      }
+    } catch {}
+    setSuccessMsg('Welcome back! Break ended and shift resumed.');
+    onStatusChange?.();
+
     try {
       const res = await fetchWithAuth('/api/timeclock/break-end', {
         method: 'POST',
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to end break');
-
-      setSuccessMsg('Welcome back! Break ended and shift resumed.');
-      try {
-        const raw = localStorage.getItem(getActiveShiftKey());
-        if (raw) {
-          const shift = JSON.parse(raw);
-          shift.status = 'ACTIVE';
-          localStorage.setItem(getActiveShiftKey(), JSON.stringify(shift));
-        }
-      } catch {}
-      await loadClockStatus();
-      onStatusChange?.();
     } catch (err: any) {
       setErrorMsg(err.message || 'Error ending break');
     } finally {
@@ -292,15 +317,17 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
 
   const fmtCurrency = (cents: number) => `$${((cents || 0) / 100).toFixed(2)}`;
 
-  // Calculate elapsed time from active shift
-  let elapsedFormatted = '0h 0m';
+  // Calculate live ticking elapsed time from active shift
+  let elapsedFormatted = '00:00:00';
   if (isClockedIn && activeShift?.clockIn) {
     const startMs = new Date(activeShift.clockIn).getTime();
     const nowMs = currentTime.getTime();
-    const diffMins = Math.max(0, Math.floor((nowMs - startMs) / 60000));
-    const hours = Math.floor(diffMins / 60);
-    const mins = diffMins % 60;
-    elapsedFormatted = `${hours}h ${mins}m`;
+    const diffSec = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+    const hours = Math.floor(diffSec / 3600);
+    const mins = Math.floor((diffSec % 3600) / 60);
+    const secs = diffSec % 60;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    elapsedFormatted = `${pad(hours)}:${pad(mins)}:${pad(secs)}`;
   }
 
   return (

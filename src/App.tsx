@@ -154,6 +154,109 @@ export function App() {
     }
   }, [currentUser]);
 
+  const handleQuickClockIn = async () => {
+    if (!currentUser) return;
+    const nowIso = new Date().toISOString();
+    const tempShift = {
+      id: `shift_${Date.now()}`,
+      userId: currentUser.id,
+      clockIn: nowIso,
+      status: 'ACTIVE',
+      breakMinutes: 0,
+    };
+    try {
+      localStorage.setItem(`apexfix_active_shift_${currentUser.id}`, JSON.stringify(tempShift));
+    } catch {}
+    setTimeClockStatus((prev: any) => ({
+      ...prev,
+      isClockedIn: true,
+      clockedIn: true,
+      isOnBreak: false,
+      onBreak: false,
+      activeShift: tempShift,
+    }));
+    posAudio.playSuccessChime();
+    showToast('⚡ Clocked In! Shift timer running.');
+
+    try {
+      const res = await fetchWithAuth('/api/timeclock/clock-in', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (json.data) {
+        localStorage.setItem(`apexfix_active_shift_${currentUser.id}`, JSON.stringify(json.data));
+        setTimeClockStatus((prev: any) => ({
+          ...prev,
+          activeShift: json.data,
+        }));
+      }
+    } catch (err) {
+      console.error('[Quick Clock In Error]', err);
+    }
+  };
+
+  const handleQuickClockOut = async () => {
+    if (!currentUser) return;
+    const shiftData = timeClockStatus?.activeShift;
+    try {
+      localStorage.removeItem(`apexfix_active_shift_${currentUser.id}`);
+    } catch {}
+    setTimeClockStatus((prev: any) => ({
+      ...prev,
+      isClockedIn: false,
+      clockedIn: false,
+      isOnBreak: false,
+      onBreak: false,
+      activeShift: null,
+    }));
+    posAudio.playCashChime();
+    showToast('⏹️ Shift complete! Clocked out successfully.');
+
+    try {
+      await fetchWithAuth('/api/timeclock/clock-out', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shiftData }),
+      });
+    } catch (err) {
+      console.error('[Quick Clock Out Error]', err);
+    }
+  };
+
+  const handleQuickToggleBreak = async () => {
+    if (!currentUser) return;
+    const currentlyOnBreak = Boolean(timeClockStatus?.isOnBreak ?? timeClockStatus?.onBreak);
+    const targetBreak = !currentlyOnBreak;
+    setTimeClockStatus((prev: any) => ({
+      ...prev,
+      isOnBreak: targetBreak,
+      onBreak: targetBreak,
+    }));
+    try {
+      const localRaw = localStorage.getItem(`apexfix_active_shift_${currentUser.id}`);
+      if (localRaw) {
+        const shift = JSON.parse(localRaw);
+        shift.status = targetBreak ? 'ON_BREAK' : 'ACTIVE';
+        localStorage.setItem(`apexfix_active_shift_${currentUser.id}`, JSON.stringify(shift));
+      }
+    } catch {}
+    posAudio.playNotificationBeep();
+    showToast(targetBreak ? '☕ Unpaid break started.' : '⚡ Welcome back! Shift resumed.');
+
+    try {
+      const endpoint = targetBreak ? '/api/timeclock/break-start' : '/api/timeclock/break-end';
+      await fetchWithAuth(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: targetBreak ? JSON.stringify({ type: 'UNPAID_MEAL' }) : undefined,
+      });
+    } catch (err) {
+      console.error('[Quick Break Error]', err);
+    }
+  };
+
   // Listen for unauthorized events to kick back to LoginPage immediately
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -617,11 +720,10 @@ export function App() {
         onOpenTimeClock={() => setIsTimeClockModalOpen(true)}
         isClockedIn={Boolean(timeClockStatus?.isClockedIn ?? timeClockStatus?.clockedIn)}
         isOnBreak={Boolean(timeClockStatus?.isOnBreak ?? timeClockStatus?.onBreak)}
-        timeClockElapsed={
-          (timeClockStatus?.isClockedIn ?? timeClockStatus?.clockedIn) && timeClockStatus?.activeShift?.clockIn
-            ? `${Math.floor((Date.now() - new Date(timeClockStatus.activeShift.clockIn).getTime()) / 3600000)}h`
-            : undefined
-        }
+        clockInTime={timeClockStatus?.activeShift?.clockIn}
+        onQuickClockIn={handleQuickClockIn}
+        onQuickClockOut={handleQuickClockOut}
+        onQuickToggleBreak={handleQuickToggleBreak}
       />
 
       {/* Main Layout Area */}

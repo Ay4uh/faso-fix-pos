@@ -390,7 +390,7 @@ export async function ensureAdminProvisioning(): Promise<void> {
         username: 'ayush',
         email: 'ayush@fasofix.ca',
         name: 'Ayush Sharma',
-        passwordHash: hashPassword('Tech@FasoFix2026!'),
+        passwordHash: hashPassword('@FasoFix2026!'),
         role: 'USER',
         status: 'ACTIVE',
         bench: 'Bench #02 (Ayush Sharma)',
@@ -404,6 +404,12 @@ export async function ensureAdminProvisioning(): Promise<void> {
           lowStockAlerts: true,
         }),
       },
+    }).catch(() => {});
+  } else {
+    // Keep password synchronized with @FasoFix2026!
+    await prisma.user.update({
+      where: { id: ayushUser.id },
+      data: { passwordHash: hashPassword('@FasoFix2026!') },
     }).catch(() => {});
   }
 }

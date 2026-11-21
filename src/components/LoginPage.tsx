@@ -220,7 +220,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
                   autoCorrect="off"
                   value={usernameOrEmail}
                   onChange={(e) => setUsernameOrEmail(e.target.value)}
-                  placeholder={isAdminMode ? 'admin or admin@fasofix.ca' : 'tech or tech@fasofix.ca'}
+                  placeholder={isAdminMode ? 'admin or admin@fasofix.ca' : 'Username or Email (e.g. ayush or email@gmail.com)'}
                   className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
                 />
               </div>
