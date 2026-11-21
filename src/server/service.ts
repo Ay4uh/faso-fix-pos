@@ -127,7 +127,7 @@ async function loadTicket(tx: Tx | typeof prisma, id: string) {
 
 export async function getTicket(id: string) {
   const cleanId = (id || '').trim();
-  const numericMatch = cleanId.replace(/^(wo\s*)?#?/i, '');
+  const numericMatch = cleanId.replace(/^(wo[\s\-_]*)?#?/i, '');
   const isNumeric = /^\d+$/.test(numericMatch);
 
   const t = await prisma.ticket.findFirst({
