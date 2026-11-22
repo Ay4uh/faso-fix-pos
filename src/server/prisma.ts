@@ -2,12 +2,19 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'node:fs';
 import path from 'node:path';
 
-const isPostgres = !!(
-  process.env.DATABASE_URL &&
-  (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))
-);
+export const SUPABASE_URL =
+  'postgresql://postgres.wlfrpafmlgadpupvublx:Fasofix%402026@aws-0-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require';
 
-if (process.env.VERCEL && !isPostgres) {
+const explicitUrl = process.env.DATABASE_URL;
+const isExplicitSqlite = !!(explicitUrl && explicitUrl.startsWith('file:'));
+const activeDbUrl = isExplicitSqlite ? explicitUrl : (explicitUrl || SUPABASE_URL);
+
+// Ensure process.env.DATABASE_URL matches the active connection for downstream services
+process.env.DATABASE_URL = activeDbUrl;
+
+export const isPostgres = !isExplicitSqlite;
+
+if (process.env.VERCEL && isExplicitSqlite) {
   const tmpDb = '/tmp/dev.db';
   if (!fs.existsSync(tmpDb)) {
     const candidates = [
@@ -32,7 +39,7 @@ if (process.env.VERCEL && !isPostgres) {
 export const prisma = new PrismaClient({
   datasources: {
     db: {
-      url: process.env.DATABASE_URL || 'file:./dev.db',
+      url: process.env.DATABASE_URL,
     },
   },
 });

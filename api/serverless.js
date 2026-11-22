@@ -5,9 +5,11 @@ import path from "node:path";
 import fs from "node:fs";
 import { ZodError, z } from "zod";
 import { PrismaClient } from "@prisma/client";
-// src/server/prisma.ts
-var isPostgres = !!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")));
-if (process.env.VERCEL && !isPostgres) {
+var explicitUrl = process.env.DATABASE_URL;
+var isExplicitSqlite = !!(explicitUrl && explicitUrl.startsWith("file:"));
+var activeDbUrl = isExplicitSqlite ? explicitUrl : explicitUrl || "postgresql://postgres.wlfrpafmlgadpupvublx:Fasofix%402026@aws-0-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require";
+process.env.DATABASE_URL = activeDbUrl;
+if (process.env.VERCEL && isExplicitSqlite) {
 	const tmpDb = "/tmp/dev.db";
 	if (!fs.existsSync(tmpDb)) {
 		const candidates = [
@@ -24,7 +26,7 @@ if (process.env.VERCEL && !isPostgres) {
 	}
 	process.env.DATABASE_URL = `file:${tmpDb}`;
 }
-var prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL || "file:./dev.db" } } });
+var prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
 // src/server/money.ts
 function computeTotals(t) {
 	const itemsCents = t.items.reduce((sum, i) => sum + i.quantity * i.unitPriceCents, 0);
