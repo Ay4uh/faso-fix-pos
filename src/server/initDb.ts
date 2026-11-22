@@ -264,6 +264,74 @@ CREATE INDEX IF NOT EXISTS "ShiftBreak_shiftId_idx" ON "ShiftBreak"("shiftId");
 CREATE INDEX IF NOT EXISTS "PayrollPeriod_status_idx" ON "PayrollPeriod"("status");
 CREATE INDEX IF NOT EXISTS "Paystub_payrollPeriodId_idx" ON "Paystub"("payrollPeriodId");
 CREATE INDEX IF NOT EXISTS "Paystub_userId_idx" ON "Paystub"("userId");
+
+CREATE TABLE IF NOT EXISTS "ScheduledShift" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "shiftDate" DATETIME NOT NULL,
+    "startTime" TEXT NOT NULL,
+    "endTime" TEXT NOT NULL,
+    "startDateTime" DATETIME NOT NULL,
+    "endDateTime" DATETIME NOT NULL,
+    "breakMinutes" INTEGER NOT NULL DEFAULT 30,
+    "breakType" TEXT NOT NULL DEFAULT 'UNPAID_MEAL',
+    "scheduledHours" REAL NOT NULL DEFAULT 7.5,
+    "status" TEXT NOT NULL DEFAULT 'SCHEDULED',
+    "roleOrStation" TEXT,
+    "branchLocation" TEXT DEFAULT 'Main Shop',
+    "recurrenceRule" TEXT DEFAULT 'NONE',
+    "isPublished" INTEGER NOT NULL DEFAULT 1,
+    "notes" TEXT,
+    "createdById" TEXT,
+    "createdByName" TEXT,
+    "updatedById" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ScheduledShift_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "ScheduledShift_userId_idx" ON "ScheduledShift"("userId");
+CREATE INDEX IF NOT EXISTS "ScheduledShift_shiftDate_idx" ON "ScheduledShift"("shiftDate");
+CREATE INDEX IF NOT EXISTS "ScheduledShift_startDateTime_idx" ON "ScheduledShift"("startDateTime");
+CREATE INDEX IF NOT EXISTS "ScheduledShift_status_idx" ON "ScheduledShift"("status");
+
+CREATE TABLE IF NOT EXISTS "TimeOffRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "requestType" TEXT NOT NULL DEFAULT 'VACATION',
+    "startDate" DATETIME NOT NULL,
+    "endDate" DATETIME NOT NULL,
+    "reason" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "reviewedById" TEXT,
+    "reviewedByName" TEXT,
+    "reviewNotes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "TimeOffRequest_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "TimeOffRequest_userId_idx" ON "TimeOffRequest"("userId");
+CREATE INDEX IF NOT EXISTS "TimeOffRequest_status_idx" ON "TimeOffRequest"("status");
+CREATE INDEX IF NOT EXISTS "TimeOffRequest_startDate_idx" ON "TimeOffRequest"("startDate");
+
+CREATE TABLE IF NOT EXISTS "ShiftSwapRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "requesterId" TEXT NOT NULL,
+    "requesterShiftId" TEXT NOT NULL,
+    "targetUserId" TEXT NOT NULL,
+    "targetShiftId" TEXT,
+    "reason" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "reviewedById" TEXT,
+    "reviewedByName" TEXT,
+    "reviewNotes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ShiftSwapRequest_requesterId_fkey" FOREIGN KEY ("requesterId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "ShiftSwapRequest_targetUserId_fkey" FOREIGN KEY ("targetUserId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_requesterId_idx" ON "ShiftSwapRequest"("requesterId");
+CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_targetUserId_idx" ON "ShiftSwapRequest"("targetUserId");
+CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_status_idx" ON "ShiftSwapRequest"("status");
 `;
 
 export async function ensureDatabaseSchema() {

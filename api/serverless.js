@@ -2298,6 +2298,74 @@ CREATE INDEX IF NOT EXISTS "ShiftBreak_shiftId_idx" ON "ShiftBreak"("shiftId");
 CREATE INDEX IF NOT EXISTS "PayrollPeriod_status_idx" ON "PayrollPeriod"("status");
 CREATE INDEX IF NOT EXISTS "Paystub_payrollPeriodId_idx" ON "Paystub"("payrollPeriodId");
 CREATE INDEX IF NOT EXISTS "Paystub_userId_idx" ON "Paystub"("userId");
+
+CREATE TABLE IF NOT EXISTS "ScheduledShift" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "shiftDate" DATETIME NOT NULL,
+    "startTime" TEXT NOT NULL,
+    "endTime" TEXT NOT NULL,
+    "startDateTime" DATETIME NOT NULL,
+    "endDateTime" DATETIME NOT NULL,
+    "breakMinutes" INTEGER NOT NULL DEFAULT 30,
+    "breakType" TEXT NOT NULL DEFAULT 'UNPAID_MEAL',
+    "scheduledHours" REAL NOT NULL DEFAULT 7.5,
+    "status" TEXT NOT NULL DEFAULT 'SCHEDULED',
+    "roleOrStation" TEXT,
+    "branchLocation" TEXT DEFAULT 'Main Shop',
+    "recurrenceRule" TEXT DEFAULT 'NONE',
+    "isPublished" INTEGER NOT NULL DEFAULT 1,
+    "notes" TEXT,
+    "createdById" TEXT,
+    "createdByName" TEXT,
+    "updatedById" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ScheduledShift_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "ScheduledShift_userId_idx" ON "ScheduledShift"("userId");
+CREATE INDEX IF NOT EXISTS "ScheduledShift_shiftDate_idx" ON "ScheduledShift"("shiftDate");
+CREATE INDEX IF NOT EXISTS "ScheduledShift_startDateTime_idx" ON "ScheduledShift"("startDateTime");
+CREATE INDEX IF NOT EXISTS "ScheduledShift_status_idx" ON "ScheduledShift"("status");
+
+CREATE TABLE IF NOT EXISTS "TimeOffRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "requestType" TEXT NOT NULL DEFAULT 'VACATION',
+    "startDate" DATETIME NOT NULL,
+    "endDate" DATETIME NOT NULL,
+    "reason" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "reviewedById" TEXT,
+    "reviewedByName" TEXT,
+    "reviewNotes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "TimeOffRequest_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "TimeOffRequest_userId_idx" ON "TimeOffRequest"("userId");
+CREATE INDEX IF NOT EXISTS "TimeOffRequest_status_idx" ON "TimeOffRequest"("status");
+CREATE INDEX IF NOT EXISTS "TimeOffRequest_startDate_idx" ON "TimeOffRequest"("startDate");
+
+CREATE TABLE IF NOT EXISTS "ShiftSwapRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "requesterId" TEXT NOT NULL,
+    "requesterShiftId" TEXT NOT NULL,
+    "targetUserId" TEXT NOT NULL,
+    "targetShiftId" TEXT,
+    "reason" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "reviewedById" TEXT,
+    "reviewedByName" TEXT,
+    "reviewNotes" TEXT,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "ShiftSwapRequest_requesterId_fkey" FOREIGN KEY ("requesterId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "ShiftSwapRequest_targetUserId_fkey" FOREIGN KEY ("targetUserId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_requesterId_idx" ON "ShiftSwapRequest"("requesterId");
+CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_targetUserId_idx" ON "ShiftSwapRequest"("targetUserId");
+CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_status_idx" ON "ShiftSwapRequest"("status");
 `;
 async function ensureDatabaseSchema() {
 	if (!!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")))) return;
@@ -3876,6 +3944,9 @@ async function createScheduledShift(input, adminUser) {
 			breakType,
 			scheduledHours,
 			roleOrStation: input.roleOrStation || user.bench || "Technician",
+			branchLocation: input.branchLocation || "Main Shop",
+			recurrenceRule: input.recurrenceRule || "NONE",
+			isPublished: input.isPublished !== false,
 			notes: input.notes,
 			createdById: adminUser.id,
 			createdByName: adminUser.name,
@@ -3890,14 +3961,46 @@ async function createScheduledShift(input, adminUser) {
 			bench: true
 		} } }
 	});
+	const recurrenceRule = input.recurrenceRule || "NONE";
+	const recurrenceCount = Math.min(Math.max(1, input.recurrenceCount || 1), 12);
+	const createdShifts = [shift];
+	if (recurrenceRule !== "NONE" && recurrenceCount > 1) {
+		const daysInterval = recurrenceRule === "DAILY" ? 1 : recurrenceRule === "WEEKLY" ? 7 : 14;
+		for (let i = 1; i < recurrenceCount; i++) {
+			const nextParsed = parseShiftDates(new Date(shiftDate.getTime() + i * daysInterval * 864e5).toISOString().slice(0, 10), input.startTime, input.endTime);
+			try {
+				const nextShift = await prisma.scheduledShift.create({ data: {
+					userId: input.userId,
+					shiftDate: nextParsed.shiftDate,
+					startTime: input.startTime,
+					endTime: input.endTime,
+					startDateTime: nextParsed.startDateTime,
+					endDateTime: nextParsed.endDateTime,
+					breakMinutes,
+					breakType,
+					scheduledHours,
+					roleOrStation: input.roleOrStation || user.bench || "Technician",
+					branchLocation: input.branchLocation || "Main Shop",
+					recurrenceRule,
+					isPublished: input.isPublished !== false,
+					notes: input.notes,
+					createdById: adminUser.id,
+					createdByName: adminUser.name,
+					status: "SCHEDULED"
+				} });
+				createdShifts.push(nextShift);
+			} catch {}
+		}
+	}
 	await recordAudit({
 		userId: adminUser.id,
 		actorName: adminUser.name,
 		action: "SHIFT_SCHEDULE_CREATE",
-		details: `Created shift schedule for ${user.name} (${input.startTime} - ${input.endTime} on ${shiftDate.toISOString().slice(0, 10)})`
+		details: `Created shift schedule for ${user.name} (${input.startTime} - ${input.endTime} on ${shiftDate.toISOString().slice(0, 10)})${recurrenceCount > 1 ? ` repeated ${recurrenceCount} times` : ""}`
 	});
 	return {
 		shift,
+		createdShifts,
 		warnings
 	};
 }
@@ -4082,6 +4185,204 @@ async function compareScheduleVsActual(startDateStr, endDateStr) {
 		missedCount,
 		comparison
 	};
+}
+async function duplicateScheduledShift(id, targetDate, targetUserId, adminUser) {
+	const original = await prisma.scheduledShift.findUnique({ where: { id } });
+	if (!original) throw new HttpError(404, "Shift not found");
+	return await createScheduledShift({
+		userId: targetUserId || original.userId,
+		shiftDate: targetDate,
+		startTime: original.startTime,
+		endTime: original.endTime,
+		breakMinutes: original.breakMinutes,
+		breakType: original.breakType,
+		roleOrStation: original.roleOrStation || void 0,
+		branchLocation: original.branchLocation || void 0,
+		notes: original.notes ? `Copy of shift: ${original.notes}` : void 0
+	}, adminUser || {
+		id: "system",
+		name: "Administrator"
+	});
+}
+async function createTimeOffRequest(input) {
+	if (!await prisma.user.findUnique({ where: { id: input.userId } })) throw new HttpError(404, "User not found");
+	return await prisma.timeOffRequest.create({
+		data: {
+			userId: input.userId,
+			requestType: input.requestType || "VACATION",
+			startDate: new Date(input.startDate),
+			endDate: new Date(input.endDate),
+			reason: input.reason || null,
+			status: "PENDING"
+		},
+		include: { user: { select: {
+			id: true,
+			name: true,
+			username: true,
+			role: true
+		} } }
+	});
+}
+async function listTimeOffRequests(filters) {
+	const where = {};
+	if (filters?.userId && filters.userId !== "ALL") where.userId = filters.userId;
+	if (filters?.status && filters.status !== "ALL") where.status = filters.status;
+	return await prisma.timeOffRequest.findMany({
+		where,
+		include: { user: { select: {
+			id: true,
+			name: true,
+			username: true,
+			role: true,
+			employeeNumber: true
+		} } },
+		orderBy: { startDate: "desc" }
+	});
+}
+async function reviewTimeOffRequest(id, review, adminUser) {
+	if (!await prisma.timeOffRequest.findUnique({ where: { id } })) throw new HttpError(404, "Time-off request not found");
+	const updated = await prisma.timeOffRequest.update({
+		where: { id },
+		data: {
+			status: review.status,
+			reviewedById: adminUser.id,
+			reviewedByName: adminUser.name,
+			reviewNotes: review.reviewNotes
+		},
+		include: { user: { select: {
+			id: true,
+			name: true,
+			username: true
+		} } }
+	});
+	await recordAudit({
+		userId: adminUser.id,
+		actorName: adminUser.name,
+		action: "TIME_OFF_REVIEW",
+		details: `${review.status} time-off request for ${updated.user.name} (${updated.startDate.toISOString().slice(0, 10)} to ${updated.endDate.toISOString().slice(0, 10)})`
+	});
+	return updated;
+}
+async function createShiftSwapRequest(input) {
+	return await prisma.shiftSwapRequest.create({
+		data: {
+			requesterId: input.requesterId,
+			requesterShiftId: input.requesterShiftId,
+			targetUserId: input.targetUserId,
+			targetShiftId: input.targetShiftId || null,
+			reason: input.reason || null,
+			status: "PENDING"
+		},
+		include: {
+			requester: { select: {
+				id: true,
+				name: true,
+				username: true
+			} },
+			targetUser: { select: {
+				id: true,
+				name: true,
+				username: true
+			} }
+		}
+	});
+}
+async function listShiftSwapRequests(filters) {
+	const where = {};
+	if (filters?.userId && filters.userId !== "ALL") where.OR = [{ requesterId: filters.userId }, { targetUserId: filters.userId }];
+	if (filters?.status && filters.status !== "ALL") where.status = filters.status;
+	return await prisma.shiftSwapRequest.findMany({
+		where,
+		include: {
+			requester: { select: {
+				id: true,
+				name: true,
+				username: true
+			} },
+			targetUser: { select: {
+				id: true,
+				name: true,
+				username: true
+			} }
+		},
+		orderBy: { createdAt: "desc" }
+	});
+}
+async function reviewShiftSwapRequest(id, review, adminUser) {
+	const swap = await prisma.shiftSwapRequest.findUnique({ where: { id } });
+	if (!swap) throw new HttpError(404, "Shift swap request not found");
+	if (review.status === "APPROVED") {
+		await prisma.scheduledShift.update({
+			where: { id: swap.requesterShiftId },
+			data: { userId: swap.targetUserId }
+		});
+		if (swap.targetShiftId) await prisma.scheduledShift.update({
+			where: { id: swap.targetShiftId },
+			data: { userId: swap.requesterId }
+		});
+	}
+	const updated = await prisma.shiftSwapRequest.update({
+		where: { id },
+		data: {
+			status: review.status,
+			reviewedById: adminUser.id,
+			reviewedByName: adminUser.name,
+			reviewNotes: review.reviewNotes
+		},
+		include: {
+			requester: { select: {
+				id: true,
+				name: true
+			} },
+			targetUser: { select: {
+				id: true,
+				name: true
+			} }
+		}
+	});
+	await recordAudit({
+		userId: adminUser.id,
+		actorName: adminUser.name,
+		action: "SHIFT_SWAP_REVIEW",
+		details: `${review.status} shift swap between ${updated.requester.name} and ${updated.targetUser.name}`
+	});
+	return updated;
+}
+async function exportSchedulesCsv(filters) {
+	const shifts = await listScheduledShifts(filters || {});
+	const headers = [
+		"Shift ID",
+		"Employee Name",
+		"Employee ID",
+		"Role / Bench",
+		"Branch",
+		"Shift Date",
+		"Start Time",
+		"End Time",
+		"Scheduled Hours",
+		"Break Duration (min)",
+		"Break Type",
+		"Status",
+		"Notes",
+		"Created By"
+	];
+	const rows = shifts.map((s) => [
+		s.id,
+		`"${(s.user?.name || "").replace(/"/g, "\"\"")}"`,
+		`"${(s.user?.employeeNumber || "").replace(/"/g, "\"\"")}"`,
+		`"${(s.roleOrStation || s.user?.role || "").replace(/"/g, "\"\"")}"`,
+		`"${(s.branchLocation || "Main Shop").replace(/"/g, "\"\"")}"`,
+		s.shiftDate.toISOString().slice(0, 10),
+		s.startTime,
+		s.endTime,
+		s.scheduledHours.toFixed(2),
+		s.breakMinutes,
+		s.breakType,
+		s.status,
+		`"${(s.notes || "").replace(/"/g, "\"\"")}"`,
+		`"${(s.createdByName || "").replace(/"/g, "\"\"")}"`
+	]);
+	return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
 }
 // src/utils/receipt.ts
 var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -5413,6 +5714,100 @@ app.delete("/api/schedules/:id", requireAdmin, wrap(async (req, res) => {
 		name: req.user.name
 	});
 	res.json(result);
+}));
+app.post("/api/schedules/:id/duplicate", requireAdmin, wrap(async (req, res) => {
+	const targetDate = req.body.targetDate || new Date(Date.now() + 864e5).toISOString().slice(0, 10);
+	const targetUserId = req.body.targetUserId;
+	const result = await duplicateScheduledShift(getParam(req, "id"), targetDate, targetUserId, {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.status(201).json({
+		success: true,
+		...result
+	});
+}));
+app.get("/api/schedules/export-csv", requireAdmin, wrap(async (req, res) => {
+	const csv = await exportSchedulesCsv({
+		startDate: req.query.startDate,
+		endDate: req.query.endDate,
+		userId: req.query.userId
+	});
+	res.setHeader("Content-Type", "text/csv");
+	res.setHeader("Content-Disposition", `attachment; filename="schedules-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.csv"`);
+	res.send(csv);
+}));
+app.get("/api/time-off", requireAuth, wrap(async (req, res) => {
+	const requests = await listTimeOffRequests({
+		userId: req.user?.role === "ADMIN" || req.user?.role === "MANAGER" ? req.query.userId : req.user.id,
+		status: req.query.status
+	});
+	res.json({
+		success: true,
+		data: requests
+	});
+}));
+app.post("/api/time-off", requireAuth, wrap(async (req, res) => {
+	const request = await createTimeOffRequest({
+		userId: req.user.id,
+		requestType: req.body.requestType,
+		startDate: req.body.startDate,
+		endDate: req.body.endDate,
+		reason: req.body.reason
+	});
+	res.status(201).json({
+		success: true,
+		data: request
+	});
+}));
+app.put("/api/time-off/:id", requireAdmin, wrap(async (req, res) => {
+	const result = await reviewTimeOffRequest(getParam(req, "id"), {
+		status: req.body.status,
+		reviewNotes: req.body.reviewNotes
+	}, {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.json({
+		success: true,
+		data: result
+	});
+}));
+app.get("/api/shift-swaps", requireAuth, wrap(async (req, res) => {
+	const swaps = await listShiftSwapRequests({
+		userId: req.user?.role === "ADMIN" || req.user?.role === "MANAGER" ? req.query.userId : req.user.id,
+		status: req.query.status
+	});
+	res.json({
+		success: true,
+		data: swaps
+	});
+}));
+app.post("/api/shift-swaps", requireAuth, wrap(async (req, res) => {
+	const swap = await createShiftSwapRequest({
+		requesterId: req.user.id,
+		requesterShiftId: req.body.requesterShiftId,
+		targetUserId: req.body.targetUserId,
+		targetShiftId: req.body.targetShiftId,
+		reason: req.body.reason
+	});
+	res.status(201).json({
+		success: true,
+		data: swap
+	});
+}));
+app.put("/api/shift-swaps/:id", requireAdmin, wrap(async (req, res) => {
+	const result = await reviewShiftSwapRequest(getParam(req, "id"), {
+		status: req.body.status,
+		reviewNotes: req.body.reviewNotes
+	}, {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.json({
+		success: true,
+		data: result
+	});
 }));
 app.get("/api/reports/sales-labor", requireAdmin, wrap(async (req, res) => {
 	const analytics = await getSalesLaborAnalytics(req.query.startDate || (/* @__PURE__ */ new Date(Date.now() - 2592e6)).toISOString(), req.query.endDate || (/* @__PURE__ */ new Date()).toISOString());

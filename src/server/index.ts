@@ -1020,6 +1020,91 @@ app.delete('/api/schedules/:id', requireAdmin, wrap(async (req, res) => {
   res.json(result);
 }));
 
+app.post('/api/schedules/:id/duplicate', requireAdmin, wrap(async (req, res) => {
+  const targetDate = req.body.targetDate || new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const targetUserId = req.body.targetUserId;
+  const result = await scheduleService.duplicateScheduledShift(
+    getParam(req, 'id'),
+    targetDate,
+    targetUserId,
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.status(201).json({ success: true, ...result });
+}));
+
+app.get('/api/schedules/export-csv', requireAdmin, wrap(async (req, res) => {
+  const csv = await scheduleService.exportSchedulesCsv({
+    startDate: req.query.startDate as string,
+    endDate: req.query.endDate as string,
+    userId: req.query.userId as string,
+  });
+  res.setHeader('Content-Type', 'text/csv');
+  res.setHeader('Content-Disposition', `attachment; filename="schedules-${new Date().toISOString().slice(0, 10)}.csv"`);
+  res.send(csv);
+}));
+
+// Time Off Requests
+app.get('/api/time-off', requireAuth, wrap(async (req, res) => {
+  const isAdmin = req.user?.role === 'ADMIN' || req.user?.role === 'MANAGER';
+  const userId = isAdmin ? (req.query.userId as string) : req.user!.id;
+  const requests = await scheduleService.listTimeOffRequests({
+    userId,
+    status: req.query.status as string,
+  });
+  res.json({ success: true, data: requests });
+}));
+
+app.post('/api/time-off', requireAuth, wrap(async (req, res) => {
+  const request = await scheduleService.createTimeOffRequest({
+    userId: req.user!.id,
+    requestType: req.body.requestType,
+    startDate: req.body.startDate,
+    endDate: req.body.endDate,
+    reason: req.body.reason,
+  });
+  res.status(201).json({ success: true, data: request });
+}));
+
+app.put('/api/time-off/:id', requireAdmin, wrap(async (req, res) => {
+  const result = await scheduleService.reviewTimeOffRequest(
+    getParam(req, 'id'),
+    { status: req.body.status, reviewNotes: req.body.reviewNotes },
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, data: result });
+}));
+
+// Shift Swap Requests
+app.get('/api/shift-swaps', requireAuth, wrap(async (req, res) => {
+  const isAdmin = req.user?.role === 'ADMIN' || req.user?.role === 'MANAGER';
+  const userId = isAdmin ? (req.query.userId as string) : req.user!.id;
+  const swaps = await scheduleService.listShiftSwapRequests({
+    userId,
+    status: req.query.status as string,
+  });
+  res.json({ success: true, data: swaps });
+}));
+
+app.post('/api/shift-swaps', requireAuth, wrap(async (req, res) => {
+  const swap = await scheduleService.createShiftSwapRequest({
+    requesterId: req.user!.id,
+    requesterShiftId: req.body.requesterShiftId,
+    targetUserId: req.body.targetUserId,
+    targetShiftId: req.body.targetShiftId,
+    reason: req.body.reason,
+  });
+  res.status(201).json({ success: true, data: swap });
+}));
+
+app.put('/api/shift-swaps/:id', requireAdmin, wrap(async (req, res) => {
+  const result = await scheduleService.reviewShiftSwapRequest(
+    getParam(req, 'id'),
+    { status: req.body.status, reviewNotes: req.body.reviewNotes },
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, data: result });
+}));
+
 // ---------------------------------------------------------------------------
 // POS Sales Attribution & Labor Productivity Analytics
 // ---------------------------------------------------------------------------

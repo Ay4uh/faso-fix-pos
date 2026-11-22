@@ -10,6 +10,10 @@ export interface CreateScheduledShiftInput {
   breakMinutes?: number;
   breakType?: 'UNPAID_MEAL' | 'PAID_REST';
   roleOrStation?: string;
+  branchLocation?: string;
+  recurrenceRule?: 'NONE' | 'DAILY' | 'WEEKLY' | 'BIWEEKLY';
+  recurrenceCount?: number;
+  isPublished?: boolean;
   notes?: string;
 }
 
@@ -20,6 +24,8 @@ export interface UpdateScheduledShiftInput {
   breakMinutes?: number;
   breakType?: 'UNPAID_MEAL' | 'PAID_REST';
   roleOrStation?: string;
+  branchLocation?: string;
+  isPublished?: boolean;
   notes?: string;
   status?: 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'MISSED' | 'CANCELLED';
 }
@@ -229,6 +235,9 @@ export async function createScheduledShift(
       breakType,
       scheduledHours,
       roleOrStation: input.roleOrStation || user.bench || 'Technician',
+      branchLocation: input.branchLocation || 'Main Shop',
+      recurrenceRule: input.recurrenceRule || 'NONE',
+      isPublished: input.isPublished !== false,
       notes: input.notes,
       createdById: adminUser.id,
       createdByName: adminUser.name,
@@ -248,14 +257,51 @@ export async function createScheduledShift(
     },
   });
 
+  const recurrenceRule = input.recurrenceRule || 'NONE';
+  const recurrenceCount = Math.min(Math.max(1, input.recurrenceCount || 1), 12);
+  const createdShifts = [shift];
+
+  if (recurrenceRule !== 'NONE' && recurrenceCount > 1) {
+    const daysInterval = recurrenceRule === 'DAILY' ? 1 : recurrenceRule === 'WEEKLY' ? 7 : 14;
+    for (let i = 1; i < recurrenceCount; i++) {
+      const nextDate = new Date(shiftDate.getTime() + i * daysInterval * 86_400_000);
+      const nextDateStr = nextDate.toISOString().slice(0, 10);
+      const nextParsed = parseShiftDates(nextDateStr, input.startTime, input.endTime);
+      try {
+        const nextShift = await prisma.scheduledShift.create({
+          data: {
+            userId: input.userId,
+            shiftDate: nextParsed.shiftDate,
+            startTime: input.startTime,
+            endTime: input.endTime,
+            startDateTime: nextParsed.startDateTime,
+            endDateTime: nextParsed.endDateTime,
+            breakMinutes,
+            breakType,
+            scheduledHours,
+            roleOrStation: input.roleOrStation || user.bench || 'Technician',
+            branchLocation: input.branchLocation || 'Main Shop',
+            recurrenceRule,
+            isPublished: input.isPublished !== false,
+            notes: input.notes,
+            createdById: adminUser.id,
+            createdByName: adminUser.name,
+            status: 'SCHEDULED',
+          },
+        });
+        createdShifts.push(nextShift as any);
+      } catch {}
+    }
+  }
+
   await recordAudit({
     userId: adminUser.id,
     actorName: adminUser.name,
     action: 'SHIFT_SCHEDULE_CREATE',
-    details: `Created shift schedule for ${user.name} (${input.startTime} - ${input.endTime} on ${shiftDate.toISOString().slice(0, 10)})`,
+    details: `Created shift schedule for ${user.name} (${input.startTime} - ${input.endTime} on ${shiftDate.toISOString().slice(0, 10)})${recurrenceCount > 1 ? ` repeated ${recurrenceCount} times` : ''}`,
   });
 
-  return { shift, warnings };
+  return { shift, createdShifts, warnings };
 }
 
 export async function updateScheduledShift(
@@ -480,4 +526,247 @@ export async function compareScheduleVsActual(startDateStr: string, endDateStr: 
     missedCount,
     comparison,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Duplicate Shift
+// ---------------------------------------------------------------------------
+export async function duplicateScheduledShift(
+  id: string,
+  targetDate: string,
+  targetUserId?: string,
+  adminUser?: { id: string; name: string }
+) {
+  const original = await prisma.scheduledShift.findUnique({ where: { id } });
+  if (!original) throw new HttpError(404, 'Shift not found');
+
+  const userId = targetUserId || original.userId;
+  return await createScheduledShift(
+    {
+      userId,
+      shiftDate: targetDate,
+      startTime: original.startTime,
+      endTime: original.endTime,
+      breakMinutes: original.breakMinutes,
+      breakType: original.breakType as any,
+      roleOrStation: original.roleOrStation || undefined,
+      branchLocation: original.branchLocation || undefined,
+      notes: original.notes ? `Copy of shift: ${original.notes}` : undefined,
+    },
+    adminUser || { id: 'system', name: 'Administrator' }
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Time-Off Requests
+// ---------------------------------------------------------------------------
+export async function createTimeOffRequest(input: {
+  userId: string;
+  requestType?: string;
+  startDate: string;
+  endDate: string;
+  reason?: string;
+}) {
+  const user = await prisma.user.findUnique({ where: { id: input.userId } });
+  if (!user) throw new HttpError(404, 'User not found');
+
+  return await prisma.timeOffRequest.create({
+    data: {
+      userId: input.userId,
+      requestType: input.requestType || 'VACATION',
+      startDate: new Date(input.startDate),
+      endDate: new Date(input.endDate),
+      reason: input.reason || null,
+      status: 'PENDING',
+    },
+    include: {
+      user: {
+        select: { id: true, name: true, username: true, role: true },
+      },
+    },
+  });
+}
+
+export async function listTimeOffRequests(filters?: { userId?: string; status?: string }) {
+  const where: any = {};
+  if (filters?.userId && filters.userId !== 'ALL') where.userId = filters.userId;
+  if (filters?.status && filters.status !== 'ALL') where.status = filters.status;
+
+  return await prisma.timeOffRequest.findMany({
+    where,
+    include: {
+      user: {
+        select: { id: true, name: true, username: true, role: true, employeeNumber: true },
+      },
+    },
+    orderBy: { startDate: 'desc' },
+  });
+}
+
+export async function reviewTimeOffRequest(
+  id: string,
+  review: { status: 'APPROVED' | 'REJECTED'; reviewNotes?: string },
+  adminUser: { id: string; name: string }
+) {
+  const existing = await prisma.timeOffRequest.findUnique({ where: { id } });
+  if (!existing) throw new HttpError(404, 'Time-off request not found');
+
+  const updated = await prisma.timeOffRequest.update({
+    where: { id },
+    data: {
+      status: review.status,
+      reviewedById: adminUser.id,
+      reviewedByName: adminUser.name,
+      reviewNotes: review.reviewNotes,
+    },
+    include: {
+      user: { select: { id: true, name: true, username: true } },
+    },
+  });
+
+  await recordAudit({
+    userId: adminUser.id,
+    actorName: adminUser.name,
+    action: 'TIME_OFF_REVIEW',
+    details: `${review.status} time-off request for ${updated.user.name} (${updated.startDate.toISOString().slice(0, 10)} to ${updated.endDate.toISOString().slice(0, 10)})`,
+  });
+
+  return updated;
+}
+
+// ---------------------------------------------------------------------------
+// Shift-Swap Requests
+// ---------------------------------------------------------------------------
+export async function createShiftSwapRequest(input: {
+  requesterId: string;
+  requesterShiftId: string;
+  targetUserId: string;
+  targetShiftId?: string;
+  reason?: string;
+}) {
+  return await prisma.shiftSwapRequest.create({
+    data: {
+      requesterId: input.requesterId,
+      requesterShiftId: input.requesterShiftId,
+      targetUserId: input.targetUserId,
+      targetShiftId: input.targetShiftId || null,
+      reason: input.reason || null,
+      status: 'PENDING',
+    },
+    include: {
+      requester: { select: { id: true, name: true, username: true } },
+      targetUser: { select: { id: true, name: true, username: true } },
+    },
+  });
+}
+
+export async function listShiftSwapRequests(filters?: { userId?: string; status?: string }) {
+  const where: any = {};
+  if (filters?.userId && filters.userId !== 'ALL') {
+    where.OR = [{ requesterId: filters.userId }, { targetUserId: filters.userId }];
+  }
+  if (filters?.status && filters.status !== 'ALL') where.status = filters.status;
+
+  return await prisma.shiftSwapRequest.findMany({
+    where,
+    include: {
+      requester: { select: { id: true, name: true, username: true } },
+      targetUser: { select: { id: true, name: true, username: true } },
+    },
+    orderBy: { createdAt: 'desc' },
+  });
+}
+
+export async function reviewShiftSwapRequest(
+  id: string,
+  review: { status: 'APPROVED' | 'REJECTED'; reviewNotes?: string },
+  adminUser: { id: string; name: string }
+) {
+  const swap = await prisma.shiftSwapRequest.findUnique({ where: { id } });
+  if (!swap) throw new HttpError(404, 'Shift swap request not found');
+
+  if (review.status === 'APPROVED') {
+    // Perform shift swap on requester shift
+    await prisma.scheduledShift.update({
+      where: { id: swap.requesterShiftId },
+      data: { userId: swap.targetUserId },
+    });
+
+    // If target had a shift assigned, assign to requester
+    if (swap.targetShiftId) {
+      await prisma.scheduledShift.update({
+        where: { id: swap.targetShiftId },
+        data: { userId: swap.requesterId },
+      });
+    }
+  }
+
+  const updated = await prisma.shiftSwapRequest.update({
+    where: { id },
+    data: {
+      status: review.status,
+      reviewedById: adminUser.id,
+      reviewedByName: adminUser.name,
+      reviewNotes: review.reviewNotes,
+    },
+    include: {
+      requester: { select: { id: true, name: true } },
+      targetUser: { select: { id: true, name: true } },
+    },
+  });
+
+  await recordAudit({
+    userId: adminUser.id,
+    actorName: adminUser.name,
+    action: 'SHIFT_SWAP_REVIEW',
+    details: `${review.status} shift swap between ${updated.requester.name} and ${updated.targetUser.name}`,
+  });
+
+  return updated;
+}
+
+// ---------------------------------------------------------------------------
+// CSV Schedule Export
+// ---------------------------------------------------------------------------
+export async function exportSchedulesCsv(filters?: {
+  startDate?: string;
+  endDate?: string;
+  userId?: string;
+}) {
+  const shifts = await listScheduledShifts(filters || {});
+  const headers = [
+    'Shift ID',
+    'Employee Name',
+    'Employee ID',
+    'Role / Bench',
+    'Branch',
+    'Shift Date',
+    'Start Time',
+    'End Time',
+    'Scheduled Hours',
+    'Break Duration (min)',
+    'Break Type',
+    'Status',
+    'Notes',
+    'Created By',
+  ];
+
+  const rows = shifts.map((s) => [
+    s.id,
+    `"${(s.user?.name || '').replace(/"/g, '""')}"`,
+    `"${(s.user?.employeeNumber || '').replace(/"/g, '""')}"`,
+    `"${(s.roleOrStation || s.user?.role || '').replace(/"/g, '""')}"`,
+    `"${(s.branchLocation || 'Main Shop').replace(/"/g, '""')}"`,
+    s.shiftDate.toISOString().slice(0, 10),
+    s.startTime,
+    s.endTime,
+    s.scheduledHours.toFixed(2),
+    s.breakMinutes,
+    s.breakType,
+    s.status,
+    `"${(s.notes || '').replace(/"/g, '""')}"`,
+    `"${(s.createdByName || '').replace(/"/g, '""')}"`,
+  ]);
+
+  return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
 }
