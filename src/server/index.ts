@@ -8,7 +8,7 @@ import {
   HttpError,
   getSettings,
   updateSettings,
-  listTickets,
+  listTicketsPaginated,
   getTicket,
   createTicket,
   updateTicket,
@@ -20,7 +20,7 @@ import {
   addNote,
   updateNote,
   deleteNote,
-  listCustomers,
+  listCustomersPaginated,
   lookupCustomerByPhone,
   getCustomer,
   updateCustomer,
@@ -43,7 +43,7 @@ import {
   changeUserPassword,
   adminResetUserPassword,
   updateUserPreferences,
-  listAuditLogs,
+  listAuditLogsPaginated,
   getAdminOverview,
 } from './service';
 import { authenticateSession, ensureAdminProvisioning, recordAudit, verifySignedUserPayload } from './auth';
@@ -51,6 +51,7 @@ import { configureSqlite, createBackup, listBackups, resolveBackup, startBackupS
 import { ensureDatabaseSchema, ensureInitialInventory } from './initDb';
 import * as payrollService from './payrollService';
 import * as scheduleService from './scheduleService';
+import * as notificationService from './notificationService';
 import { prisma } from './prisma';
 import { buildReceiptHtml, buildBenchSlipHtml, buildLetterInvoiceHtml } from '../utils/receipt';
 
@@ -294,7 +295,7 @@ app.put('/api/auth/profile', requireAuth, wrap(async (req, res) => {
 }));
 
 app.put('/api/auth/password', requireAuth, wrap(async (req, res) => {
-  const result = await changeUserPassword(req.user!.id, req.body, req.user!.name);
+  const result = await changeUserPassword(req.user!.id, req.body, req.user!.name, req.token);
   res.json(result);
 }));
 
@@ -404,11 +405,28 @@ app.post('/api/admin/users/:id/reset-password', requireAdmin, wrap(async (req, r
 }));
 
 app.get('/api/admin/audit-logs', requireAdmin, wrap(async (req, res) => {
-  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 100;
+  const hasPage = req.query.page !== undefined;
+  const page = hasPage ? parseInt(req.query.page as string, 10) || 1 : 1;
+  const pageSize = req.query.pageSize
+    ? parseInt(req.query.pageSize as string, 10)
+    : req.query.limit
+    ? parseInt(req.query.limit as string, 10)
+    : hasPage
+    ? 25
+    : 100;
   const action = req.query.action as string | undefined;
   const search = req.query.search as string | undefined;
-  const logs = await listAuditLogs({ limit, action, search });
-  res.json({ success: true, count: logs.length, data: logs });
+  const result = await listAuditLogsPaginated({ page, pageSize, action, search });
+  res.json({
+    success: true,
+    count: result.items.length,
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+    totalPages: result.totalPages,
+    hasMore: result.hasMore,
+    data: result.items,
+  });
 }));
 
 // ---------------------------------------------------------------------------
@@ -470,8 +488,26 @@ app.get('/api/tickets', requireAuth, wrap(async (req, res) => {
   const view = (req.query.view || req.query.status || 'OPEN') as string;
   const search = req.query.search as string | undefined;
   const bench = req.query.bench as string | undefined;
-  const tickets = await listTickets({ view, search, bench });
-  res.json({ success: true, count: tickets.length, data: tickets });
+  const hasPage = req.query.page !== undefined;
+  const page = hasPage ? parseInt(req.query.page as string, 10) || 1 : 1;
+  const pageSize = req.query.pageSize
+    ? parseInt(req.query.pageSize as string, 10)
+    : req.query.limit
+    ? parseInt(req.query.limit as string, 10)
+    : hasPage
+    ? 25
+    : 200;
+  const result = await listTicketsPaginated({ view, search, bench, page, pageSize });
+  res.json({
+    success: true,
+    count: result.items.length,
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+    totalPages: result.totalPages,
+    hasMore: result.hasMore,
+    data: result.items,
+  });
 }));
 
 app.get('/api/tickets/:id', requireAuth, wrap(async (req, res) => {
@@ -652,8 +688,26 @@ app.delete('/api/tickets/:id/notes/:noteId', requireAuth, wrap(async (req, res) 
 
 app.get('/api/customers', requireAuth, wrap(async (req, res) => {
   const search = req.query.search as string | undefined;
-  const customers = await listCustomers(search);
-  res.json({ success: true, count: customers.length, data: customers });
+  const hasPage = req.query.page !== undefined;
+  const page = hasPage ? parseInt(req.query.page as string, 10) || 1 : 1;
+  const pageSize = req.query.pageSize
+    ? parseInt(req.query.pageSize as string, 10)
+    : req.query.limit
+    ? parseInt(req.query.limit as string, 10)
+    : hasPage
+    ? 25
+    : 200;
+  const result = await listCustomersPaginated({ search, page, pageSize });
+  res.json({
+    success: true,
+    count: result.items.length,
+    total: result.total,
+    page: result.page,
+    pageSize: result.pageSize,
+    totalPages: result.totalPages,
+    hasMore: result.hasMore,
+    data: result.items,
+  });
 }));
 
 app.get('/api/customers/lookup', requireAuth, wrap(async (req, res) => {
@@ -1008,6 +1062,7 @@ app.get('/api/schedules/my-schedule', requireAuth, wrap(async (req, res) => {
     startDate: req.query.startDate as string | undefined,
     endDate: req.query.endDate as string | undefined,
     status: req.query.status as any,
+    publishedOnly: true,
   });
   res.json({ success: true, count: shifts.length, data: shifts, schedules: shifts });
 }));
@@ -1015,11 +1070,16 @@ app.get('/api/schedules/my-schedule', requireAuth, wrap(async (req, res) => {
 app.get('/api/schedules', requireAuth, wrap(async (req, res) => {
   const isAdmin = req.user?.role === 'ADMIN' || req.user?.role === 'MANAGER';
   const userId = isAdmin ? (req.query.userId as string | undefined) : req.user!.id;
+  const isPublishedParam = req.query.isPublished as string | undefined;
+  const isPublished =
+    isPublishedParam === 'true' ? true : isPublishedParam === 'false' ? false : undefined;
   const shifts = await scheduleService.listScheduledShifts({
     userId,
     startDate: req.query.startDate as string | undefined,
     endDate: req.query.endDate as string | undefined,
     status: req.query.status as any,
+    publishedOnly: !isAdmin,
+    isPublished: isAdmin ? isPublished : undefined,
   });
   res.json({ success: true, count: shifts.length, data: shifts });
 }));
@@ -1030,6 +1090,18 @@ app.post('/api/schedules', requireAdmin, wrap(async (req, res) => {
     name: req.user!.name,
   });
   res.status(201).json({ success: true, ...result });
+}));
+
+app.post('/api/schedules/publish-all', requireAdmin, wrap(async (req, res) => {
+  const result = await scheduleService.publishDraftShifts(
+    {
+      startDate: req.body?.startDate,
+      endDate: req.body?.endDate,
+      userId: req.body?.userId,
+    },
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, ...result });
 }));
 
 app.get('/api/schedules/compare', requireAdmin, wrap(async (req, res) => {
@@ -1150,6 +1222,30 @@ app.get('/api/reports/sales-labor', requireAdmin, wrap(async (req, res) => {
   const endDate = (req.query.endDate as string) || new Date().toISOString();
   const analytics = await getSalesLaborAnalytics(startDate, endDate);
   res.json({ success: true, data: analytics });
+}));
+
+// ---------------------------------------------------------------------------
+// In-App Notifications
+// ---------------------------------------------------------------------------
+
+app.get('/api/notifications', requireAuth, wrap(async (req, res) => {
+  const unreadOnly = req.query.unreadOnly === 'true';
+  const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 30;
+  const result = await notificationService.listUserNotifications(req.user!.id, { unreadOnly, limit });
+  res.json({ success: true, ...result, data: result.notifications });
+}));
+
+app.post('/api/notifications/read-all', requireAuth, wrap(async (req, res) => {
+  const result = await notificationService.markAllNotificationsRead(req.user!.id);
+  res.json({ success: true, ...result });
+}));
+
+app.post('/api/notifications/:id/read', requireAuth, wrap(async (req, res) => {
+  const notification = await notificationService.markNotificationRead(
+    req.user!.id,
+    getParam(req, 'id')
+  );
+  res.json({ success: true, data: notification });
 }));
 
 // ---------------------------------------------------------------------------

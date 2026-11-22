@@ -1,6 +1,7 @@
 import { prisma } from './prisma';
 import { HttpError } from './service';
 import { recordAudit } from './auth';
+import { createNotification, notifyAdmins } from './notificationService';
 
 export interface CreateScheduledShiftInput {
   userId: string;
@@ -235,6 +236,8 @@ export async function listScheduledShifts(filters: {
   endDate?: string;
   userId?: string;
   status?: string;
+  publishedOnly?: boolean;
+  isPublished?: boolean;
 }) {
   const where: any = {};
 
@@ -244,6 +247,12 @@ export async function listScheduledShifts(filters: {
 
   if (filters.status && filters.status !== 'ALL') {
     where.status = filters.status;
+  }
+
+  if (filters.publishedOnly) {
+    where.isPublished = true;
+  } else if (filters.isPublished !== undefined) {
+    where.isPublished = filters.isPublished;
   }
 
   if (filters.startDate || filters.endDate) {
@@ -402,6 +411,17 @@ export async function createScheduledShift(
     details: `Created shift schedule for ${user.name} (${input.startTime} - ${input.endTime} on ${shiftDate.toISOString().slice(0, 10)})${recurrenceCount > 1 ? ` repeated ${recurrenceCount} times` : ''}`,
   });
 
+  if (shift.isPublished) {
+    const dateLabel = shiftDate.toISOString().slice(0, 10);
+    await createNotification({
+      userId: input.userId,
+      type: 'SHIFT_ASSIGNED',
+      title: 'New Shift Assigned',
+      message: `Scheduled on ${dateLabel} (${input.startTime} - ${input.endTime})${recurrenceCount > 1 ? ` + ${recurrenceCount - 1} recurring` : ''}.`,
+      linkTab: 'timeclock:schedule',
+    });
+  }
+
   return { shift, createdShifts, warnings };
 }
 
@@ -485,7 +505,114 @@ export async function updateScheduledShift(
     details: `Updated scheduled shift #${id} for ${updated.user.name}`,
   });
 
+  const dateLabel = updated.shiftDate.toISOString().slice(0, 10);
+  if (!existing.isPublished && updated.isPublished) {
+    await createNotification({
+      userId: updated.userId,
+      type: 'SHIFT_PUBLISHED',
+      title: 'Shift Published',
+      message: `Your shift on ${dateLabel} (${updated.startTime} - ${updated.endTime}) is now published.`,
+      linkTab: 'timeclock:schedule',
+    });
+  } else if (updated.isPublished) {
+    if (updated.status === 'CANCELLED' && existing.status !== 'CANCELLED') {
+      await createNotification({
+        userId: updated.userId,
+        type: 'SHIFT_CANCELLED',
+        title: 'Shift Cancelled',
+        message: `Your shift on ${dateLabel} (${updated.startTime} - ${updated.endTime}) was cancelled.`,
+        linkTab: 'timeclock:schedule',
+      });
+    } else if (updated.userId !== existing.userId) {
+      await createNotification({
+        userId: updated.userId,
+        type: 'SHIFT_ASSIGNED',
+        title: 'Shift Assigned to You',
+        message: `You were assigned a shift on ${dateLabel} (${updated.startTime} - ${updated.endTime}).`,
+        linkTab: 'timeclock:schedule',
+      });
+      await createNotification({
+        userId: existing.userId,
+        type: 'SHIFT_UPDATED',
+        title: 'Shift Reassigned',
+        message: `Your shift on ${existing.shiftDate.toISOString().slice(0, 10)} (${existing.startTime} - ${existing.endTime}) was reassigned.`,
+        linkTab: 'timeclock:schedule',
+      });
+    } else {
+      await createNotification({
+        userId: updated.userId,
+        type: 'SHIFT_UPDATED',
+        title: 'Shift Updated',
+        message: `Your shift on ${dateLabel} (${updated.startTime} - ${updated.endTime}) was updated.`,
+        linkTab: 'timeclock:schedule',
+      });
+    }
+  }
+
   return { ...updated, shift: updated, warnings };
+}
+
+export async function publishDraftShifts(
+  filters: { startDate?: string; endDate?: string; userId?: string } | undefined,
+  adminUser: { id: string; name: string }
+) {
+  const where: any = { isPublished: false, status: { not: 'CANCELLED' } };
+  if (filters?.userId && filters.userId !== 'ALL') {
+    where.userId = filters.userId;
+  }
+  if (filters?.startDate || filters?.endDate) {
+    where.shiftDate = {};
+    if (filters.startDate) where.shiftDate.gte = new Date(filters.startDate);
+    if (filters.endDate) where.shiftDate.lte = new Date(filters.endDate);
+  }
+
+  const drafts = await prisma.scheduledShift.findMany({
+    where,
+    include: { user: { select: { id: true, name: true } } },
+  });
+
+  if (drafts.length === 0) {
+    return { count: 0, publishedIds: [] as string[] };
+  }
+
+  const ids = drafts.map((d) => d.id);
+  await prisma.scheduledShift.updateMany({
+    where: { id: { in: ids } },
+    data: { isPublished: true, updatedById: adminUser.id },
+  });
+
+  await recordAudit({
+    userId: adminUser.id,
+    actorName: adminUser.name,
+    action: 'SHIFT_SCHEDULE_PUBLISH',
+    details: `Published ${drafts.length} draft shift(s) to staff schedules`,
+  });
+
+  // Group notifications per employee
+  const byUser = new Map<string, typeof drafts>();
+  for (const d of drafts) {
+    const arr = byUser.get(d.userId) || [];
+    arr.push(d);
+    byUser.set(d.userId, arr);
+  }
+
+  for (const [userId, userDrafts] of byUser.entries()) {
+    const first = userDrafts[0];
+    const firstDate = first.shiftDate.toISOString().slice(0, 10);
+    const msg =
+      userDrafts.length === 1
+        ? `Shift on ${firstDate} (${first.startTime} - ${first.endTime}) is now published.`
+        : `${userDrafts.length} upcoming shifts starting ${firstDate} are now published.`;
+    await createNotification({
+      userId,
+      type: 'SHIFT_PUBLISHED',
+      title: userDrafts.length === 1 ? 'Shift Published' : `${userDrafts.length} Shifts Published`,
+      message: msg,
+      linkTab: 'timeclock:schedule',
+    });
+  }
+
+  return { count: drafts.length, publishedIds: ids };
 }
 
 export async function deleteScheduledShift(id: string, adminUser: { id: string; name: string }) {
@@ -503,6 +630,16 @@ export async function deleteScheduledShift(id: string, adminUser: { id: string; 
     action: 'SHIFT_SCHEDULE_DELETE',
     details: `Deleted scheduled shift #${id} for ${existing.user.name}`,
   });
+
+  if (existing.isPublished) {
+    await createNotification({
+      userId: existing.userId,
+      type: 'SHIFT_CANCELLED',
+      title: 'Shift Removed',
+      message: `Your shift on ${existing.shiftDate.toISOString().slice(0, 10)} (${existing.startTime} - ${existing.endTime}) was removed from the schedule.`,
+      linkTab: 'timeclock:schedule',
+    });
+  }
 
   return { success: true, id };
 }
@@ -708,7 +845,7 @@ export async function createTimeOffRequest(input: {
     throw new HttpError(400, 'Time-off end date cannot be earlier than start date.');
   }
 
-  return await prisma.timeOffRequest.create({
+  const created = await prisma.timeOffRequest.create({
     data: {
       userId: input.userId,
       requestType: input.requestType || 'VACATION',
@@ -723,6 +860,16 @@ export async function createTimeOffRequest(input: {
       },
     },
   });
+
+  await notifyAdmins({
+    type: 'TIME_OFF_REQUEST',
+    title: 'New Time-Off Request',
+    message: `${created.user.name} requested ${created.requestType} (${startDate.toISOString().slice(0, 10)} to ${endDate.toISOString().slice(0, 10)}).`,
+    linkTab: 'admin:schedule',
+    excludeUserId: input.userId,
+  });
+
+  return created;
 }
 
 export async function listTimeOffRequests(filters?: { userId?: string; status?: string }) {
@@ -769,6 +916,14 @@ export async function reviewTimeOffRequest(
     details: `${review.status} time-off request for ${updated.user.name} (${updated.startDate.toISOString().slice(0, 10)} to ${updated.endDate.toISOString().slice(0, 10)})`,
   });
 
+  await createNotification({
+    userId: updated.userId,
+    type: 'TIME_OFF_REVIEWED',
+    title: `Time-Off ${review.status === 'APPROVED' ? 'Approved' : 'Rejected'}`,
+    message: `Your ${updated.requestType} request (${updated.startDate.toISOString().slice(0, 10)} to ${updated.endDate.toISOString().slice(0, 10)}) was ${review.status.toLowerCase()}.`,
+    linkTab: 'timeclock:schedule',
+  });
+
   return updated;
 }
 
@@ -796,7 +951,7 @@ export async function createShiftSwapRequest(input: {
     throw new HttpError(403, 'You can only request swaps for your own assigned shifts.');
   }
 
-  return await prisma.shiftSwapRequest.create({
+  const created = await prisma.shiftSwapRequest.create({
     data: {
       requesterId: input.requesterId,
       requesterShiftId: input.requesterShiftId,
@@ -810,6 +965,24 @@ export async function createShiftSwapRequest(input: {
       targetUser: { select: { id: true, name: true, username: true } },
     },
   });
+
+  await createNotification({
+    userId: input.targetUserId,
+    type: 'SHIFT_SWAP_REQUEST',
+    title: 'Shift Swap Requested',
+    message: `${created.requester.name} requested a shift swap with you (${requesterShift.shiftDate.toISOString().slice(0, 10)} ${requesterShift.startTime}-${requesterShift.endTime}).`,
+    linkTab: 'timeclock:schedule',
+  });
+
+  await notifyAdmins({
+    type: 'SHIFT_SWAP_REQUEST',
+    title: 'Shift Swap Pending Approval',
+    message: `${created.requester.name} requested to swap a shift with ${created.targetUser.name}.`,
+    linkTab: 'admin:schedule',
+    excludeUserId: input.requesterId,
+  });
+
+  return created;
 }
 
 export async function listShiftSwapRequests(filters?: { userId?: string; status?: string }) {
@@ -877,6 +1050,22 @@ export async function reviewShiftSwapRequest(
     actorName: adminUser.name,
     action: 'SHIFT_SWAP_REVIEW',
     details: `${review.status} shift swap between ${updated.requester.name} and ${updated.targetUser.name}`,
+  });
+
+  const decisionText = review.status === 'APPROVED' ? 'approved' : 'rejected';
+  await createNotification({
+    userId: updated.requesterId,
+    type: 'SHIFT_SWAP_REVIEWED',
+    title: `Shift Swap ${review.status === 'APPROVED' ? 'Approved' : 'Rejected'}`,
+    message: `Your shift swap request with ${updated.targetUser.name} was ${decisionText}.`,
+    linkTab: 'timeclock:schedule',
+  });
+  await createNotification({
+    userId: updated.targetUserId,
+    type: 'SHIFT_SWAP_REVIEWED',
+    title: `Shift Swap ${review.status === 'APPROVED' ? 'Approved' : 'Rejected'}`,
+    message: `The shift swap request from ${updated.requester.name} was ${decisionText}.`,
+    linkTab: 'timeclock:schedule',
   });
 
   return updated;

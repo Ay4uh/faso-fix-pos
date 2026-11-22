@@ -2,6 +2,7 @@ import { prisma } from './prisma';
 import { HttpError, getSettings } from './service';
 import { recordAudit } from './auth';
 import { calculatePayroll, calculateShiftHours, CRA_2026 } from './payrollMath';
+import { createNotification, notifyAdmins } from './notificationService';
 
 function getOpenUnpaidBreakMinutes(
   breaks: Array<{ startTime: Date; endTime: Date | null; type: string }> | undefined,
@@ -338,6 +339,16 @@ export async function clockOut(
     action: 'CLOCK_OUT',
     details: `Employee ${shift.user.name} clocked out. Total worked: ${(totalMinutes / 60).toFixed(2)}h (Regular: ${(regularMinutes / 60).toFixed(2)}h, Overtime: ${(overtimeMinutes / 60).toFixed(2)}h)`,
   });
+
+  if (overtimeMinutes > 0) {
+    await notifyAdmins({
+      type: 'OVERTIME_ALERT',
+      title: 'Overtime Worked',
+      message: `${shift.user.name} clocked out with ${(overtimeMinutes / 60).toFixed(2)}h overtime today.`,
+      linkTab: 'admin:attendance',
+      excludeUserId: userId,
+    });
+  }
 
   return updated;
 }
@@ -1357,6 +1368,16 @@ export async function finalizePayrollPeriod(periodId: string, adminUser: { id: s
     action: 'PAYROLL_FINALIZED',
     details: `Admin ${adminUser.name} finalized & locked Payroll Period #${period.periodNumber}. Gross: $${(period.totalGrossCents / 100).toFixed(2)}, Net: $${(period.totalNetCents / 100).toFixed(2)}`,
   });
+
+  for (const stub of period.paystubs) {
+    await createNotification({
+      userId: stub.userId,
+      type: 'PAYSTUB_READY',
+      title: 'New Paystub Available',
+      message: `Pay Period #${period.periodNumber} is finalized. Net Pay: $${(stub.netPayCents / 100).toFixed(2)}.`,
+      linkTab: 'timeclock:paystubs',
+    });
+  }
 
   return getPayrollPeriod(periodId);
 }

@@ -332,6 +332,20 @@ CREATE TABLE IF NOT EXISTS "ShiftSwapRequest" (
 CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_requesterId_idx" ON "ShiftSwapRequest"("requesterId");
 CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_targetUserId_idx" ON "ShiftSwapRequest"("targetUserId");
 CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_status_idx" ON "ShiftSwapRequest"("status");
+
+CREATE TABLE IF NOT EXISTS "Notification" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "linkTab" TEXT,
+    "isRead" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead");
+CREATE INDEX IF NOT EXISTS "Notification_createdAt_idx" ON "Notification"("createdAt");
 `;
 
 const POSTGRES_SCHEMA_STATEMENTS: string[] = [
@@ -515,6 +529,19 @@ const POSTGRES_SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "branchLocation" TEXT DEFAULT 'Main Shop'`,
   `ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "recurrenceRule" TEXT DEFAULT 'NONE'`,
   `ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "isPublished" BOOLEAN NOT NULL DEFAULT true`,
+  `CREATE TABLE IF NOT EXISTS "Notification" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "linkTab" TEXT,
+    "isRead" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead")`,
+  `CREATE INDEX IF NOT EXISTS "Notification_createdAt_idx" ON "Notification"("createdAt")`,
 ];
 
 async function ensurePostgresSchema() {
@@ -586,62 +613,6 @@ export async function ensureDatabaseSchema() {
   try {
     await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "Ticket_ticketNumber_key"`);
     await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Ticket_ticketNumber_idx" ON "Ticket"("ticketNumber")`);
-  } catch {}
-
-  // Permanently purge any legacy dummy test tickets and dummy customers
-  try {
-    const dummyNames = ['Sarah Connor', 'John Wick', 'arteen', 'Marcus Vance'];
-    const dummyIds = [
-      'tkt-test-sync-1',
-      '58e737c6-f590-4e65-8e28-3541f5e277e7',
-      'cd2f4c06-4d00-4364-958d-fd7bc86e35a2',
-      '7070afde-bbb6-421a-af5a-7aa0639fa31d',
-      '751fa998-ba4c-4104-a0a9-68718e906d5d',
-    ];
-
-    await prisma.ticketEvent.deleteMany({
-      where: {
-        OR: [
-          { ticketId: { in: dummyIds } },
-          { ticket: { customer: { fullName: { in: dummyNames } } } },
-        ],
-      },
-    }).catch(() => {});
-
-    await prisma.ticketItem.deleteMany({
-      where: {
-        OR: [
-          { ticketId: { in: dummyIds } },
-          { ticket: { customer: { fullName: { in: dummyNames } } } },
-        ],
-      },
-    }).catch(() => {});
-
-    await prisma.payment.deleteMany({
-      where: {
-        OR: [
-          { ticketId: { in: dummyIds } },
-          { ticket: { customer: { fullName: { in: dummyNames } } } },
-        ],
-      },
-    }).catch(() => {});
-
-    await prisma.ticket.deleteMany({
-      where: {
-        OR: [
-          { id: { in: dummyIds } },
-          { customer: { fullName: { in: dummyNames } } },
-        ],
-      },
-    }).catch(() => {});
-
-    await prisma.device.deleteMany({
-      where: { customer: { fullName: { in: dummyNames } } },
-    }).catch(() => {});
-
-    await prisma.customer.deleteMany({
-      where: { fullName: { in: dummyNames } },
-    }).catch(() => {});
   } catch {}
 }
 

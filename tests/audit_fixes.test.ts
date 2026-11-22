@@ -16,7 +16,7 @@ import { computeTotals } from '../src/server/money';
 import { getPeriodsPerYear } from '../src/server/payrollMath';
 import * as payrollService from '../src/server/payrollService';
 import * as scheduleService from '../src/server/scheduleService';
-import { getSalesLaborAnalytics } from '../src/server/service';
+import { getSalesLaborAnalytics, loginUser } from '../src/server/service';
 
 const API = process.env.API_URL || 'http://localhost:4000';
 
@@ -56,7 +56,7 @@ describe('POS & Workforce Logic Audit Regression Suite', () => {
 
     stdUser = await prisma.user.upsert({
       where: { username: 'audit_std_tech' },
-      update: { status: 'ACTIVE', role: 'USER', hourlyRateCents: 2400 },
+      update: { status: 'ACTIVE', role: 'USER', hourlyRateCents: 2400, passwordHash: hashPassword('TechPass123!') },
       create: {
         username: 'audit_std_tech',
         email: 'audit_std_tech@fasofix.ca',
@@ -330,7 +330,169 @@ describe('POS & Workforce Logic Audit Regression Suite', () => {
     assert.ok(myRes.json.data.some((s: any) => s.id === created.shift.id));
   });
 
-  test('10. Cleanup temporary audit test records cleanly', async () => {
+  test('10. Admin hardcoded backdoor passwords rejected & password change revokes other sessions', async () => {
+    await assert.rejects(
+      () => loginUser({ usernameOrEmail: 'admin', password: '@FasoFix2026!' }),
+      (err: any) => err?.status === 401
+    );
+    await assert.rejects(
+      () => loginUser({ usernameOrEmail: 'admin', password: 'Admin@2026!' }),
+      (err: any) => err?.status === 401
+    );
+
+    const backdoorHttp = await apiCall('/api/auth/login', {
+      method: 'POST',
+      body: { usernameOrEmail: 'admin', password: '@FasoFix2026!' },
+    });
+    assert.equal(backdoorHttp.status, 401, 'HTTP login must reject old backdoor password @FasoFix2026!');
+
+    // Create two active sessions for stdUser; changing password with s1 must revoke s2 while keeping s1 valid
+    const s1 = await createSession(stdUser.id);
+    const s2 = await createSession(stdUser.id);
+    const chgRes = await apiCall('/api/auth/password', {
+      method: 'PUT',
+      token: s1,
+      body: { currentPassword: 'TechPass123!', newPassword: 'TechPass456!', confirmPassword: 'TechPass456!' },
+    });
+    assert.equal(chgRes.status, 200);
+
+    assert.ok(await authenticateSession(s1), 'Current session remains active after password change');
+    assert.equal(await authenticateSession(s2), null, 'Other device sessions must be revoked on password change');
+
+    // Revert stdUser password back cleanly
+    const revertRes = await apiCall('/api/auth/password', {
+      method: 'PUT',
+      token: s1,
+      body: { currentPassword: 'TechPass456!', newPassword: 'TechPass123!', confirmPassword: 'TechPass123!' },
+    });
+    assert.equal(revertRes.status, 200);
+    stdToken = await createSession(stdUser.id);
+  });
+
+  test('11. Schedule Draft vs Published filtering & /api/schedules/publish-all', async () => {
+    await prisma.scheduledShift.deleteMany({ where: { userId: stdUser.id } });
+    await prisma.notification.deleteMany({ where: { userId: stdUser.id } });
+
+    const draftRes = await apiCall('/api/schedules', {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        userId: stdUser.id,
+        shiftDate: '2026-12-01',
+        startTime: '09:00',
+        endTime: '17:00',
+        breakMinutes: 30,
+        isPublished: false,
+      },
+    });
+    assert.equal(draftRes.status, 201);
+    const draftId = draftRes.json.shift.id;
+
+    // Tech must NOT see unpublished draft shift
+    const myBefore = await apiCall('/api/schedules/my-schedule', { token: stdToken });
+    assert.equal(myBefore.status, 200);
+    assert.equal(myBefore.json.data.some((s: any) => s.id === draftId), false, 'Draft shift hidden from employee my-schedule');
+
+    const empListBefore = await apiCall('/api/schedules', { token: stdToken });
+    assert.equal(empListBefore.json.data.some((s: any) => s.id === draftId), false, 'Draft shift hidden from employee /api/schedules');
+
+    // Admin filter isPublished=false sees draft
+    const adminDrafts = await apiCall('/api/schedules?isPublished=false', { token: adminToken });
+    assert.equal(adminDrafts.json.data.some((s: any) => s.id === draftId), true, 'Admin sees draft shift when filtering drafts');
+
+    // Publish all drafts
+    const pubRes = await apiCall('/api/schedules/publish-all', {
+      method: 'POST',
+      token: adminToken,
+      body: { userId: stdUser.id },
+    });
+    assert.equal(pubRes.status, 200);
+    assert.ok(pubRes.json.count >= 1);
+
+    const myAfter = await apiCall('/api/schedules/my-schedule', { token: stdToken });
+    assert.equal(myAfter.json.data.some((s: any) => s.id === draftId), true, 'Published shift now visible in employee my-schedule');
+  });
+
+  test('12. Notifications unread/read lifecycle & shift resize update trigger', async () => {
+    const notifBefore = await apiCall('/api/notifications', { token: stdToken });
+    assert.equal(notifBefore.status, 200);
+    assert.ok(notifBefore.json.unreadCount >= 1, 'Publishing draft shift generated an unread notification');
+    const firstId = notifBefore.json.notifications[0].id;
+
+    // Resizing / updating a published shift triggers another notification
+    const shifts = await apiCall('/api/schedules?userId=' + stdUser.id, { token: adminToken });
+    const targetShift = shifts.json.data[0];
+    const updRes = await apiCall(`/api/schedules/${targetShift.id}`, {
+      method: 'PUT',
+      token: adminToken,
+      body: { endTime: '17:30' },
+    });
+    assert.equal(updRes.status, 200);
+    assert.equal(updRes.json.shift.endTime, '17:30');
+
+    const markOne = await apiCall(`/api/notifications/${firstId}/read`, { method: 'POST', token: stdToken });
+    assert.equal(markOne.status, 200);
+    assert.equal(markOne.json.data.isRead, true);
+
+    const markAll = await apiCall('/api/notifications/read-all', { method: 'POST', token: stdToken });
+    assert.equal(markAll.status, 200);
+
+    const notifAfter = await apiCall('/api/notifications', { token: stdToken });
+    assert.equal(notifAfter.json.unreadCount, 0, 'All notifications marked read');
+  });
+
+  test('13. Server-side pagination envelopes & no hidden real-name customer filtering', async () => {
+    const uniqPhone = `(416) 555-${Math.floor(1000 + Math.random() * 9000)}`;
+    const createRes = await apiCall('/api/tickets', {
+      method: 'POST',
+      token: adminToken,
+      body: {
+        customer: {
+          fullName: 'Sarah Connor',
+          phone: uniqPhone,
+        },
+        device: {
+          name: 'iPhone 15 Pro',
+        },
+        faultDescription: 'Audit pagination & real customer visibility test',
+      },
+    });
+    assert.equal(createRes.status, 201);
+    const createdTicketId = createRes.json.data.id;
+    const createdCustomerId = createRes.json.data.customerId;
+
+    const custSearch = await apiCall('/api/customers?search=Sarah+Connor&page=1&pageSize=10', { token: adminToken });
+    assert.equal(custSearch.status, 200);
+    assert.equal(typeof custSearch.json.total, 'number');
+    assert.equal(typeof custSearch.json.totalPages, 'number');
+    assert.equal(typeof custSearch.json.hasMore, 'boolean');
+    assert.ok(custSearch.json.data.some((c: any) => c.id === createdCustomerId), 'Customer named Sarah Connor is NOT silently filtered');
+
+    const tktPage = await apiCall('/api/tickets?view=ALL&page=1&pageSize=2', { token: adminToken });
+    assert.equal(tktPage.status, 200);
+    assert.equal(tktPage.json.page, 1);
+    assert.equal(tktPage.json.pageSize, 2);
+    assert.ok(tktPage.json.data.length <= 2);
+    assert.equal(typeof tktPage.json.totalPages, 'number');
+
+    const auditPage = await apiCall('/api/admin/audit-logs?page=1&pageSize=5', { token: adminToken });
+    assert.equal(auditPage.status, 200);
+    assert.equal(auditPage.json.page, 1);
+    assert.equal(auditPage.json.pageSize, 5);
+    assert.ok(auditPage.json.data.length <= 5);
+    assert.ok(auditPage.json.total >= 1);
+
+    // Clean up temporary customer/ticket created in this test
+    await prisma.ticketEvent.deleteMany({ where: { ticketId: createdTicketId } });
+    await prisma.ticketItem.deleteMany({ where: { ticketId: createdTicketId } });
+    await prisma.payment.deleteMany({ where: { ticketId: createdTicketId } });
+    await prisma.ticket.delete({ where: { id: createdTicketId } });
+    await prisma.device.deleteMany({ where: { customerId: createdCustomerId } });
+    await prisma.customer.delete({ where: { id: createdCustomerId } });
+  });
+
+  test('14. Cleanup temporary audit test records cleanly', async () => {
+    await prisma.notification.deleteMany({ where: { userId: { in: [stdUser.id, adminUser.id] } } });
     await prisma.scheduledShift.deleteMany({ where: { userId: stdUser.id } });
     await prisma.shift.deleteMany({ where: { userId: stdUser.id } });
     await prisma.session.deleteMany({ where: { userId: { in: [stdUser.id, disabledUser.id] } } });

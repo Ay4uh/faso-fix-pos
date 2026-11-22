@@ -17,7 +17,9 @@ import {
   Award,
   ShieldCheck,
   ArrowLeft,
+  ChevronLeft,
 } from 'lucide-react';
+import type { PaginationMeta } from './TicketTable';
 
 interface CustomersViewProps {
   customers: Customer[];
@@ -26,6 +28,10 @@ interface CustomersViewProps {
   onSelectTicket?: (ticket: Ticket) => void;
   onPrintTicket?: (ticket: Ticket) => void;
   onOpenSmsModal?: (ticket: Ticket) => void;
+  pagination?: PaginationMeta | null;
+  onPageChange?: (page: number) => void;
+  searchQuery?: string;
+  onSearchChange?: (query: string) => void;
 }
 
 export const CustomersView: React.FC<CustomersViewProps> = ({
@@ -35,19 +41,23 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
   onSelectTicket,
   onPrintTicket,
   onOpenSmsModal,
+  pagination,
+  onPageChange,
+  searchQuery,
+  onSearchChange,
 }) => {
-  const [search, setSearch] = useState('');
+  const [localSearch, setLocalSearch] = useState('');
+  const search = searchQuery !== undefined ? searchQuery : localSearch;
+  const setSearch = (val: string) => {
+    if (onSearchChange) onSearchChange(val);
+    else setLocalSearch(val);
+  };
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
 
-  const DUMMY_NAMES = new Set(['sarah connor', 'john wick', 'arteen', 'marcus vance']);
-  const validCustomers = customers.filter(
-    (c) => !DUMMY_NAMES.has((c.fullName || '').trim().toLowerCase())
-  );
-
   const activeCustomer =
-    validCustomers.find((c) => c.id === selectedCustomerId) || (validCustomers.length > 0 ? validCustomers[0] : null);
+    customers.find((c) => c.id === selectedCustomerId) || (customers.length > 0 ? customers[0] : null);
 
-  const filteredCustomers = validCustomers.filter(
+  const filteredCustomers = customers.filter(
     (c) =>
       c.fullName.toLowerCase().includes(search.toLowerCase()) ||
       c.phone.includes(search) ||
@@ -82,7 +92,9 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
             <div className="flex items-center gap-1.5 font-mono text-xs text-slate-500">
               <span className="text-slate-400">Directory</span>
               <span>/</span>
-              <span className="font-semibold text-slate-800">All Registered Clients ({customers.length})</span>
+              <span className="font-semibold text-slate-800">
+                All Registered Clients ({pagination?.total ?? customers.length})
+              </span>
             </div>
           )}
         </div>
@@ -445,6 +457,36 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           <p className="text-xs text-slate-400 mt-1">
             Create a repair ticket to automatically register your first customer account.
           </p>
+        </div>
+      )}
+
+      {pagination && pagination.totalPages > 1 && onPageChange && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white px-4 py-3 rounded-xl border border-slate-200/80 shadow-xs text-xs">
+          <span className="text-slate-600 font-medium">
+            Page <strong className="text-slate-900">{pagination.page}</strong> of{' '}
+            <strong className="text-slate-900">{pagination.totalPages}</strong> &bull;{' '}
+            <strong className="text-slate-900">{pagination.total}</strong> total customers
+          </span>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              disabled={pagination.page <= 1}
+              onClick={() => onPageChange(pagination.page - 1)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Previous</span>
+            </button>
+            <button
+              type="button"
+              disabled={!pagination.hasMore}
+              onClick={() => onPageChange(pagination.page + 1)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
+            >
+              <span>Next</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
         </div>
       )}
     </div>

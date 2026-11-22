@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Header } from './components/Header';
 import { Sidebar } from './components/Sidebar';
 import { MetricCards } from './components/MetricCards';
-import { TicketTable } from './components/TicketTable';
+import { TicketTable, PaginationMeta } from './components/TicketTable';
 import { CreateTicketModal } from './components/CreateTicketModal';
 import { WorkOrderScreen } from './components/WorkOrderScreen';
 import { PrintTicketModal } from './components/PrintTicketModal';
@@ -39,23 +39,6 @@ const getInitialUser = (): User | null => {
   return null;
 };
 
-export const DUMMY_TICKET_IDS = new Set([
-  'tkt-test-sync-1',
-  '58e737c6-f590-4e65-8e28-3541f5e277e7',
-  'cd2f4c06-4d00-4364-958d-fd7bc86e35a2',
-  '7070afde-bbb6-421a-af5a-7aa0639fa31d',
-  '751fa998-ba4c-4104-a0a9-68718e906d5d',
-]);
-export const DUMMY_CUSTOMER_NAMES = new Set(['sarah connor', 'john wick', 'arteen', 'marcus vance']);
-
-export const isDummyTicket = (t: Ticket | any): boolean => {
-  if (!t) return false;
-  if (DUMMY_TICKET_IDS.has(t.id)) return true;
-  const name = (t.customer?.fullName || '').trim().toLowerCase();
-  if (DUMMY_CUSTOMER_NAMES.has(name)) return true;
-  return false;
-};
-
 const getDeletedTicketIds = (): Set<string> => {
   try {
     const raw = localStorage.getItem('apexfix_deleted_ticket_ids');
@@ -78,8 +61,13 @@ export function App() {
   const [selectedBench] = useState('ALL');
 
   const [tickets, setTickets] = useState<Ticket[]>(getInitialTickets);
+  const [ticketsPage, setTicketsPage] = useState(1);
+  const [ticketsPagination, setTicketsPagination] = useState<PaginationMeta | null>(null);
   const deletedTicketIdsRef = useRef<Set<string>>(getDeletedTicketIds());
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [customersPage, setCustomersPage] = useState(1);
+  const [customersSearch, setCustomersSearch] = useState('');
+  const [customersPagination, setCustomersPagination] = useState<PaginationMeta | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -93,6 +81,8 @@ export function App() {
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [prefillCustomer, setPrefillCustomer] = useState<Customer | null>(null);
   const [isTimeClockModalOpen, setIsTimeClockModalOpen] = useState(false);
+  const [timeClockInitialTab, setTimeClockInitialTab] = useState<'clock' | 'history' | 'schedule' | 'paystubs'>('clock');
+  const [adminInitialSection, setAdminInitialSection] = useState<'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'attendance' | 'payroll' | 'schedule' | 'sales-labor'>('overview');
   const [timeClockStatus, setTimeClockStatus] = useState<any | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
   const selectedTicketIdRef = useRef<string | null>(null);
@@ -458,6 +448,27 @@ export function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedTicket, printTicket, smsTicket, isCreateModalOpen]);
 
+  const handleNavigateNotification = (linkTab: string) => {
+    if (linkTab === 'timeclock:schedule') {
+      setTimeClockInitialTab('schedule');
+      setIsTimeClockModalOpen(true);
+    } else if (linkTab === 'timeclock:paystubs') {
+      setTimeClockInitialTab('paystubs');
+      setIsTimeClockModalOpen(true);
+    } else if (linkTab === 'timeclock:clock') {
+      setTimeClockInitialTab('clock');
+      setIsTimeClockModalOpen(true);
+    } else if (linkTab.startsWith('admin:') && currentUser?.role === 'ADMIN') {
+      const section = linkTab.split(':')[1] as any;
+      if (section) setAdminInitialSection(section);
+      setCurrentTab('admin');
+    }
+  };
+
+  useEffect(() => {
+    setTicketsPage(1);
+  }, [searchQuery, selectedBench]);
+
   const fetchData = async (silent = false) => {
     try {
       if (!silent) setIsLoading(true);
@@ -469,11 +480,18 @@ export function App() {
       }
       if (searchQuery.trim()) params.set('search', searchQuery.trim());
       if (selectedBench !== 'ALL') params.set('bench', selectedBench);
+      params.set('page', String(ticketsPage));
+      params.set('pageSize', '25');
+
+      const custParams = new URLSearchParams();
+      custParams.set('page', String(customersPage));
+      custParams.set('pageSize', '25');
+      if (customersSearch.trim()) custParams.set('search', customersSearch.trim());
 
       const [ticketsRes, statsRes, customersRes] = await Promise.all([
         fetchWithAuth(`/api/tickets?${params.toString()}`),
         fetchWithAuth(`/api/stats?${selectedBench !== 'ALL' ? `bench=${selectedBench}` : ''}`),
-        fetchWithAuth('/api/customers'),
+        fetchWithAuth(`/api/customers?${custParams.toString()}`),
       ]);
 
       if (ticketsRes.ok) {
@@ -481,10 +499,18 @@ export function App() {
         const serverList: Ticket[] = data.data || [];
         const deletedIds = deletedTicketIdsRef.current;
 
-        // Clean server list: filter out any deleted or dummy tickets
-        const cleanServerList = serverList.filter((t) => !deletedIds.has(t.id) && !isDummyTicket(t));
+        const cleanServerList = serverList.filter((t) => !deletedIds.has(t.id));
 
         setTickets(cleanServerList);
+        if (data.total !== undefined) {
+          setTicketsPagination({
+            page: data.page || ticketsPage,
+            pageSize: data.pageSize || 25,
+            total: data.total,
+            totalPages: data.totalPages || 1,
+            hasMore: Boolean(data.hasMore),
+          });
+        }
         try {
           localStorage.setItem('apexfix_cached_tickets', JSON.stringify(cleanServerList));
         } catch {}
@@ -509,6 +535,15 @@ export function App() {
       if (customersRes.ok) {
         const cData = await customersRes.json();
         setCustomers(cData.data || []);
+        if (cData.total !== undefined) {
+          setCustomersPagination({
+            page: cData.page || customersPage,
+            pageSize: cData.pageSize || 25,
+            total: cData.total,
+            totalPages: cData.totalPages || 1,
+            hasMore: Boolean(cData.hasMore),
+          });
+        }
       }
     } catch (err) {
       console.error('Error fetching dashboard data:', err);
@@ -527,7 +562,7 @@ export function App() {
       fetchData(true);
     }, 6000);
     return () => clearInterval(interval);
-  }, [currentUser?.id, activeFilter, searchQuery, selectedBench, selectedTicket?.id]);
+  }, [currentUser?.id, activeFilter, searchQuery, selectedBench, selectedTicket?.id, ticketsPage, customersPage, customersSearch]);
 
   // Real-time live updates via Server-Sent Events (SSE)
   // Only connect on localhost. On Vercel serverless, SSE holds lambdas open and forces multi-container divergence.
@@ -771,12 +806,15 @@ export function App() {
         searchQuery={searchQuery}
         setSearchQuery={setSearchQuery}
         openCreateModal={() => setIsCreateModalOpen(true)}
-        tickets={tickets.filter((t) => !isDummyTicket(t))}
+        tickets={tickets}
         onSelectTicket={handleSelectTicket}
         currentUser={currentUser}
         onLogout={handleLogout}
         onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
-        onOpenTimeClock={() => setIsTimeClockModalOpen(true)}
+        onOpenTimeClock={() => {
+          setTimeClockInitialTab('clock');
+          setIsTimeClockModalOpen(true);
+        }}
         isClockedIn={Boolean(timeClockStatus?.isClockedIn ?? timeClockStatus?.clockedIn)}
         isOnBreak={Boolean(timeClockStatus?.isOnBreak ?? timeClockStatus?.onBreak)}
         clockInTime={timeClockStatus?.activeShift?.clockIn}
@@ -784,6 +822,7 @@ export function App() {
         onQuickClockIn={handleQuickClockIn}
         onQuickClockOut={handleQuickClockOut}
         onQuickToggleBreak={handleQuickToggleBreak}
+        onNavigateNotification={handleNavigateNotification}
       />
 
       {/* Main Layout Area */}
@@ -798,7 +837,10 @@ export function App() {
             onOpenAdminLogin={() => setIsAdminLoginModalOpen(true)}
             onLogout={handleLogout}
             openCreateModal={() => setIsCreateModalOpen(true)}
-            onOpenTimeClock={() => setIsTimeClockModalOpen(true)}
+            onOpenTimeClock={() => {
+              setTimeClockInitialTab('clock');
+              setIsTimeClockModalOpen(true);
+            }}
           />
         </div>
 
@@ -812,10 +854,13 @@ export function App() {
 
               {/* Main Ticket Queue Table */}
               <TicketTable
-                tickets={tickets.filter((t) => !isDummyTicket(t))}
-                totalTicketsCount={tickets.filter((t) => !isDummyTicket(t)).length}
+                tickets={tickets}
+                totalTicketsCount={ticketsPagination?.total ?? tickets.length}
                 activeFilter={activeFilter}
-                setActiveFilter={setActiveFilter}
+                setActiveFilter={(f) => {
+                  setTicketsPage(1);
+                  setActiveFilter(f);
+                }}
                 currentUser={currentUser}
                 onSelectTicket={handleSelectTicket}
                 onUpdateStatus={handleUpdateStatus}
@@ -823,6 +868,8 @@ export function App() {
                 onOpenSmsModal={(t) => setSmsTicket(t)}
                 onPrintTicket={(t) => setPrintTicket(t)}
                 onDeleteTicket={handleDeleteTicket}
+                pagination={ticketsPagination}
+                onPageChange={(p) => setTicketsPage(p)}
               />
             </div>
           )}
@@ -831,7 +878,7 @@ export function App() {
           {currentTab === 'customers' && (
             <CustomersView
               customers={customers}
-              tickets={tickets.filter((t) => !isDummyTicket(t))}
+              tickets={tickets}
               onOpenCreateWithCustomer={(c) => {
                 setPrefillCustomer(c);
                 setIsCreateModalOpen(true);
@@ -839,6 +886,13 @@ export function App() {
               onSelectTicket={handleSelectTicket}
               onPrintTicket={(t) => setPrintTicket(t)}
               onOpenSmsModal={(t) => setSmsTicket(t)}
+              pagination={customersPagination}
+              onPageChange={(p) => setCustomersPage(p)}
+              searchQuery={customersSearch}
+              onSearchChange={(q) => {
+                setCustomersSearch(q);
+                setCustomersPage(1);
+              }}
             />
           )}
 
@@ -876,6 +930,7 @@ export function App() {
                 currentUser={currentUser}
                 onLogout={handleLogout}
                 onNavigateToTab={(t) => setCurrentTab(t as any)}
+                initialSection={adminInitialSection}
               />
             ) : (
               <div className="bg-white p-12 rounded-2xl border border-slate-200 shadow-sm text-center max-w-lg mx-auto space-y-4 my-8">
@@ -1008,6 +1063,7 @@ export function App() {
         onClose={() => setIsTimeClockModalOpen(false)}
         currentUser={currentUser}
         onStatusChange={fetchTimeClockStatus}
+        initialTab={timeClockInitialTab}
       />
 
       <AdminLoginModal

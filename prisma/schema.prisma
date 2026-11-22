@@ -68,6 +68,7 @@ model User {
   paystubs              Paystub[]
   sessions              Session[]
   auditLogs             AuditLog[] @relation("UserAuditLogs")
+  notifications         Notification[]
   createdAt             DateTime   @default(now())
   updatedAt             DateTime   @updatedAt
 
@@ -405,4 +406,19 @@ model ShiftSwapRequest {
   @@index([requesterId])
   @@index([targetUserId])
   @@index([status])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  type      String
+  title     String
+  message   String
+  linkTab   String?
+  isRead    Boolean  @default(false)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@index([userId, isRead])
+  @@index([createdAt])
 }

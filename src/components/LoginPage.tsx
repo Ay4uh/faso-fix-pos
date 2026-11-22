@@ -86,7 +86,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
   const handleFillAdmin = () => {
     setIsAdminMode(true);
     setUsernameOrEmail('admin');
-    if (import.meta.env.DEV) setPassword('Admin@FasoFix2026!');
     setErrorMessage(null);
   };
 

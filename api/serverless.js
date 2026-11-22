@@ -457,21 +457,6 @@ async function ensureAdminProvisioning() {
 		console.log("  Please log in and update your password if desired.");
 		console.log("------------------------------------------------------------");
 	}
-	if (!await prisma.auditLog.findFirst({ where: { action: "SYSTEM_DUMMY_DATA_PURGED_V1" } })) {
-		await prisma.ticketEvent.deleteMany({}).catch(() => {});
-		await prisma.ticketItem.deleteMany({}).catch(() => {});
-		await prisma.payment.deleteMany({}).catch(() => {});
-		await prisma.ticket.deleteMany({}).catch(() => {});
-		await prisma.device.deleteMany({}).catch(() => {});
-		await prisma.customer.deleteMany({}).catch(() => {});
-		await prisma.session.deleteMany({ where: { user: { role: "USER" } } }).catch(() => {});
-		await prisma.user.deleteMany({ where: { role: "USER" } }).catch(() => {});
-		await recordAudit({
-			actorName: "SYSTEM",
-			action: "SYSTEM_DUMMY_DATA_PURGED_V1",
-			details: "Purged all dummy tickets, work orders, and test technician users for clean production launch."
-		}).catch(() => {});
-	}
 }
 // src/server/service.ts
 /** Error with an HTTP status, surfaced to the client as JSON by the error handler. */
@@ -610,26 +595,9 @@ async function getTicket(id) {
 		otherTickets
 	};
 }
-var DUMMY_TICKET_IDS = [
-	"tkt-test-sync-1",
-	"58e737c6-f590-4e65-8e28-3541f5e277e7",
-	"cd2f4c06-4d00-4364-958d-fd7bc86e35a2",
-	"7070afde-bbb6-421a-af5a-7aa0639fa31d",
-	"751fa998-ba4c-4104-a0a9-68718e906d5d"
-];
-var DUMMY_CUSTOMER_NAMES = [
-	"Sarah Connor",
-	"John Wick",
-	"arteen",
-	"Marcus Vance"
-];
-async function listTickets(params) {
+async function listTicketsPaginated(params) {
 	const view = params.view || "OPEN";
-	const where = {
-		deletedAt: null,
-		id: { notIn: DUMMY_TICKET_IDS },
-		customer: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } }
-	};
+	const where = { deletedAt: null };
 	if (view === "OPEN") where.status = { in: OPEN_STATUSES };
 	else if (view !== "ALL") where.status = view;
 	if (params.bench && params.bench !== "ALL") where.bench = params.bench;
@@ -647,12 +615,25 @@ async function listTickets(params) {
 		if (digits.length >= 3) or.push({ customer: { phoneDigits: { contains: digits } } });
 		where.OR = or;
 	}
-	return (await prisma.ticket.findMany({
+	const page = Math.max(1, Math.floor(params.page || 1));
+	const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || 25)), 500);
+	const skip = (page - 1) * pageSize;
+	const [total, tickets] = await Promise.all([prisma.ticket.count({ where }), prisma.ticket.findMany({
 		where,
 		include: ticketInclude,
 		orderBy: view === "COMPLETED" ? { completedAt: "desc" } : [{ dueDate: "asc" }, { ticketNumber: "asc" }],
-		take: 500
-	})).map(withTotals);
+		skip,
+		take: pageSize
+	})]);
+	const totalPages = Math.max(1, Math.ceil(total / pageSize));
+	return {
+		items: tickets.map(withTotals),
+		total,
+		page,
+		pageSize,
+		totalPages,
+		hasMore: page < totalPages
+	};
 }
 var TX_OPTIONS = {
 	maxWait: 15e3,
@@ -949,18 +930,18 @@ async function deleteNote(ticketId, noteId) {
 	});
 	return getTicket(ticketId);
 }
-async function listCustomers(search) {
-	const q = (search || "").trim();
+async function listCustomersPaginated(params) {
+	const q = (params.search || "").trim();
 	const digits = digitsOnly(q);
-	const where = q ? {
-		fullName: { notIn: DUMMY_CUSTOMER_NAMES },
-		OR: [
-			{ fullName: { contains: q } },
-			{ email: { contains: q } },
-			...digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []
-		]
-	} : { fullName: { notIn: DUMMY_CUSTOMER_NAMES } };
-	return (await prisma.customer.findMany({
+	const where = q ? { OR: [
+		{ fullName: { contains: q } },
+		{ email: { contains: q } },
+		...digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []
+	] } : {};
+	const page = Math.max(1, Math.floor(params.page || 1));
+	const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || 25)), 500);
+	const skip = (page - 1) * pageSize;
+	const [total, customers] = await Promise.all([prisma.customer.count({ where }), prisma.customer.findMany({
 		where,
 		orderBy: { updatedAt: "desc" },
 		include: { tickets: {
@@ -972,14 +953,25 @@ async function listCustomers(search) {
 				payments: { select: { amountCents: true } }
 			}
 		} },
-		take: 500
-	})).map(({ tickets, ...c }) => ({
+		skip,
+		take: pageSize
+	})]);
+	const items = customers.map(({ tickets, ...c }) => ({
 		...c,
 		ticketCount: tickets.length,
 		openTickets: tickets.filter((t) => OPEN_STATUSES.includes(t.status)).length,
 		totalPaidCents: tickets.reduce((s, t) => s + t.payments.reduce((a, p) => a + p.amountCents, 0), 0),
 		lastVisit: tickets.reduce((d, t) => !d || t.createdAt > d ? t.createdAt : d, null)
 	}));
+	const totalPages = Math.max(1, Math.ceil(total / pageSize));
+	return {
+		items,
+		total,
+		page,
+		pageSize,
+		totalPages,
+		hasMore: page < totalPages
+	};
 }
 async function lookupCustomerByPhone(phone) {
 	const phoneDigits = digitsOnly(phone);
@@ -1095,11 +1087,7 @@ async function getDashboard() {
 	const tomorrow = new Date(today.getTime() + 864e5);
 	const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 	const tickets = await prisma.ticket.findMany({
-		where: {
-			deletedAt: null,
-			id: { notIn: DUMMY_TICKET_IDS },
-			customer: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } }
-		},
+		where: { deletedAt: null },
 		select: {
 			status: true,
 			dueDate: true,
@@ -1140,7 +1128,7 @@ async function getDashboard() {
 		awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
 		collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
 		collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
-		customerCount: await prisma.customer.count({ where: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } } }),
+		customerCount: await prisma.customer.count(),
 		lowStock
 	};
 }
@@ -1596,11 +1584,7 @@ async function loginUser(input, ipAddress) {
 	}
 	if (!user) throw new HttpError(401, "Invalid username/email or password");
 	if (user.status !== "ACTIVE") throw new HttpError(403, "This account has been deactivated. Contact an administrator.");
-	let isValid = verifyPassword(password, user.passwordHash);
-	if (!isValid) {
-		if ((user.username === "admin" || user.email === "admin@fasofix.ca") && (password === "@FasoFix2026!" || password === "Admin@2026!" || password === "Admin@FasoFix2026!")) isValid = true;
-	}
-	if (!isValid) throw new HttpError(401, "Invalid username/email or password");
+	if (!verifyPassword(password, user.passwordHash)) throw new HttpError(401, "Invalid username/email or password");
 	if (adminMode && user.role !== "ADMIN") {
 		await recordAudit({
 			userId: user.id,
@@ -1849,7 +1833,7 @@ async function deleteUser(id, actor) {
 		message: `User ${user.username} successfully deleted`
 	};
 }
-async function changeUserPassword(userId, input, actorName) {
+async function changeUserPassword(userId, input, actorName, currentToken) {
 	const { currentPassword, newPassword } = changePasswordSchema.parse(input);
 	const user = await prisma.user.findUnique({ where: { id: userId } });
 	if (!user) throw new HttpError(404, "User account not found");
@@ -1859,6 +1843,10 @@ async function changeUserPassword(userId, input, actorName) {
 		where: { id: userId },
 		data: { passwordHash }
 	});
+	await prisma.session.deleteMany({ where: {
+		userId,
+		...currentToken ? { token: { not: currentToken } } : {}
+	} });
 	await recordAudit({
 		userId,
 		actorName,
@@ -1916,8 +1904,10 @@ async function updateUserPreferences(userId, preferences) {
 		}
 	});
 }
-async function listAuditLogs(params) {
-	const limit = Math.min(params.limit || 100, 500);
+async function listAuditLogsPaginated(params) {
+	const page = Math.max(1, Math.floor(params.page || 1));
+	const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || params.limit || 25)), 500);
+	const skip = (page - 1) * pageSize;
 	const where = {};
 	if (params.action && params.action !== "ALL") where.action = params.action;
 	if (params.search?.trim()) {
@@ -1928,11 +1918,21 @@ async function listAuditLogs(params) {
 			{ action: { contains: q } }
 		];
 	}
-	return await prisma.auditLog.findMany({
+	const [total, logs] = await Promise.all([prisma.auditLog.count({ where }), prisma.auditLog.findMany({
 		where,
 		orderBy: { createdAt: "desc" },
-		take: limit
-	});
+		skip,
+		take: pageSize
+	})]);
+	const totalPages = Math.max(1, Math.ceil(total / pageSize));
+	return {
+		items: logs,
+		total,
+		page,
+		pageSize,
+		totalPages,
+		hasMore: page < totalPages
+	};
 }
 async function getAdminOverview() {
 	const [totalUsers, activeUsers, disabledUsers, adminUsers, standardUsers, recentUsers, recentAudits, ticketsCount, activeTicketsCount, completedTicketsCount, customersCount, inventoryCount, lowStockParts, revenueAgg] = await Promise.all([
@@ -2398,6 +2398,20 @@ CREATE TABLE IF NOT EXISTS "ShiftSwapRequest" (
 CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_requesterId_idx" ON "ShiftSwapRequest"("requesterId");
 CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_targetUserId_idx" ON "ShiftSwapRequest"("targetUserId");
 CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_status_idx" ON "ShiftSwapRequest"("status");
+
+CREATE TABLE IF NOT EXISTS "Notification" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "linkTab" TEXT,
+    "isRead" INTEGER NOT NULL DEFAULT 0,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+);
+CREATE INDEX IF NOT EXISTS "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead");
+CREATE INDEX IF NOT EXISTS "Notification_createdAt_idx" ON "Notification"("createdAt");
 `;
 var POSTGRES_SCHEMA_STATEMENTS = [
 	`CREATE TABLE IF NOT EXISTS "WageRate" (
@@ -2579,7 +2593,20 @@ var POSTGRES_SCHEMA_STATEMENTS = [
 	`ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "vacationPayPctOver5Years" INTEGER NOT NULL DEFAULT 600`,
 	`ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "branchLocation" TEXT DEFAULT 'Main Shop'`,
 	`ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "recurrenceRule" TEXT DEFAULT 'NONE'`,
-	`ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "isPublished" BOOLEAN NOT NULL DEFAULT true`
+	`ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "isPublished" BOOLEAN NOT NULL DEFAULT true`,
+	`CREATE TABLE IF NOT EXISTS "Notification" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "type" TEXT NOT NULL,
+    "title" TEXT NOT NULL,
+    "message" TEXT NOT NULL,
+    "linkTab" TEXT,
+    "isRead" BOOLEAN NOT NULL DEFAULT false,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+	`CREATE INDEX IF NOT EXISTS "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead")`,
+	`CREATE INDEX IF NOT EXISTS "Notification_createdAt_idx" ON "Notification"("createdAt")`
 ];
 async function ensurePostgresSchema() {
 	for (const sql of POSTGRES_SCHEMA_STATEMENTS) try {
@@ -2623,27 +2650,6 @@ async function ensureDatabaseSchema() {
 	try {
 		await prisma.$executeRawUnsafe(`DROP INDEX IF EXISTS "Ticket_ticketNumber_key"`);
 		await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "Ticket_ticketNumber_idx" ON "Ticket"("ticketNumber")`);
-	} catch {}
-	try {
-		const dummyNames = [
-			"Sarah Connor",
-			"John Wick",
-			"arteen",
-			"Marcus Vance"
-		];
-		const dummyIds = [
-			"tkt-test-sync-1",
-			"58e737c6-f590-4e65-8e28-3541f5e277e7",
-			"cd2f4c06-4d00-4364-958d-fd7bc86e35a2",
-			"7070afde-bbb6-421a-af5a-7aa0639fa31d",
-			"751fa998-ba4c-4104-a0a9-68718e906d5d"
-		];
-		await prisma.ticketEvent.deleteMany({ where: { OR: [{ ticketId: { in: dummyIds } }, { ticket: { customer: { fullName: { in: dummyNames } } } }] } }).catch(() => {});
-		await prisma.ticketItem.deleteMany({ where: { OR: [{ ticketId: { in: dummyIds } }, { ticket: { customer: { fullName: { in: dummyNames } } } }] } }).catch(() => {});
-		await prisma.payment.deleteMany({ where: { OR: [{ ticketId: { in: dummyIds } }, { ticket: { customer: { fullName: { in: dummyNames } } } }] } }).catch(() => {});
-		await prisma.ticket.deleteMany({ where: { OR: [{ id: { in: dummyIds } }, { customer: { fullName: { in: dummyNames } } }] } }).catch(() => {});
-		await prisma.device.deleteMany({ where: { customer: { fullName: { in: dummyNames } } } }).catch(() => {});
-		await prisma.customer.deleteMany({ where: { fullName: { in: dummyNames } } }).catch(() => {});
 	} catch {}
 }
 async function ensureInitialInventory() {
@@ -2901,6 +2907,86 @@ function calculatePayroll(input) {
 		effectiveTaxRatePct: grossPayCents > 0 ? Number((totalDeductionsCents / grossPayCents * 100).toFixed(2)) : 0
 	};
 }
+// src/server/notificationService.ts
+/**
+* Create a persistent in-app notification for a single user.
+* Fails silently if the notification write fails so core POS transactions are never blocked.
+*/
+async function createNotification(input) {
+	try {
+		return await prisma.notification.create({ data: {
+			userId: input.userId,
+			type: input.type,
+			title: input.title,
+			message: input.message,
+			linkTab: input.linkTab ?? null
+		} });
+	} catch (err) {
+		console.error("[Notification Error]", err);
+		return null;
+	}
+}
+/**
+* Send an in-app notification to all active administrators (optionally excluding the actor).
+*/
+async function notifyAdmins(params) {
+	try {
+		const admins = await prisma.user.findMany({
+			where: {
+				role: "ADMIN",
+				status: "ACTIVE",
+				...params.excludeUserId ? { id: { not: params.excludeUserId } } : {}
+			},
+			select: { id: true }
+		});
+		if (admins.length === 0) return;
+		await prisma.notification.createMany({ data: admins.map((admin) => ({
+			userId: admin.id,
+			type: params.type,
+			title: params.title,
+			message: params.message,
+			linkTab: params.linkTab ?? null
+		})) });
+	} catch (err) {
+		console.error("[NotifyAdmins Error]", err);
+	}
+}
+async function listUserNotifications(userId, params) {
+	const limit = Math.min(Math.max(params?.limit ?? 30, 1), 100);
+	const where = {
+		userId,
+		...params?.unreadOnly ? { isRead: false } : {}
+	};
+	const [notifications, unreadCount] = await Promise.all([prisma.notification.findMany({
+		where,
+		orderBy: { createdAt: "desc" },
+		take: limit
+	}), prisma.notification.count({ where: {
+		userId,
+		isRead: false
+	} })]);
+	return {
+		notifications,
+		unreadCount
+	};
+}
+async function markNotificationRead(userId, notificationId) {
+	const existing = await prisma.notification.findUnique({ where: { id: notificationId } });
+	if (!existing || existing.userId !== userId) throw new HttpError(404, "Notification not found");
+	return prisma.notification.update({
+		where: { id: notificationId },
+		data: { isRead: true }
+	});
+}
+async function markAllNotificationsRead(userId) {
+	return { markedCount: (await prisma.notification.updateMany({
+		where: {
+			userId,
+			isRead: false
+		},
+		data: { isRead: true }
+	})).count };
+}
 // src/server/payrollService.ts
 function getOpenUnpaidBreakMinutes(breaks, now) {
 	if (!breaks || breaks.length === 0) return 0;
@@ -3137,6 +3223,13 @@ async function clockOut(userId, notes, shiftData) {
 		actorName: shift.user.name,
 		action: "CLOCK_OUT",
 		details: `Employee ${shift.user.name} clocked out. Total worked: ${(totalMinutes / 60).toFixed(2)}h (Regular: ${(regularMinutes / 60).toFixed(2)}h, Overtime: ${(overtimeMinutes / 60).toFixed(2)}h)`
+	});
+	if (overtimeMinutes > 0) await notifyAdmins({
+		type: "OVERTIME_ALERT",
+		title: "Overtime Worked",
+		message: `${shift.user.name} clocked out with ${(overtimeMinutes / 60).toFixed(2)}h overtime today.`,
+		linkTab: "admin:attendance",
+		excludeUserId: userId
 	});
 	return updated;
 }
@@ -3935,6 +4028,13 @@ async function finalizePayrollPeriod(periodId, adminUser) {
 		action: "PAYROLL_FINALIZED",
 		details: `Admin ${adminUser.name} finalized & locked Payroll Period #${period.periodNumber}. Gross: $${(period.totalGrossCents / 100).toFixed(2)}, Net: $${(period.totalNetCents / 100).toFixed(2)}`
 	});
+	for (const stub of period.paystubs) await createNotification({
+		userId: stub.userId,
+		type: "PAYSTUB_READY",
+		title: "New Paystub Available",
+		message: `Pay Period #${period.periodNumber} is finalized. Net Pay: $${(stub.netPayCents / 100).toFixed(2)}.`,
+		linkTab: "timeclock:paystubs"
+	});
 	return getPayrollPeriod(periodId);
 }
 async function exportPayrollCsv(periodId) {
@@ -4296,6 +4396,8 @@ async function listScheduledShifts(filters) {
 	const where = {};
 	if (filters.userId && filters.userId !== "ALL") where.userId = filters.userId;
 	if (filters.status && filters.status !== "ALL") where.status = filters.status;
+	if (filters.publishedOnly) where.isPublished = true;
+	else if (filters.isPublished !== void 0) where.isPublished = filters.isPublished;
 	if (filters.startDate || filters.endDate) {
 		where.shiftDate = {};
 		if (filters.startDate) where.shiftDate.gte = new Date(filters.startDate);
@@ -4399,6 +4501,16 @@ async function createScheduledShift(input, adminUser) {
 		action: "SHIFT_SCHEDULE_CREATE",
 		details: `Created shift schedule for ${user.name} (${input.startTime} - ${input.endTime} on ${shiftDate.toISOString().slice(0, 10)})${recurrenceCount > 1 ? ` repeated ${recurrenceCount} times` : ""}`
 	});
+	if (shift.isPublished) {
+		const dateLabel = shiftDate.toISOString().slice(0, 10);
+		await createNotification({
+			userId: input.userId,
+			type: "SHIFT_ASSIGNED",
+			title: "New Shift Assigned",
+			message: `Scheduled on ${dateLabel} (${input.startTime} - ${input.endTime})${recurrenceCount > 1 ? ` + ${recurrenceCount - 1} recurring` : ""}.`,
+			linkTab: "timeclock:schedule"
+		});
+	}
 	return {
 		shift,
 		createdShifts,
@@ -4468,10 +4580,108 @@ async function updateScheduledShift(id, input, adminUser) {
 		action: "SHIFT_SCHEDULE_UPDATE",
 		details: `Updated scheduled shift #${id} for ${updated.user.name}`
 	});
+	const dateLabel = updated.shiftDate.toISOString().slice(0, 10);
+	if (!existing.isPublished && updated.isPublished) await createNotification({
+		userId: updated.userId,
+		type: "SHIFT_PUBLISHED",
+		title: "Shift Published",
+		message: `Your shift on ${dateLabel} (${updated.startTime} - ${updated.endTime}) is now published.`,
+		linkTab: "timeclock:schedule"
+	});
+	else if (updated.isPublished) {
+		if (updated.status === "CANCELLED" && existing.status !== "CANCELLED") await createNotification({
+			userId: updated.userId,
+			type: "SHIFT_CANCELLED",
+			title: "Shift Cancelled",
+			message: `Your shift on ${dateLabel} (${updated.startTime} - ${updated.endTime}) was cancelled.`,
+			linkTab: "timeclock:schedule"
+		});
+		else if (updated.userId !== existing.userId) {
+			await createNotification({
+				userId: updated.userId,
+				type: "SHIFT_ASSIGNED",
+				title: "Shift Assigned to You",
+				message: `You were assigned a shift on ${dateLabel} (${updated.startTime} - ${updated.endTime}).`,
+				linkTab: "timeclock:schedule"
+			});
+			await createNotification({
+				userId: existing.userId,
+				type: "SHIFT_UPDATED",
+				title: "Shift Reassigned",
+				message: `Your shift on ${existing.shiftDate.toISOString().slice(0, 10)} (${existing.startTime} - ${existing.endTime}) was reassigned.`,
+				linkTab: "timeclock:schedule"
+			});
+		} else await createNotification({
+			userId: updated.userId,
+			type: "SHIFT_UPDATED",
+			title: "Shift Updated",
+			message: `Your shift on ${dateLabel} (${updated.startTime} - ${updated.endTime}) was updated.`,
+			linkTab: "timeclock:schedule"
+		});
+	}
 	return {
 		...updated,
 		shift: updated,
 		warnings
+	};
+}
+async function publishDraftShifts(filters, adminUser) {
+	const where = {
+		isPublished: false,
+		status: { not: "CANCELLED" }
+	};
+	if (filters?.userId && filters.userId !== "ALL") where.userId = filters.userId;
+	if (filters?.startDate || filters?.endDate) {
+		where.shiftDate = {};
+		if (filters.startDate) where.shiftDate.gte = new Date(filters.startDate);
+		if (filters.endDate) where.shiftDate.lte = new Date(filters.endDate);
+	}
+	const drafts = await prisma.scheduledShift.findMany({
+		where,
+		include: { user: { select: {
+			id: true,
+			name: true
+		} } }
+	});
+	if (drafts.length === 0) return {
+		count: 0,
+		publishedIds: []
+	};
+	const ids = drafts.map((d) => d.id);
+	await prisma.scheduledShift.updateMany({
+		where: { id: { in: ids } },
+		data: {
+			isPublished: true,
+			updatedById: adminUser.id
+		}
+	});
+	await recordAudit({
+		userId: adminUser.id,
+		actorName: adminUser.name,
+		action: "SHIFT_SCHEDULE_PUBLISH",
+		details: `Published ${drafts.length} draft shift(s) to staff schedules`
+	});
+	const byUser = /* @__PURE__ */ new Map();
+	for (const d of drafts) {
+		const arr = byUser.get(d.userId) || [];
+		arr.push(d);
+		byUser.set(d.userId, arr);
+	}
+	for (const [userId, userDrafts] of byUser.entries()) {
+		const first = userDrafts[0];
+		const firstDate = first.shiftDate.toISOString().slice(0, 10);
+		const msg = userDrafts.length === 1 ? `Shift on ${firstDate} (${first.startTime} - ${first.endTime}) is now published.` : `${userDrafts.length} upcoming shifts starting ${firstDate} are now published.`;
+		await createNotification({
+			userId,
+			type: "SHIFT_PUBLISHED",
+			title: userDrafts.length === 1 ? "Shift Published" : `${userDrafts.length} Shifts Published`,
+			message: msg,
+			linkTab: "timeclock:schedule"
+		});
+	}
+	return {
+		count: drafts.length,
+		publishedIds: ids
 	};
 }
 async function deleteScheduledShift(id, adminUser) {
@@ -4486,6 +4696,13 @@ async function deleteScheduledShift(id, adminUser) {
 		actorName: adminUser.name,
 		action: "SHIFT_SCHEDULE_DELETE",
 		details: `Deleted scheduled shift #${id} for ${existing.user.name}`
+	});
+	if (existing.isPublished) await createNotification({
+		userId: existing.userId,
+		type: "SHIFT_CANCELLED",
+		title: "Shift Removed",
+		message: `Your shift on ${existing.shiftDate.toISOString().slice(0, 10)} (${existing.startTime} - ${existing.endTime}) was removed from the schedule.`,
+		linkTab: "timeclock:schedule"
 	});
 	return {
 		success: true,
@@ -4634,7 +4851,7 @@ async function createTimeOffRequest(input) {
 	const endDate = new Date(input.endDate);
 	if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) throw new HttpError(400, "Valid startDate and endDate are required.");
 	if (endDate < startDate) throw new HttpError(400, "Time-off end date cannot be earlier than start date.");
-	return await prisma.timeOffRequest.create({
+	const created = await prisma.timeOffRequest.create({
 		data: {
 			userId: input.userId,
 			requestType: input.requestType || "VACATION",
@@ -4650,6 +4867,14 @@ async function createTimeOffRequest(input) {
 			role: true
 		} } }
 	});
+	await notifyAdmins({
+		type: "TIME_OFF_REQUEST",
+		title: "New Time-Off Request",
+		message: `${created.user.name} requested ${created.requestType} (${startDate.toISOString().slice(0, 10)} to ${endDate.toISOString().slice(0, 10)}).`,
+		linkTab: "admin:schedule",
+		excludeUserId: input.userId
+	});
+	return created;
 }
 async function listTimeOffRequests(filters) {
 	const where = {};
@@ -4689,6 +4914,13 @@ async function reviewTimeOffRequest(id, review, adminUser) {
 		action: "TIME_OFF_REVIEW",
 		details: `${review.status} time-off request for ${updated.user.name} (${updated.startDate.toISOString().slice(0, 10)} to ${updated.endDate.toISOString().slice(0, 10)})`
 	});
+	await createNotification({
+		userId: updated.userId,
+		type: "TIME_OFF_REVIEWED",
+		title: `Time-Off ${review.status === "APPROVED" ? "Approved" : "Rejected"}`,
+		message: `Your ${updated.requestType} request (${updated.startDate.toISOString().slice(0, 10)} to ${updated.endDate.toISOString().slice(0, 10)}) was ${review.status.toLowerCase()}.`,
+		linkTab: "timeclock:schedule"
+	});
 	return updated;
 }
 async function createShiftSwapRequest(input) {
@@ -4696,7 +4928,7 @@ async function createShiftSwapRequest(input) {
 	const requesterShift = await prisma.scheduledShift.findUnique({ where: { id: input.requesterShiftId } });
 	if (!requesterShift) throw new HttpError(404, "Selected shift was not found.");
 	if (requesterShift.userId !== input.requesterId) throw new HttpError(403, "You can only request swaps for your own assigned shifts.");
-	return await prisma.shiftSwapRequest.create({
+	const created = await prisma.shiftSwapRequest.create({
 		data: {
 			requesterId: input.requesterId,
 			requesterShiftId: input.requesterShiftId,
@@ -4718,6 +4950,21 @@ async function createShiftSwapRequest(input) {
 			} }
 		}
 	});
+	await createNotification({
+		userId: input.targetUserId,
+		type: "SHIFT_SWAP_REQUEST",
+		title: "Shift Swap Requested",
+		message: `${created.requester.name} requested a shift swap with you (${requesterShift.shiftDate.toISOString().slice(0, 10)} ${requesterShift.startTime}-${requesterShift.endTime}).`,
+		linkTab: "timeclock:schedule"
+	});
+	await notifyAdmins({
+		type: "SHIFT_SWAP_REQUEST",
+		title: "Shift Swap Pending Approval",
+		message: `${created.requester.name} requested to swap a shift with ${created.targetUser.name}.`,
+		linkTab: "admin:schedule",
+		excludeUserId: input.requesterId
+	});
+	return created;
 }
 async function listShiftSwapRequests(filters) {
 	const where = {};
@@ -4780,6 +5027,21 @@ async function reviewShiftSwapRequest(id, review, adminUser) {
 		actorName: adminUser.name,
 		action: "SHIFT_SWAP_REVIEW",
 		details: `${review.status} shift swap between ${updated.requester.name} and ${updated.targetUser.name}`
+	});
+	const decisionText = review.status === "APPROVED" ? "approved" : "rejected";
+	await createNotification({
+		userId: updated.requesterId,
+		type: "SHIFT_SWAP_REVIEWED",
+		title: `Shift Swap ${review.status === "APPROVED" ? "Approved" : "Rejected"}`,
+		message: `Your shift swap request with ${updated.targetUser.name} was ${decisionText}.`,
+		linkTab: "timeclock:schedule"
+	});
+	await createNotification({
+		userId: updated.targetUserId,
+		type: "SHIFT_SWAP_REVIEWED",
+		title: `Shift Swap ${review.status === "APPROVED" ? "Approved" : "Rejected"}`,
+		message: `The shift swap request from ${updated.requester.name} was ${decisionText}.`,
+		linkTab: "timeclock:schedule"
 	});
 	return updated;
 }
@@ -5345,7 +5607,7 @@ app.put("/api/auth/profile", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.put("/api/auth/password", requireAuth, wrap(async (req, res) => {
-	const result = await changeUserPassword(req.user.id, req.body, req.user.name);
+	const result = await changeUserPassword(req.user.id, req.body, req.user.name, req.token);
 	res.json(result);
 }));
 app.put("/api/auth/preferences", requireAuth, wrap(async (req, res) => {
@@ -5480,18 +5742,26 @@ app.post("/api/admin/users/:id/reset-password", requireAdmin, wrap(async (req, r
 	res.json(result);
 }));
 app.get("/api/admin/audit-logs", requireAdmin, wrap(async (req, res) => {
-	const limit = req.query.limit ? parseInt(req.query.limit, 10) : 100;
+	const hasPage = req.query.page !== void 0;
+	const page = hasPage ? parseInt(req.query.page, 10) || 1 : 1;
+	const pageSize = req.query.pageSize ? parseInt(req.query.pageSize, 10) : req.query.limit ? parseInt(req.query.limit, 10) : hasPage ? 25 : 100;
 	const action = req.query.action;
 	const search = req.query.search;
-	const logs = await listAuditLogs({
-		limit,
+	const result = await listAuditLogsPaginated({
+		page,
+		pageSize,
 		action,
 		search
 	});
 	res.json({
 		success: true,
-		count: logs.length,
-		data: logs
+		count: result.items.length,
+		total: result.total,
+		page: result.page,
+		pageSize: result.pageSize,
+		totalPages: result.totalPages,
+		hasMore: result.hasMore,
+		data: result.items
 	});
 }));
 app.get("/api/dashboard", requireAuth, wrap(async (_req, res) => {
@@ -5549,15 +5819,23 @@ app.get("/api/tickets", requireAuth, wrap(async (req, res) => {
 	const view = req.query.view || req.query.status || "OPEN";
 	const search = req.query.search;
 	const bench = req.query.bench;
-	const tickets = await listTickets({
+	const hasPage = req.query.page !== void 0;
+	const result = await listTicketsPaginated({
 		view,
 		search,
-		bench
+		bench,
+		page: hasPage ? parseInt(req.query.page, 10) || 1 : 1,
+		pageSize: req.query.pageSize ? parseInt(req.query.pageSize, 10) : req.query.limit ? parseInt(req.query.limit, 10) : hasPage ? 25 : 200
 	});
 	res.json({
 		success: true,
-		count: tickets.length,
-		data: tickets
+		count: result.items.length,
+		total: result.total,
+		page: result.page,
+		pageSize: result.pageSize,
+		totalPages: result.totalPages,
+		hasMore: result.hasMore,
+		data: result.items
 	});
 }));
 app.get("/api/tickets/:id", requireAuth, wrap(async (req, res) => {
@@ -5750,11 +6028,21 @@ app.delete("/api/tickets/:id/notes/:noteId", requireAuth, wrap(async (req, res) 
 }));
 app.get("/api/customers", requireAuth, wrap(async (req, res) => {
 	const search = req.query.search;
-	const customers = await listCustomers(search);
+	const hasPage = req.query.page !== void 0;
+	const result = await listCustomersPaginated({
+		search,
+		page: hasPage ? parseInt(req.query.page, 10) || 1 : 1,
+		pageSize: req.query.pageSize ? parseInt(req.query.pageSize, 10) : req.query.limit ? parseInt(req.query.limit, 10) : hasPage ? 25 : 200
+	});
 	res.json({
 		success: true,
-		count: customers.length,
-		data: customers
+		count: result.items.length,
+		total: result.total,
+		page: result.page,
+		pageSize: result.pageSize,
+		totalPages: result.totalPages,
+		hasMore: result.hasMore,
+		data: result.items
 	});
 }));
 app.get("/api/customers/lookup", requireAuth, wrap(async (req, res) => {
@@ -6126,7 +6414,8 @@ app.get("/api/schedules/my-schedule", requireAuth, wrap(async (req, res) => {
 		userId: req.user.id,
 		startDate: req.query.startDate,
 		endDate: req.query.endDate,
-		status: req.query.status
+		status: req.query.status,
+		publishedOnly: true
 	});
 	res.json({
 		success: true,
@@ -6136,11 +6425,17 @@ app.get("/api/schedules/my-schedule", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.get("/api/schedules", requireAuth, wrap(async (req, res) => {
+	const isAdmin = req.user?.role === "ADMIN" || req.user?.role === "MANAGER";
+	const userId = isAdmin ? req.query.userId : req.user.id;
+	const isPublishedParam = req.query.isPublished;
+	const isPublished = isPublishedParam === "true" ? true : isPublishedParam === "false" ? false : void 0;
 	const shifts = await listScheduledShifts({
-		userId: req.user?.role === "ADMIN" || req.user?.role === "MANAGER" ? req.query.userId : req.user.id,
+		userId,
 		startDate: req.query.startDate,
 		endDate: req.query.endDate,
-		status: req.query.status
+		status: req.query.status,
+		publishedOnly: !isAdmin,
+		isPublished: isAdmin ? isPublished : void 0
 	});
 	res.json({
 		success: true,
@@ -6154,6 +6449,20 @@ app.post("/api/schedules", requireAdmin, wrap(async (req, res) => {
 		name: req.user.name
 	});
 	res.status(201).json({
+		success: true,
+		...result
+	});
+}));
+app.post("/api/schedules/publish-all", requireAdmin, wrap(async (req, res) => {
+	const result = await publishDraftShifts({
+		startDate: req.body?.startDate,
+		endDate: req.body?.endDate,
+		userId: req.body?.userId
+	}, {
+		id: req.user.id,
+		name: req.user.name
+	});
+	res.json({
 		success: true,
 		...result
 	});
@@ -6281,6 +6590,33 @@ app.get("/api/reports/sales-labor", requireAdmin, wrap(async (req, res) => {
 	res.json({
 		success: true,
 		data: analytics
+	});
+}));
+app.get("/api/notifications", requireAuth, wrap(async (req, res) => {
+	const unreadOnly = req.query.unreadOnly === "true";
+	const limit = req.query.limit ? parseInt(req.query.limit, 10) : 30;
+	const result = await listUserNotifications(req.user.id, {
+		unreadOnly,
+		limit
+	});
+	res.json({
+		success: true,
+		...result,
+		data: result.notifications
+	});
+}));
+app.post("/api/notifications/read-all", requireAuth, wrap(async (req, res) => {
+	const result = await markAllNotificationsRead(req.user.id);
+	res.json({
+		success: true,
+		...result
+	});
+}));
+app.post("/api/notifications/:id/read", requireAuth, wrap(async (req, res) => {
+	const notification = await markNotificationRead(req.user.id, getParam(req, "id"));
+	res.json({
+		success: true,
+		data: notification
 	});
 }));
 var distPath = path.resolve(process.cwd(), "dist");

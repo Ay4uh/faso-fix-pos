@@ -317,29 +317,4 @@ export async function ensureAdminProvisioning(): Promise<void> {
     console.log('  Please log in and update your password if desired.');
     console.log('------------------------------------------------------------');
   }
-
-  // One-time purge of all dummy tickets, test work orders, and test technicians for clean production
-  const cleaned = await prisma.auditLog.findFirst({
-    where: { action: 'SYSTEM_DUMMY_DATA_PURGED_V1' },
-  });
-  if (!cleaned) {
-    await prisma.ticketEvent.deleteMany({}).catch(() => {});
-    await prisma.ticketItem.deleteMany({}).catch(() => {});
-    await prisma.payment.deleteMany({}).catch(() => {});
-    await prisma.ticket.deleteMany({}).catch(() => {});
-    await prisma.device.deleteMany({}).catch(() => {});
-    await prisma.customer.deleteMany({}).catch(() => {});
-    await prisma.session.deleteMany({
-      where: { user: { role: 'USER' } },
-    }).catch(() => {});
-    await prisma.user.deleteMany({
-      where: { role: 'USER' },
-    }).catch(() => {});
-
-    await recordAudit({
-      actorName: 'SYSTEM',
-      action: 'SYSTEM_DUMMY_DATA_PURGED_V1',
-      details: 'Purged all dummy tickets, work orders, and test technician users for clean production launch.',
-    }).catch(() => {});
-  }
 }

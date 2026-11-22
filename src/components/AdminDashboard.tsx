@@ -26,6 +26,8 @@ import {
   DollarSign,
   Calendar,
   TrendingUp,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { fetchWithAuth } from '../utils/auth';
 import { posAudio } from '../utils/audio';
@@ -40,14 +42,22 @@ interface AdminDashboardProps {
   currentUser: User;
   onLogout: () => void;
   onNavigateToTab?: (tab: string) => void;
+  initialSection?: 'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'attendance' | 'payroll' | 'schedule' | 'sales-labor';
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   currentUser,
   onLogout,
   onNavigateToTab,
+  initialSection,
 }) => {
-  const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'attendance' | 'payroll' | 'schedule' | 'sales-labor'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'attendance' | 'payroll' | 'schedule' | 'sales-labor'>(initialSection || 'overview');
+
+  useEffect(() => {
+    if (initialSection) {
+      setActiveSection(initialSection);
+    }
+  }, [initialSection]);
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -67,6 +77,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   // Audit filters & search
   const [auditSearch, setAuditSearch] = useState('');
   const [auditActionFilter, setAuditActionFilter] = useState('ALL');
+  const [auditPage, setAuditPage] = useState(1);
+  const [auditTotal, setAuditTotal] = useState(0);
+  const [auditTotalPages, setAuditTotalPages] = useState(1);
 
   // Modals
   const [isCreateUserModalOpen, setIsCreateUserModalOpen] = useState(false);
@@ -112,9 +125,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const fetchAuditList = async () => {
+  const fetchAuditList = async (targetPage = auditPage) => {
     try {
       const params = new URLSearchParams();
+      params.set('page', String(targetPage));
+      params.set('pageSize', '25');
       if (auditSearch.trim()) params.set('search', auditSearch.trim());
       if (auditActionFilter !== 'ALL') params.set('action', auditActionFilter);
 
@@ -122,6 +137,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       if (res.ok) {
         const json = await res.json();
         setAuditLogs(json.data || []);
+        setAuditTotal(json.total ?? (json.data?.length || 0));
+        setAuditTotalPages(json.totalPages ?? 1);
       }
     } catch (err) {
       console.error(err);
@@ -170,9 +187,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     if (activeSection === 'audit') {
-      fetchAuditList();
+      fetchAuditList(auditPage);
     }
-  }, [auditSearch, auditActionFilter, activeSection]);
+  }, [auditSearch, auditActionFilter, auditPage, activeSection]);
 
   // Actions: User Management
   const handleToggleStatus = async (user: User) => {
@@ -311,7 +328,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'sales-labor', label: 'Sales & Labor ROI', icon: TrendingUp },
           { id: 'tickets', label: 'Work Orders & Tickets', icon: Wrench, badge: tickets.length },
           { id: 'roles', label: 'Roles & RBAC Permissions', icon: ShieldCheck },
-          { id: 'audit', label: 'System Audit Logs', icon: Layers, badge: auditLogs.length },
+          { id: 'audit', label: 'System Audit Logs', icon: Layers, badge: auditTotal || auditLogs.length },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeSection === tab.id;
@@ -920,7 +937,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <input
                   type="text"
                   value={auditSearch}
-                  onChange={(e) => setAuditSearch(e.target.value)}
+                  onChange={(e) => {
+                    setAuditPage(1);
+                    setAuditSearch(e.target.value);
+                  }}
                   placeholder="Search actor, action, or log details..."
                   className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition"
                 />
@@ -928,7 +948,10 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
               <select
                 value={auditActionFilter}
-                onChange={(e) => setAuditActionFilter(e.target.value)}
+                onChange={(e) => {
+                  setAuditPage(1);
+                  setAuditActionFilter(e.target.value);
+                }}
                 className="px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-700 font-semibold focus:outline-none cursor-pointer"
               >
                 <option value="ALL">All Actions</option>
@@ -945,7 +968,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
 
             <span className="text-xs text-slate-500 font-medium">
-              Showing {auditLogs.length} immutable events
+              Showing {auditLogs.length} of {auditTotal || auditLogs.length} immutable events
             </span>
           </div>
 
@@ -995,6 +1018,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </table>
             </div>
           </div>
+
+          {auditTotalPages > 1 && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white px-4 py-3 rounded-xl border border-slate-200/90 shadow-xs text-xs">
+              <span className="text-slate-600 font-medium">
+                Page <strong className="text-slate-900">{auditPage}</strong> of{' '}
+                <strong className="text-slate-900">{auditTotalPages}</strong> &bull;{' '}
+                <strong className="text-slate-900">{auditTotal}</strong> total audit entries
+              </span>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  disabled={auditPage <= 1}
+                  onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Previous</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={auditPage >= auditTotalPages}
+                  onClick={() => setAuditPage((p) => p + 1)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

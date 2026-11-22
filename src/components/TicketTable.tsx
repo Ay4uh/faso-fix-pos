@@ -12,7 +12,17 @@ import {
   Printer,
   Pencil,
   Trash2,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
+
+export interface PaginationMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+  hasMore: boolean;
+}
 
 interface TicketTableProps {
   tickets: Ticket[];
@@ -26,6 +36,8 @@ interface TicketTableProps {
   onOpenSmsModal: (ticket: Ticket) => void;
   onPrintTicket: (ticket: Ticket) => void;
   onDeleteTicket?: (ticketId: string) => void;
+  pagination?: PaginationMeta | null;
+  onPageChange?: (page: number) => void;
 }
 
 export const TicketTable: React.FC<TicketTableProps> = ({
@@ -40,6 +52,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   onOpenSmsModal,
   onPrintTicket,
   onDeleteTicket,
+  pagination,
+  onPageChange,
 }) => {
   const [openMenuTicketId, setOpenMenuTicketId] = useState<string | null>(null);
   const [deletingTicket, setDeletingTicket] = useState<Ticket | null>(null);
@@ -109,25 +123,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
     return tStatus === filterId;
   };
 
-  const DUMMY_IDS = new Set([
-    'tkt-test-sync-1',
-    '58e737c6-f590-4e65-8e28-3541f5e277e7',
-    'cd2f4c06-4d00-4364-958d-fd7bc86e35a2',
-    '7070afde-bbb6-421a-af5a-7aa0639fa31d',
-    '751fa998-ba4c-4104-a0a9-68718e906d5d',
-  ]);
-  const DUMMY_NAMES = new Set(['sarah connor', 'john wick', 'arteen', 'marcus vance']);
-
-  const isDummy = (t: any) => {
-    if (!t) return false;
-    if (DUMMY_IDS.has(t.id)) return true;
-    const name = (t.customer?.fullName || '').trim().toLowerCase();
-    if (DUMMY_NAMES.has(name)) return true;
-    return false;
-  };
-
-  const validTickets = tickets.filter((t) => !isDummy(t));
-  const filteredTickets = validTickets.filter((t) => statusMatches(t.status, activeFilter));
+  const filteredTickets = tickets.filter((t) => statusMatches(t.status, activeFilter));
 
   const filterPills = [
     { id: 'ALL', label: 'All' },
@@ -158,7 +154,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
               {item.label}
               {item.id !== 'ALL' && (
                 <span className="ml-1.5 opacity-80 font-bold">
-                  ({validTickets.filter((t) => statusMatches(t.status, item.id)).length})
+                  ({tickets.filter((t) => statusMatches(t.status, item.id)).length})
                 </span>
               )}
             </button>
@@ -606,6 +602,36 @@ export const TicketTable: React.FC<TicketTableProps> = ({
             )}
           </div>
         </div>
+
+      {pagination && pagination.totalPages > 1 && onPageChange && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white px-4 py-3 rounded-xl border border-slate-200/90 shadow-xs text-xs">
+          <span className="text-slate-600 font-medium">
+            Page <strong className="text-slate-900">{pagination.page}</strong> of{' '}
+            <strong className="text-slate-900">{pagination.totalPages}</strong> &bull;{' '}
+            <strong className="text-slate-900">{pagination.total}</strong> total work orders
+          </span>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              disabled={pagination.page <= 1}
+              onClick={() => onPageChange(pagination.page - 1)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
+            >
+              <ChevronLeft className="w-3.5 h-3.5" />
+              <span>Previous</span>
+            </button>
+            <button
+              type="button"
+              disabled={!pagination.hasMore}
+              onClick={() => onPageChange(pagination.page + 1)}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
+            >
+              <span>Next</span>
+              <ChevronRight className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Confirmation Modal for Admin Ticket Deletion */}
       {deletingTicket && (

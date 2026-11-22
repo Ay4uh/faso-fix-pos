@@ -1,7 +1,18 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Square, Coffee, Zap } from 'lucide-react';
+import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Square, Coffee, Zap, Bell, Check } from 'lucide-react';
 import { Ticket, User } from '../types';
 import { flushOfflineQueue } from '../utils/offlineSync';
+import { fetchWithAuth } from '../utils/auth';
+
+interface AppNotification {
+  id: string;
+  type: string;
+  title: string;
+  message: string;
+  linkTab?: string | null;
+  isRead: boolean;
+  createdAt: string;
+}
 
 interface HeaderProps {
   currentTab: string;
@@ -22,6 +33,7 @@ interface HeaderProps {
   onQuickClockIn?: () => void;
   onQuickClockOut?: () => void;
   onQuickToggleBreak?: () => void;
+  onNavigateNotification?: (linkTab: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -43,13 +55,65 @@ export const Header: React.FC<HeaderProps> = ({
   onQuickClockIn,
   onQuickClockOut,
   onQuickToggleBreak,
+  onNavigateNotification,
 }) => {
   const searchInputRef = useRef<HTMLInputElement>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const notifRef = useRef<HTMLDivElement>(null);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isNotifOpen, setIsNotifOpen] = useState(false);
+  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const [liveElapsed, setLiveElapsed] = useState('');
   const [isOnline, setIsOnline] = useState(typeof navigator !== 'undefined' ? navigator.onLine : true);
   const [queuedCount, setQueuedCount] = useState(0);
+
+  const loadNotifications = async () => {
+    if (!currentUser) return;
+    try {
+      const res = await fetchWithAuth('/api/notifications?limit=20');
+      if (res.ok) {
+        const json = await res.json();
+        setNotifications(json.notifications || json.data || []);
+        setUnreadCount(json.unreadCount ?? 0);
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
+    if (!currentUser) return;
+    loadNotifications();
+    const poll = setInterval(loadNotifications, 20_000);
+    return () => clearInterval(poll);
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    const handleOutsideNotif = (e: MouseEvent) => {
+      if (notifRef.current && !notifRef.current.contains(e.target as Node)) {
+        setIsNotifOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideNotif);
+    return () => document.removeEventListener('mousedown', handleOutsideNotif);
+  }, []);
+
+  const handleMarkNotificationRead = async (n: AppNotification) => {
+    if (!n.isRead) {
+      setNotifications((prev) => prev.map((item) => (item.id === n.id ? { ...item, isRead: true } : item)));
+      setUnreadCount((c) => Math.max(0, c - 1));
+      fetchWithAuth(`/api/notifications/${n.id}/read`, { method: 'POST' }).catch(() => {});
+    }
+    setIsNotifOpen(false);
+    if (n.linkTab && onNavigateNotification) {
+      onNavigateNotification(n.linkTab);
+    }
+  };
+
+  const handleMarkAllRead = async () => {
+    setNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+    setUnreadCount(0);
+    await fetchWithAuth('/api/notifications/read-all', { method: 'POST' }).catch(() => {});
+  };
 
   useEffect(() => {
     const handleOnline = () => {
@@ -388,6 +452,91 @@ export const Header: React.FC<HeaderProps> = ({
                     <Square className="w-3.5 h-3.5 fill-current" />
                   </button>
                 )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Notification Bell & Light-Theme Popover */}
+        {currentUser && (
+          <div ref={notifRef} className="relative shrink-0">
+            <button
+              type="button"
+              onClick={() => {
+                const next = !isNotifOpen;
+                setIsNotifOpen(next);
+                if (next) loadNotifications();
+              }}
+              title="Notifications"
+              className="relative p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition cursor-pointer"
+            >
+              <Bell className="w-4 h-4" />
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs">
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
+            </button>
+
+            {isNotifOpen && (
+              <div className="absolute right-0 top-full mt-2 w-80 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden z-50">
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Bell className="w-4 h-4 text-[#0284c7]" />
+                    <span className="text-xs font-extrabold text-slate-900">Notifications</span>
+                    {unreadCount > 0 && (
+                      <span className="px-1.5 py-0.5 rounded-full bg-sky-100 text-[#0284c7] text-[10px] font-bold">
+                        {unreadCount} new
+                      </span>
+                    )}
+                  </div>
+                  {unreadCount > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleMarkAllRead}
+                      className="text-[11px] font-bold text-[#0284c7] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <Check className="w-3 h-3" />
+                      <span>Mark all read</span>
+                    </button>
+                  )}
+                </div>
+
+                <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
+                  {notifications.length === 0 ? (
+                    <div className="p-6 text-center text-xs text-slate-400">
+                      No notifications yet. Schedule updates, shift requests, and paystubs will appear here.
+                    </div>
+                  ) : (
+                    notifications.map((n) => (
+                      <button
+                        key={n.id}
+                        type="button"
+                        onClick={() => handleMarkNotificationRead(n)}
+                        className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition flex items-start gap-2.5 cursor-pointer ${
+                          !n.isRead ? 'bg-sky-50/50' : 'bg-white'
+                        }`}
+                      >
+                        <span
+                          className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
+                            !n.isRead ? 'bg-[#0284c7]' : 'bg-slate-200'
+                          }`}
+                        />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className={`text-xs truncate ${!n.isRead ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>
+                              {n.title}
+                            </span>
+                            <span className="text-[10px] text-slate-400 shrink-0">
+                              {new Date(n.createdAt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' })}
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-slate-600 mt-0.5 leading-snug">{n.message}</p>
+                        </div>
+                      </button>
+                    ))
+                  )}
+                </div>
               </div>
             )}
           </div>

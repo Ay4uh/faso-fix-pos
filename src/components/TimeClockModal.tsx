@@ -22,6 +22,7 @@ interface TimeClockModalProps {
   onClose: () => void;
   currentUser: any;
   onStatusChange?: () => void;
+  initialTab?: 'clock' | 'history' | 'schedule' | 'paystubs';
 }
 
 const toLocalDateStr = (d: Date) => {
@@ -34,8 +35,11 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   onClose,
   currentUser,
   onStatusChange,
+  initialTab,
 }) => {
-  const [activeTab, setActiveTab] = useState<'clock' | 'history' | 'schedule' | 'paystubs'>('clock');
+  const [activeTab, setActiveTab] = useState<'clock' | 'history' | 'schedule' | 'paystubs'>(
+    initialTab || 'clock'
+  );
   const [clockStatus, setClockStatus] = useState<any>(null);
   const [shifts, setShifts] = useState<any[]>([]);
   const [scheduledShifts, setScheduledShifts] = useState<any[]>([]);
@@ -227,6 +231,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
 
   useEffect(() => {
     if (isOpen) {
+      if (initialTab) setActiveTab(initialTab);
       loadStatus();
       loadShifts();
       loadSchedule();
@@ -236,7 +241,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       setSuccessMsg(null);
       setBreakMenuOpen(false);
     }
-  }, [isOpen]);
+  }, [isOpen, initialTab]);
 
   const handleClockIn = async () => {
     setLoading(true);

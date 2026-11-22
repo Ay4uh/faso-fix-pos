@@ -11,6 +11,7 @@
     "prebuild": "node scripts/prepare-db.js",
     "build": "prisma generate && vite build && vite build --ssr src/server/serverless.ts --outDir api --emptyOutDir false && rm -f api/manifest.webmanifest api/sw.js",
     "db:migrate-pg": "tsx scripts/migrate-to-postgres.ts",
+    "db:purge-demo": "tsx scripts/purge-demo-data.ts",
     "prisma:seed": "tsx prisma/seed.ts",
     "prisma:push": "prisma db push",
     "prisma:studio": "prisma studio",
