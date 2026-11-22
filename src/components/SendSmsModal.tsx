@@ -98,7 +98,7 @@ export const SendSmsModal: React.FC<SendSmsModalProps> = ({ ticket, onClose, onS
               className="w-full p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
             />
             <span className="text-[10px] text-slate-400 mt-1 block">
-              Dispatches via SMS gateway and automatically records into the work order audit trail.
+              Sends text directly to customer and records in work order audit history.
             </span>
           </div>
 

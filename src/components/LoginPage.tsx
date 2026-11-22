@@ -98,13 +98,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
       <div className="w-full max-w-md relative z-10 space-y-6">
         {/* Brand Header */}
         <div className="text-center space-y-2.5">
-          <div className="inline-flex items-center justify-center gap-2 px-3 py-1 rounded-full bg-white border border-slate-200 shadow-xs mb-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            <span className="text-[11px] font-mono font-bold tracking-wider text-slate-600">
-              Terminal Gate v3.4.2
-            </span>
-          </div>
-
           <div className="flex items-center justify-center gap-3">
             <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/25 ring-4 ring-indigo-50">
               <Cpu className="w-6 h-6" />
@@ -134,7 +127,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
               }`}
             >
               <Wrench className="w-4 h-4 text-indigo-600" />
-              <span>Standard POS</span>
+              <span>Staff Login</span>
             </button>
 
             {/* Admin Mode Tab */}
@@ -178,8 +171,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
                     <User className="w-3.5 h-3.5" />
                   </div>
                   <div>
-                    <h2 className="text-xs font-bold text-slate-900">Technician Terminal Login</h2>
-                    <p className="text-[11px] text-indigo-700/80">Authorized access to work orders, parts inventory &amp; billing</p>
+                    <h2 className="text-xs font-bold text-slate-900">Staff Sign In</h2>
+                    <p className="text-[11px] text-indigo-700/80">Access work orders, parts inventory &amp; billing</p>
                   </div>
                 </>
               )}
@@ -275,7 +268,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
                 </>
               ) : (
                 <>
-                  <span>{isAdminMode ? 'Authenticate Administrator' : 'Sign In to POS Terminal'}</span>
+                  <span>{isAdminMode ? 'Sign In as Administrator' : 'Sign In'}</span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

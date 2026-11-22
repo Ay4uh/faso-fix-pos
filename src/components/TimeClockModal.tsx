@@ -13,6 +13,7 @@ import {
   User,
   ArrowLeft,
   UtensilsCrossed,
+  Clock,
 } from 'lucide-react';
 import { fetchWithAuth } from '../utils/auth';
 import { PaystubModal } from './PaystubModal';
@@ -469,13 +470,16 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
         {/* Top Header Bar - High-End Ocean Blue Tablet Header (Matching TimeTrakGO Reference) */}
         <div className="flex items-center justify-between px-6 py-4 bg-[#0284c7] text-white">
           {/* Left: Brand & Title */}
-          <div className="flex items-center space-x-2.5">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center text-white">
+              <Clock className="w-5 h-5" />
+            </div>
             <div className="flex flex-col">
-              <span className="text-lg font-black tracking-tight text-white leading-none">
-                <span className="text-sky-200 font-extrabold mr-1.5">=</span>timetrak<span className="text-white font-black">GO</span>
+              <span className="text-base sm:text-lg font-bold tracking-tight text-white leading-none">
+                Staff Time Clock
               </span>
-              <span className="text-[10px] text-sky-100 font-medium tracking-wide uppercase mt-0.5">
-                Faso Fix POS Terminal
+              <span className="text-[11px] text-sky-100 font-medium mt-0.5">
+                Attendance &amp; Shift Management
               </span>
             </div>
           </div>

@@ -754,9 +754,9 @@ export function App() {
         <div className="w-12 h-12 rounded-2xl bg-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-600/30">
           <Cpu className="w-6 h-6 text-white" />
         </div>
-        <div className="flex items-center space-x-2 text-xs font-mono text-slate-500">
+        <div className="flex items-center space-x-2 text-xs text-slate-500 font-medium">
           <div className="w-3.5 h-3.5 border-2 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-          <span>Verifying Terminal Security...</span>
+          <span>Loading Faso Fix POS...</span>
         </div>
       </div>
     );

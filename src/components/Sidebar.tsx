@@ -42,9 +42,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Top Navigation */}
       <div className="overflow-y-auto flex-1">
         <nav className="p-4 space-y-1.5">
-          <div className="px-3 pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-between">
-            <span>Workspace</span>
-            <span className="text-[10px] text-slate-400 font-mono">v3.4.2</span>
+          <div className="px-3 pb-2 text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            Workspace
           </div>
 
           <button
@@ -261,9 +260,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="p-2 bg-slate-50 rounded-xl border border-slate-200/80 flex items-center justify-between">
               <div className="flex items-center space-x-2">
                 <span className="w-2 h-2 rounded-full bg-slate-400" />
-                <span className="text-[11px] font-semibold text-slate-600">Guest Tech Mode</span>
+                <span className="text-[11px] font-semibold text-slate-600">Guest Mode</span>
               </div>
-              <span className="text-[10px] text-slate-400 font-mono">Standard POS</span>
             </div>
 
             {/* Clearly Visible Dedicated Admin Login Button */}

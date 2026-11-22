@@ -1481,7 +1481,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     <div className="flex items-center justify-between">
                       <span className="font-bold text-slate-800 flex items-center gap-1.5">
                         <MessageSquare className="w-4 h-4 text-indigo-600" />
-                        Live SMS Gateway to Customer ({ticket.customer.phone})
+                        Send SMS to Customer ({ticket.customer.phone})
                       </span>
                       {smsSuccess && (
                         <span className="text-emerald-600 font-bold text-[11px] flex items-center gap-1">

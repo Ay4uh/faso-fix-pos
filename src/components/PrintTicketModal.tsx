@@ -582,14 +582,14 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                   <div className="space-y-1 text-xs text-slate-600 font-mono">
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Method:</span>
-                      <span className="font-bold text-slate-800">Counter POS / Stripe Terminal</span>
+                      <span className="font-bold text-slate-800">Counter POS Payment</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Gateway Ref:</span>
-                      <span>TXN_{ticket.ticketNumber}89_APX</span>
+                      <span className="text-slate-400">Payment Ref:</span>
+                      <span>TXN_{ticket.ticketNumber}89</span>
                     </div>
                     <div className="flex items-center justify-between">
-                      <span className="text-slate-400">Terminal Station:</span>
+                      <span className="text-slate-400">Service Station:</span>
                       <span>{ticket.bench || 'Bench #04'} (Alex Mercer)</span>
                     </div>
                     <div className="flex items-center justify-between">

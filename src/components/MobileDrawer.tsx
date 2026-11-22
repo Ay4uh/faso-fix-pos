@@ -70,7 +70,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
               </div>
               <div>
                 <h3 className="font-extrabold text-sm text-slate-900">Faso Fix POS</h3>
-                <p className="text-[10px] text-slate-500 font-medium">Terminal v3.4.2</p>
+                <p className="text-[10px] text-slate-500 font-medium">Repair &amp; Retail CRM</p>
               </div>
             </div>
             <button
