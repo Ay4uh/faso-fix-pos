@@ -22,6 +22,7 @@ interface CreateTicketModalProps {
   onClose: () => void;
   onSuccess: (createdTicket?: any) => void;
   existingCustomers: Customer[];
+  initialCustomer?: Customer | null;
 }
 
 export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
@@ -29,9 +30,8 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   onClose,
   onSuccess,
   existingCustomers,
+  initialCustomer,
 }) => {
-  if (!isOpen) return null;
-
   // 1. Customer Details
   const [phoneNumber, setPhoneNumber] = useState('');
   const [altPhone, setAltPhone] = useState('');
@@ -54,6 +54,29 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
 
   const searchBoxRef = useRef<HTMLDivElement>(null);
 
+  // Reset form fields and apply optional customer prefill when modal opens
+  useEffect(() => {
+    if (!isOpen) return;
+    setErrorMsg(null);
+    setCustomerSuggestions([]);
+    setDeviceName('');
+    setPasscode('');
+    setPattern('');
+    setSerialNumber('');
+    setIssue('');
+    if (initialCustomer) {
+      setPhoneNumber(initialCustomer.phone || '');
+      setAltPhone(initialCustomer.altPhone || '');
+      setFullName(initialCustomer.fullName || '');
+      setSelectedCustomerId(initialCustomer.id);
+    } else {
+      setPhoneNumber('');
+      setAltPhone('');
+      setFullName('');
+      setSelectedCustomerId(null);
+    }
+  }, [isOpen, initialCustomer]);
+
   // Close suggestions on outside click
   useEffect(() => {
     const handleClick = (e: MouseEvent) => {
@@ -64,6 +87,8 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
     window.addEventListener('click', handleClick);
     return () => window.removeEventListener('click', handleClick);
   }, []);
+
+  if (!isOpen) return null;
 
   // Customer search by phone or name
   const handlePhoneOrNameSearch = (val: string, field: 'phone' | 'name') => {

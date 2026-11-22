@@ -126,7 +126,7 @@ body { margin: 0; width: 80mm; padding: 4mm 4mm 8mm; font: 12px/1.35 'Arial', sy
 .footer { font-size: 9px; color: #475569; margin-top: 4px; font-family: monospace; }
 </style></head><body>
 <div class="header">
-  <span class="b" style="font-size:12px">${esc(shop.shopName || 'APEXFIX BENCH')}</span>
+  <span class="b" style="font-size:12px">${esc(shop.shopName || 'FASO FIX POS')}</span>
   <span class="wo">WO #${ticket.ticketNumber}</span>
 </div>
 <div style="font-size:14px;font-weight:900;margin-bottom:2px">${esc(ticket.customer?.fullName)}</div>
@@ -210,10 +210,10 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
 
 <div class="header">
   <div>
-    <div class="shop-name">${esc(shop.shopName || 'Faso Fix Electronics')}</div>
+    <div class="shop-name">${esc(shop.shopName || 'Faso Fix POS')}</div>
     <div style="font-size:11px;color:#64748b;margin-top:2px">Diagnostics • Board-Level Repair • Micro-Soldering Lab</div>
-    <div style="font-size:10px;color:#64748b">${esc(shop.address || '1084 Tech Boulevard, Suite 200 • San Jose, CA 95110')}</div>
-    <div style="font-size:10px;color:#4f46e5;font-weight:600">Tel: ${esc(shop.phone || '(555) 902-3482')} • Lic: #REP-99214 • HST/Tax: #ESD-4402</div>
+    <div style="font-size:10px;color:#64748b">${esc(shop.address || 'Ontario, Canada')}</div>
+    ${(shop.phone || shop.email) ? `<div style="font-size:10px;color:#4f46e5;font-weight:600">${[shop.phone ? `Tel: ${esc(shop.phone)}` : '', shop.email ? esc(shop.email) : ''].filter(Boolean).join(' • ')}</div>` : ''}
   </div>
   <div style="text-align:right">
     <div class="badge ${isPaid ? 'badge-paid' : 'badge-due'}">
@@ -242,7 +242,7 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   </div>
   <div class="card">
     <div class="card-label">Lead Technician</div>
-    <div class="card-val">${esc(ticket.technician || 'Alex Mercer')}</div>
+    <div class="card-val">${esc(ticket.technician || 'Shop Technician')}</div>
     <div style="font-size:9px;color:#64748b">Station: ${esc(ticket.bench || 'Bench #01')}</div>
   </div>
   <div class="card">
@@ -258,7 +258,7 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
     <div style="font-size:13px;font-weight:bold">${esc(ticket.customer?.fullName)}</div>
     <div style="font-size:11px;color:#334155;margin-top:2px">Phone: ${esc(ticket.customer?.phone)}${ticket.customer?.altPhone ? ` (Alt: ${esc(ticket.customer.altPhone)})` : ''}</div>
     ${ticket.customer?.email ? `<div style="font-size:10px;color:#64748b">Email: ${esc(ticket.customer.email)}</div>` : ''}
-    <div style="font-size:10px;color:#64748b">Address: ${esc(ticket.customer?.address || '742 Evergreen Terrace')}</div>
+    ${ticket.customer?.address ? `<div style="font-size:10px;color:#64748b">Address: ${esc(ticket.customer.address)}</div>` : ''}
   </div>
   <div class="card">
     <div class="card-label">Device Hardware Profile</div>
@@ -331,10 +331,10 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
     </div>` : ''}
     <div class="totals-row" style="border-top:1px solid #e2e8f0;padding-top:4px;font-weight:bold">
       <span>Subtotal (Pre-Tax):</span>
-      <span>${money(t.subtotalCents)}</span>
+      <span>${money(t.taxableCents ?? Math.max(0, t.subtotalCents - (t.discountCents || 0)))}</span>
     </div>
     <div class="totals-row" style="color:#64748b;font-size:10px">
-      <span>Sales Tax (${((t.taxRateBps || 1300) / 100).toFixed(1)}%):</span>
+      <span>${esc(shop.taxLabel || 'Sales Tax')} (${((t.taxRateBps ?? ticket.taxRateBps ?? 1300) / 100).toFixed(1)}%):</span>
       <span>+${money(t.taxCents)}</span>
     </div>
     <div class="total-highlight">
@@ -352,7 +352,7 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   <div>
     <div class="card-label">Lead Technician Sign-off</div>
     <div class="sig-box">
-      <div style="font-weight:bold;font-style:italic;color:#4338ca;font-size:12px">${esc(ticket.technician || 'Alex Mercer')}</div>
+      <div style="font-weight:bold;font-style:italic;color:#4338ca;font-size:12px">${esc(ticket.technician || 'Shop Technician')}</div>
       <div style="font-size:9px;color:#64748b;font-family:monospace">DIGITALLY CERTIFIED • ${esc(ticket.bench || 'Bench 01')}</div>
     </div>
   </div>
@@ -382,13 +382,13 @@ export async function loadShop(): Promise<ReceiptShop> {
     }
   } catch {}
   return {
-    shopName: 'Faso Fix Electronics',
-    address: '1084 Tech Boulevard, Suite 200 • San Jose, CA 95110',
-    phone: '(555) 902-3482',
+    shopName: 'Faso Fix POS',
+    address: 'Ontario, Canada',
+    phone: '',
     email: 'service@fasofix.ca',
     taxLabel: 'HST',
     currencySymbol: '$',
-    warrantyDays: 0,
+    warrantyDays: 90,
     receiptFooter: 'Thank you for your business!',
   };
 }

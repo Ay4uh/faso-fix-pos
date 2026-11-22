@@ -65,6 +65,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     setTicket(initialTicket);
     setPasscode(initialTicket.device?.passcode || '');
     setPattern(initialTicket.device?.pattern || '');
+    setEmailTo(initialTicket.customer.email || '');
+    setSmsText(
+      `Hi ${initialTicket.customer.fullName}, Faso Fix update: Your ${initialTicket.device?.name || 'device'} (WO #${initialTicket.ticketNumber}) status is: ${initialTicket.status.toLowerCase().replace('_', ' ')}.`
+    );
     setDiscountInput(
       ((initialTicket.totals ? initialTicket.totals.discountCents : initialTicket.discountCents) / 100).toFixed(2)
     );
@@ -341,9 +345,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     setTimeout(() => {
       setTerminalState('PROCESSING');
       setTimeout(async () => {
-        setTerminalState('APPROVED');
-        posAudio.playCashChime();
-
         const authCode = `AUTH-${Math.floor(100000 + Math.random() * 900000)}`;
         const last4 = String(Math.floor(1000 + Math.random() * 9000));
         const aid = terminalCardType === 'INTERAC' ? 'A0000002771010' : 'A0000000031010';
@@ -359,7 +360,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               note: `[Terminal EMV Tap] ${terminalCardType} •••• ${last4} | Auth: ${authCode} | AID: ${aid}`,
             }),
           });
-          const json = await res.json();
+          const json = await res.json().catch(() => ({}));
+          if (!res.ok) {
+            throw new Error(json.error || 'Terminal payment was declined or failed to record');
+          }
+
+          setTerminalState('APPROVED');
+          posAudio.playCashChime();
           if (json.data) applyTicketUpdate(json.data);
 
           setTimeout(() => {
@@ -367,8 +374,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             setTerminalState('IDLE');
             setPaymentAmount('');
           }, 1200);
-        } catch {
-          alert('Could not record terminal payment');
+        } catch (err: any) {
+          posAudio.playWarningBeep();
+          alert(err?.message || 'Could not record terminal payment');
           setTerminalState('IDLE');
         } finally {
           setIsRecordingPayment(false);

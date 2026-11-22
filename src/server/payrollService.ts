@@ -1,7 +1,43 @@
 import { prisma } from './prisma';
 import { HttpError, getSettings } from './service';
 import { recordAudit } from './auth';
-import { calculatePayroll, CRA_2026 } from './payrollMath';
+import { calculatePayroll, calculateShiftHours, CRA_2026 } from './payrollMath';
+
+function getOpenUnpaidBreakMinutes(
+  breaks: Array<{ startTime: Date; endTime: Date | null; type: string }> | undefined,
+  now: Date
+): number {
+  if (!breaks || breaks.length === 0) return 0;
+  const openBreak = breaks.find((b) => b.endTime === null);
+  if (!openBreak || openBreak.type === 'PAID_REST') return 0;
+  return Math.max(0, Math.round((now.getTime() - openBreak.startTime.getTime()) / 60000));
+}
+
+async function getPriorWeeklyCompletedMinutes(
+  userId: string,
+  referenceClockIn: Date,
+  excludeShiftId?: string
+): Promise<number> {
+  const dayOfWeek = (referenceClockIn.getDay() + 6) % 7; // Monday = 0
+  const startOfDay = new Date(
+    referenceClockIn.getFullYear(),
+    referenceClockIn.getMonth(),
+    referenceClockIn.getDate()
+  );
+  const weekStart = new Date(startOfDay.getTime() - dayOfWeek * 86_400_000);
+
+  const priorCompleted = await prisma.shift.findMany({
+    where: {
+      userId,
+      ...(excludeShiftId ? { id: { not: excludeShiftId } } : {}),
+      clockIn: { gte: weekStart, lt: referenceClockIn },
+      status: 'COMPLETED',
+    },
+    select: { totalMinutes: true },
+  });
+
+  return priorCompleted.reduce((sum, p) => sum + p.totalMinutes, 0);
+}
 
 // ---------------------------------------------------------------------------
 // Employee Time Clock Operations
@@ -46,6 +82,9 @@ export async function getTimeClockStatus(userId: string) {
       userId,
       clockIn: { gte: todayStart },
     },
+    include: {
+      breaks: { where: { endTime: null } },
+    },
   });
 
   let todayMinutes = 0;
@@ -53,9 +92,10 @@ export async function getTimeClockStatus(userId: string) {
     if (s.status === 'COMPLETED') {
       todayMinutes += s.totalMinutes;
     } else {
-      // Shift in progress
+      // Shift in progress: subtract recorded unpaid breaks AND ongoing unpaid break elapsed time
       const elapsed = Math.round((now.getTime() - s.clockIn.getTime()) / 60000);
-      todayMinutes += Math.max(0, elapsed - s.breakMinutes);
+      const openUnpaid = getOpenUnpaidBreakMinutes(s.breaks, now);
+      todayMinutes += Math.max(0, elapsed - s.breakMinutes - openUnpaid);
     }
   }
 
@@ -68,6 +108,9 @@ export async function getTimeClockStatus(userId: string) {
       userId,
       clockIn: { gte: weekStart },
     },
+    include: {
+      breaks: { where: { endTime: null } },
+    },
   });
 
   let weekMinutes = 0;
@@ -76,9 +119,12 @@ export async function getTimeClockStatus(userId: string) {
       weekMinutes += s.totalMinutes;
     } else {
       const elapsed = Math.round((now.getTime() - s.clockIn.getTime()) / 60000);
-      weekMinutes += Math.max(0, elapsed - s.breakMinutes);
+      const openUnpaid = getOpenUnpaidBreakMinutes(s.breaks, now);
+      weekMinutes += Math.max(0, elapsed - s.breakMinutes - openUnpaid);
     }
   }
+
+  const activeOpenUnpaid = activeShift ? getOpenUnpaidBreakMinutes(activeShift.breaks, now) : 0;
 
   return {
     user,
@@ -91,10 +137,12 @@ export async function getTimeClockStatus(userId: string) {
           id: activeShift.id,
           clockIn: activeShift.clockIn,
           status: activeShift.status,
-          breakMinutes: activeShift.breakMinutes,
+          breakMinutes: activeShift.breakMinutes + activeOpenUnpaid,
           activeDurationMinutes: Math.max(
             0,
-            Math.round((now.getTime() - activeShift.clockIn.getTime()) / 60000) - activeShift.breakMinutes
+            Math.round((now.getTime() - activeShift.clockIn.getTime()) / 60000) -
+              activeShift.breakMinutes -
+              activeOpenUnpaid
           ),
           activeBreak,
         }
@@ -248,7 +296,7 @@ export async function clockOut(
 
   const clockOutTime = new Date();
 
-  // If employee is on break, close open break
+  // If employee is on break, close open break (only deduct unpaid meal breaks from payable hours)
   if (shift.status === 'ON_BREAK') {
     const openBreak = shift.breaks.find((b) => b.endTime === null);
     if (openBreak) {
@@ -257,50 +305,26 @@ export async function clockOut(
         where: { id: openBreak.id },
         data: { endTime: clockOutTime, durationMinutes: dur },
       });
-      shift.breakMinutes += dur;
+      if (openBreak.type !== 'PAID_REST') {
+        shift.breakMinutes += dur;
+      }
     }
   }
 
-  // Calculate payable minutes
+  // Calculate payable minutes (only unpaid breakMinutes subtracted)
   const grossMinutes = Math.max(0, Math.round((clockOutTime.getTime() - shift.clockIn.getTime()) / 60000));
   const totalMinutes = Math.max(0, grossMinutes - shift.breakMinutes);
 
   // Weekly overtime calculation (Ontario ESA: > 44 hours per week)
-  const dayOfWeek = (clockOutTime.getDay() + 6) % 7;
-  const startOfDay = new Date(clockOutTime.getFullYear(), clockOutTime.getMonth(), clockOutTime.getDate());
-  const weekStart = new Date(startOfDay.getTime() - dayOfWeek * 86_400_000);
-
-  const priorCompleted = await prisma.shift.findMany({
-    where: {
-      userId,
-      id: { not: shift.id },
-      clockIn: { gte: weekStart, lt: clockOutTime },
-      status: 'COMPLETED',
-    },
-    select: { totalMinutes: true },
-  });
-
-  const priorWeekMinutes = priorCompleted.reduce((s, p) => s + p.totalMinutes, 0);
-  const otThresholdMinutes = CRA_2026.ONTARIO_OVERTIME_WEEKLY_HOURS * 60; // 2,640 minutes (44 hrs)
-
-  let regularMinutes = totalMinutes;
-  let overtimeMinutes = 0;
-
-  if (priorWeekMinutes >= otThresholdMinutes) {
-    // Entire shift is overtime
-    regularMinutes = 0;
-    overtimeMinutes = totalMinutes;
-  } else if (priorWeekMinutes + totalMinutes > otThresholdMinutes) {
-    // Shift crosses into overtime
-    regularMinutes = Math.max(0, otThresholdMinutes - priorWeekMinutes);
-    overtimeMinutes = totalMinutes - regularMinutes;
-  }
+  const priorWeekMinutes = await getPriorWeeklyCompletedMinutes(userId, shift.clockIn, shift.id);
+  const { regularMinutes, overtimeMinutes } = calculateShiftHours(totalMinutes, priorWeekMinutes);
 
   const updated = await prisma.shift.update({
     where: { id: shift.id },
     data: {
       clockOut: clockOutTime,
       status: 'COMPLETED',
+      breakMinutes: shift.breakMinutes,
       totalMinutes,
       regularMinutes,
       overtimeMinutes,
@@ -371,11 +395,12 @@ export async function endBreak(userId: string) {
     data: { endTime: now, durationMinutes },
   });
 
+  const isPaidBreak = openBreak.type === 'PAID_REST';
   const updatedShift = await prisma.shift.update({
     where: { id: shift.id },
     data: {
       status: 'ACTIVE',
-      breakMinutes: { increment: durationMinutes },
+      ...(isPaidBreak ? {} : { breakMinutes: { increment: durationMinutes } }),
     },
   });
 
@@ -383,7 +408,7 @@ export async function endBreak(userId: string) {
     userId,
     actorName: shift.user.name,
     action: 'BREAK_END',
-    details: `Employee ${shift.user.name} ended break after ${durationMinutes} minutes`,
+    details: `Employee ${shift.user.name} ended ${isPaidBreak ? 'paid rest ' : 'unpaid meal '}break after ${durationMinutes} minutes`,
   });
 
   return updatedShift;
@@ -465,7 +490,13 @@ export async function getAttendanceOverview(filters: {
 }) {
   const where: any = {};
   if (filters.userId && filters.userId !== 'ALL') where.userId = filters.userId;
-  if (filters.status && filters.status !== 'ALL') where.status = filters.status;
+  if (filters.status && filters.status !== 'ALL') {
+    if (filters.status === 'MODIFIED') {
+      where.editedByAdminId = { not: null };
+    } else {
+      where.status = filters.status;
+    }
+  }
 
   if (filters.startDate || filters.endDate) {
     where.clockIn = {};
@@ -517,31 +548,75 @@ export async function getAttendanceOverview(filters: {
 
 export async function getLiveRoster() {
   const now = new Date();
-  const activeShifts = await prisma.shift.findMany({
-    where: { status: { in: ['ACTIVE', 'ON_BREAK'] } },
-    include: {
-      user: {
-        select: { id: true, name: true, employeeNumber: true, role: true, bench: true },
+  const [activeUsers, activeShifts] = await Promise.all([
+    prisma.user.findMany({
+      where: { status: 'ACTIVE' },
+      select: { id: true, name: true, employeeNumber: true, role: true, bench: true },
+      orderBy: { name: 'asc' },
+    }),
+    prisma.shift.findMany({
+      where: { status: { in: ['ACTIVE', 'ON_BREAK'] } },
+      include: {
+        user: {
+          select: { id: true, name: true, employeeNumber: true, role: true, bench: true },
+        },
+        breaks: { where: { endTime: null } },
       },
-      breaks: { where: { endTime: null } },
-    },
-    orderBy: { clockIn: 'asc' },
-  });
+      orderBy: { clockIn: 'asc' },
+    }),
+  ]);
 
-  return activeShifts.map((s) => {
-    const elapsedMinutes = Math.max(0, Math.round((now.getTime() - s.clockIn.getTime()) / 60000));
-    const activeWorkedMinutes = Math.max(0, elapsedMinutes - s.breakMinutes);
-    return {
-      shiftId: s.id,
-      user: s.user,
-      clockIn: s.clockIn,
-      status: s.status,
-      activeBreak: s.breaks[0] || null,
-      breakMinutes: s.breakMinutes,
-      activeWorkedMinutes,
-      activeWorkedHours: Number((activeWorkedMinutes / 60).toFixed(2)),
-    };
-  });
+  const shiftByUserId = new Map<string, (typeof activeShifts)[number]>();
+  for (const s of activeShifts) {
+    if (!shiftByUserId.has(s.userId)) {
+      shiftByUserId.set(s.userId, s);
+    }
+  }
+
+  return activeUsers
+    .map((u) => {
+      const s = shiftByUserId.get(u.id);
+      if (s) {
+        const elapsedMinutes = Math.max(0, Math.round((now.getTime() - s.clockIn.getTime()) / 60000));
+        const openUnpaid = getOpenUnpaidBreakMinutes(s.breaks, now);
+        const activeWorkedMinutes = Math.max(0, elapsedMinutes - s.breakMinutes - openUnpaid);
+        return {
+          id: u.id,
+          name: u.name,
+          employeeNumber: u.employeeNumber,
+          role: u.role,
+          bench: u.bench,
+          isClockedIn: true,
+          isOnBreak: s.status === 'ON_BREAK',
+          shiftId: s.id,
+          user: s.user,
+          clockIn: s.clockIn,
+          status: s.status,
+          activeBreak: s.breaks[0] || null,
+          breakMinutes: s.breakMinutes + openUnpaid,
+          activeWorkedMinutes,
+          activeWorkedHours: Number((activeWorkedMinutes / 60).toFixed(2)),
+        };
+      }
+      return {
+        id: u.id,
+        name: u.name,
+        employeeNumber: u.employeeNumber,
+        role: u.role,
+        bench: u.bench,
+        isClockedIn: false,
+        isOnBreak: false,
+        shiftId: null,
+        user: u,
+        clockIn: null,
+        status: 'CLOCKED_OUT',
+        activeBreak: null,
+        breakMinutes: 0,
+        activeWorkedMinutes: 0,
+        activeWorkedHours: 0,
+      };
+    })
+    .sort((a, b) => Number(b.isClockedIn) - Number(a.isClockedIn));
 }
 
 export async function manualAddShift(
@@ -569,8 +644,9 @@ export async function manualAddShift(
   const grossMins = Math.round((end.getTime() - start.getTime()) / 60000);
   const totalMinutes = Math.max(0, grossMins - breakMins);
 
-  const regularMinutes = Math.min(totalMinutes, 8 * 60); // Standard single day split
-  const overtimeMinutes = Math.max(0, totalMinutes - regularMinutes);
+  // Use Ontario ESA 44-hour weekly overtime calculation
+  const priorWeekMinutes = await getPriorWeeklyCompletedMinutes(data.userId, start);
+  const { regularMinutes, overtimeMinutes } = calculateShiftHours(totalMinutes, priorWeekMinutes);
 
   const shift = await prisma.shift.create({
     data: {
@@ -639,8 +715,10 @@ export async function manualEditShift(
     }
     const grossMins = Math.round((newClockOut.getTime() - newClockIn.getTime()) / 60000);
     totalMinutes = Math.max(0, grossMins - breakMinutes);
-    regularMinutes = Math.min(totalMinutes, 8 * 60);
-    overtimeMinutes = Math.max(0, totalMinutes - regularMinutes);
+    const priorWeekMinutes = await getPriorWeeklyCompletedMinutes(existing.userId, newClockIn, shiftId);
+    const split = calculateShiftHours(totalMinutes, priorWeekMinutes);
+    regularMinutes = split.regularMinutes;
+    overtimeMinutes = split.overtimeMinutes;
   }
 
   const updated = await prisma.shift.update({
@@ -671,7 +749,11 @@ export async function manualEditShift(
   return updated;
 }
 
-export async function deleteShift(shiftId: string, adminUser: { id: string; name: string }) {
+export async function deleteShift(
+  shiftId: string,
+  adminUser: { id: string; name: string },
+  reason?: string
+) {
   const existing = await prisma.shift.findUnique({
     where: { id: shiftId },
     include: { user: { select: { name: true } } },
@@ -680,11 +762,12 @@ export async function deleteShift(shiftId: string, adminUser: { id: string; name
 
   await prisma.shift.delete({ where: { id: shiftId } });
 
+  const reasonSuffix = reason?.trim() ? ` Reason: ${reason.trim()}` : '';
   await recordAudit({
     userId: adminUser.id,
     actorName: adminUser.name,
     action: 'SHIFT_DELETED',
-    details: `Admin ${adminUser.name} deleted shift #${shiftId} for ${existing.user.name}`,
+    details: `Admin ${adminUser.name} deleted shift #${shiftId} for ${existing.user.name}.${reasonSuffix}`,
   });
 
   return { success: true };
@@ -811,15 +894,20 @@ export async function updateUserWage(
     },
   });
 
-  // Update active rate on User
-  const updatedUser = await prisma.user.update({
-    where: { id: userId },
-    data: {
-      hourlyRateCents: hourly,
-      overtimeRateCents: overtime,
-      vacationPayPct: data.vacationPayPct !== undefined ? data.vacationPayPct : user.vacationPayPct,
-    },
-  });
+  // Update active rate on User only when effective date has arrived
+  const shouldActivateNow = effective.getTime() <= Date.now() + 60_000;
+  const userUpdateData: any = {};
+  if (shouldActivateNow) {
+    userUpdateData.hourlyRateCents = hourly;
+    userUpdateData.overtimeRateCents = overtime;
+  }
+  if (data.vacationPayPct !== undefined) {
+    userUpdateData.vacationPayPct = data.vacationPayPct;
+  }
+
+  const updatedUser = Object.keys(userUpdateData).length
+    ? await prisma.user.update({ where: { id: userId }, data: userUpdateData })
+    : user;
 
   await recordAudit({
     userId: adminUser.id,
@@ -868,28 +956,45 @@ export async function getPayrollDashboardOverview() {
   const regularMinutes = shiftsThisWeek.reduce((s, x) => s + x.regularMinutes, 0);
   const overtimeMinutes = shiftsThisWeek.reduce((s, x) => s + x.overtimeMinutes, 0);
 
-  // Approximate gross run-rate for this week
+  // Approximate gross run-rate for this week (including employee vacation pay %)
   let estimatedGrossCents = 0;
   for (const s of shiftsThisWeek) {
     const rate = s.user.hourlyRateCents || 2200;
     const otRate = s.user.overtimeRateCents || Math.round(rate * 1.5);
+    const vacBps = s.user.vacationPayPct ?? 400;
     const regPay = Math.round((s.regularMinutes / 60) * rate);
     const otPay = Math.round((s.overtimeMinutes / 60) * otRate);
-    estimatedGrossCents += regPay + otPay;
+    const base = regPay + otPay;
+    const vac = Math.round((base * vacBps) / 10000);
+    estimatedGrossCents += base + vac;
   }
 
   // Estimated statutory deductions (~24% average for Canadian entry-to-mid retail/tech bracket)
   const estimatedDeductionsCents = Math.round(estimatedGrossCents * 0.2395);
   const estimatedNetCents = Math.max(0, estimatedGrossCents - estimatedDeductionsCents);
 
+  const regularHoursThisWeek = Number((regularMinutes / 60).toFixed(2));
+  const overtimeHoursThisWeek = Number((overtimeMinutes / 60).toFixed(2));
+  const totalHoursThisWeek = Number((totalMinutes / 60).toFixed(2));
+
   return {
     metrics: {
-      totalHoursThisWeek: Number((totalMinutes / 60).toFixed(2)),
-      regularHoursThisWeek: Number((regularMinutes / 60).toFixed(2)),
-      overtimeHoursThisWeek: Number((overtimeMinutes / 60).toFixed(2)),
+      totalHoursThisWeek,
+      regularHoursThisWeek,
+      overtimeHoursThisWeek,
       estimatedGrossCents,
       estimatedDeductionsCents,
       estimatedNetCents,
+      clockedInCount,
+      activeEmployeeCount: activeEmployees.length,
+    },
+    kpis: {
+      totalHours: totalHoursThisWeek,
+      totalRegularHours: regularHoursThisWeek,
+      totalOvertimeHours: overtimeHoursThisWeek,
+      estimatedGrossPayrollCents: estimatedGrossCents,
+      estimatedDeductionsCents,
+      estimatedNetPayrollCents: estimatedNetCents,
       clockedInCount,
       activeEmployeeCount: activeEmployees.length,
     },
@@ -901,7 +1006,7 @@ export async function getPayrollDashboardOverview() {
 export async function calculatePeriodPayroll(options: {
   startDate: string;
   endDate: string;
-  periodType: 'WEEKLY' | 'BI_WEEKLY' | 'MONTHLY' | 'CUSTOM';
+  periodType: 'WEEKLY' | 'BI_WEEKLY' | 'SEMI_MONTHLY' | 'MONTHLY' | 'CUSTOM';
   payDate?: string;
 }) {
   const start = new Date(options.startDate);
@@ -958,15 +1063,18 @@ export async function calculatePeriodPayroll(options: {
       },
     });
 
+    const userInfo = {
+      id: emp.id,
+      name: emp.name,
+      employeeNumber: emp.employeeNumber,
+      email: emp.email,
+      role: emp.role,
+    };
+
     employeePaystubs.push({
       userId: emp.id,
-      employee: {
-        id: emp.id,
-        name: emp.name,
-        employeeNumber: emp.employeeNumber,
-        email: emp.email,
-        role: emp.role,
-      },
+      user: userInfo,
+      employee: userInfo,
       ...calc,
     });
   }
@@ -1017,13 +1125,26 @@ export async function createPayrollPeriod(
   const end = new Date(data.endDate);
   const pay = new Date(data.payDate);
 
-  // Find next period sequence number
-  const count = await prisma.payrollPeriod.count();
-  const periodNumber = count + 1;
+  // Find next period sequence number safely (max + 1 so deletions never collide)
+  const lastPeriod = await prisma.payrollPeriod.findFirst({
+    orderBy: { periodNumber: 'desc' },
+    select: { periodNumber: true },
+  });
+  const periodNumber = (lastPeriod?.periodNumber || 0) + 1;
 
-  const totalGrossCents = data.paystubs.reduce((s, p) => s + (p.grossPayCents || 0), 0);
-  const totalDeductionsCents = data.paystubs.reduce((s, p) => s + (p.totalDeductionsCents || 0), 0);
-  const totalNetCents = data.paystubs.reduce((s, p) => s + (p.netPayCents || 0), 0);
+  // Deduplicate employee paystubs within the same payroll period
+  const seenUserIds = new Set<string>();
+  const uniquePaystubs: any[] = [];
+  for (const p of data.paystubs || []) {
+    if (p.userId && !seenUserIds.has(p.userId)) {
+      seenUserIds.add(p.userId);
+      uniquePaystubs.push(p);
+    }
+  }
+
+  const totalGrossCents = uniquePaystubs.reduce((s, p) => s + (p.grossPayCents || 0), 0);
+  const totalDeductionsCents = uniquePaystubs.reduce((s, p) => s + (p.totalDeductionsCents || 0), 0);
+  const totalNetCents = uniquePaystubs.reduce((s, p) => s + (p.netPayCents || 0), 0);
 
   const period = await prisma.$transaction(async (tx) => {
     const createdPeriod = await tx.payrollPeriod.create({
@@ -1041,7 +1162,7 @@ export async function createPayrollPeriod(
       },
     });
 
-    for (const p of data.paystubs) {
+    for (const p of uniquePaystubs) {
       await tx.paystub.create({
         data: {
           payrollPeriodId: createdPeriod.id,

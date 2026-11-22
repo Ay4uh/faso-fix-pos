@@ -27,7 +27,8 @@ export function verifyPassword(password: string, combined: string): boolean {
 const SESSION_SIGNING_KEY = process.env.SESSION_SECRET || 'fasofix-cloud-session-secret-key-2026';
 
 export function createSignedToken(userId: string, username: string, role: string, expiresAt: number): string {
-  const payload = Buffer.from(JSON.stringify({ uid: userId, u: username, r: role, exp: expiresAt })).toString('base64url');
+  const jti = crypto.randomBytes(8).toString('hex');
+  const payload = Buffer.from(JSON.stringify({ uid: userId, u: username, r: role, exp: expiresAt, jti })).toString('base64url');
   const signature = crypto.createHmac('sha256', SESSION_SIGNING_KEY).update(payload).digest('base64url');
   return `s.${payload}.${signature}`;
 }
@@ -184,29 +185,18 @@ export async function authenticateSession(
       });
     }
 
-    if (user && user.status === 'ACTIVE') {
+    if (user) {
+      if (user.status !== 'ACTIVE') {
+        return null;
+      }
+      const dbSession = await prisma.session.findUnique({ where: { token } });
+      if (!dbSession || dbSession.expiresAt.getTime() < Date.now()) {
+        if (dbSession) {
+          await prisma.session.delete({ where: { token } }).catch(() => {});
+        }
+        return null;
+      }
       return user;
-    }
-
-    // 1b. Stateless verified fallback: The cryptographically signed token is valid and unexpired
-    // Guarantees seamless session continuity even if an ephemeral container DB is cold
-    if (verified.uid || verified.u) {
-      const username = verified.u || 'admin';
-      const role = (verified.r === 'ADMIN' ? 'ADMIN' : 'USER') as 'ADMIN' | 'USER';
-      return {
-        id: verified.uid || '00000000-0000-0000-0000-000000000001',
-        username,
-        email: `${username}@fasofix.ca`,
-        name: username === 'admin' ? 'Lead Shop Administrator' : (username === 'tech' ? 'Alex Mercer' : username),
-        role,
-        status: 'ACTIVE',
-        phone: null,
-        bio: null,
-        bench: 'Bench #01',
-        preferences: '{}',
-        lastLoginAt: new Date(),
-        createdAt: new Date(),
-      };
     }
 
     return null;

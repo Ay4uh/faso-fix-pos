@@ -44,6 +44,7 @@ function computeTotals(t) {
 		subtotalCents,
 		discountCents,
 		taxableCents,
+		taxRateBps: t.taxRateBps,
 		taxCents,
 		totalCents,
 		paidCents,
@@ -248,11 +249,13 @@ function verifyPassword(password, combined) {
 }
 var SESSION_SIGNING_KEY = process.env.SESSION_SECRET || "fasofix-cloud-session-secret-key-2026";
 function createSignedToken(userId, username, role, expiresAt) {
+	const jti = crypto.randomBytes(8).toString("hex");
 	const payload = Buffer.from(JSON.stringify({
 		uid: userId,
 		u: username,
 		r: role,
-		exp: expiresAt
+		exp: expiresAt,
+		jti
 	})).toString("base64url");
 	return `s.${payload}.${crypto.createHmac("sha256", SESSION_SIGNING_KEY).update(payload).digest("base64url")}`;
 }
@@ -358,24 +361,14 @@ async function authenticateSession(token, _clientHeaders) {
 				}
 			});
 		}
-		if (user && user.status === "ACTIVE") return user;
-		if (verified.uid || verified.u) {
-			const username = verified.u || "admin";
-			const role = verified.r === "ADMIN" ? "ADMIN" : "USER";
-			return {
-				id: verified.uid || "00000000-0000-0000-0000-000000000001",
-				username,
-				email: `${username}@fasofix.ca`,
-				name: username === "admin" ? "Lead Shop Administrator" : username === "tech" ? "Alex Mercer" : username,
-				role,
-				status: "ACTIVE",
-				phone: null,
-				bio: null,
-				bench: "Bench #01",
-				preferences: "{}",
-				lastLoginAt: /* @__PURE__ */ new Date(),
-				createdAt: /* @__PURE__ */ new Date()
-			};
+		if (user) {
+			if (user.status !== "ACTIVE") return null;
+			const dbSession = await prisma.session.findUnique({ where: { token } });
+			if (!dbSession || dbSession.expiresAt.getTime() < Date.now()) {
+				if (dbSession) await prisma.session.delete({ where: { token } }).catch(() => {});
+				return null;
+			}
+			return user;
 		}
 		return null;
 	}
@@ -1133,7 +1126,7 @@ async function getDashboard() {
 	const lowStock = await prisma.inventoryPart.count({ where: { stock: { lte: prisma.inventoryPart.fields.reorderPoint } } });
 	const open = tickets.filter((t) => OPEN_STATUSES.includes(t.status));
 	const count = (s) => tickets.filter((t) => t.status === s).length;
-	const readyUnpaid = tickets.filter((t) => t.status === "COMPLETED" && computeTotals(t).balanceCents > 0);
+	const awaitingPickupTickets = tickets.filter((t) => t.status === "READY_FOR_PICKUP" || t.status === "COMPLETED" && computeTotals(t).balanceCents > 0);
 	return {
 		open: open.length,
 		pending: count("PENDING") + count("CHECKED_IN"),
@@ -1143,8 +1136,8 @@ async function getDashboard() {
 		overdue: open.filter((t) => t.dueDate < today).length,
 		dueToday: open.filter((t) => t.dueDate >= today && t.dueDate < tomorrow).length,
 		openValueCents: Math.max(0, open.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0)),
-		awaitingPickupCount: count("READY_FOR_PICKUP") + readyUnpaid.length,
-		awaitingPickupCents: readyUnpaid.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
+		awaitingPickupCount: awaitingPickupTickets.length,
+		awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
 		collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
 		collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
 		customerCount: await prisma.customer.count({ where: { fullName: { notIn: DUMMY_CUSTOMER_NAMES } } }),
@@ -1279,7 +1272,15 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 			include: { ticket: { select: {
 				id: true,
 				ticketNumber: true,
-				technician: true
+				technician: true,
+				laborCents: true,
+				discountCents: true,
+				taxRateBps: true,
+				items: { select: {
+					quantity: true,
+					unitPriceCents: true
+				} },
+				payments: { select: { amountCents: true } }
 			} } }
 		}),
 		prisma.shift.findMany({
@@ -1294,6 +1295,7 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 				id: true,
 				name: true,
 				username: true,
+				role: true,
 				hourlyRateCents: true,
 				overtimeRateCents: true
 			} } }
@@ -1302,6 +1304,7 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 			id: true,
 			name: true,
 			username: true,
+			role: true,
 			hourlyRateCents: true,
 			bench: true
 		} })
@@ -1331,6 +1334,8 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 	let totalRevenueCents = 0;
 	let totalDiscountsCents = 0;
 	let totalRefundsCents = 0;
+	let totalVoidedTransactions = 0;
+	let taxCollectedCents = 0;
 	for (const p of payments) {
 		const m = (p.method || "OTHER").toUpperCase();
 		if (!byMethod[m]) byMethod[m] = {
@@ -1341,14 +1346,28 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 			byMethod[m].count++;
 			byMethod[m].totalCents += p.amountCents;
 			totalRevenueCents += p.amountCents;
-		} else totalRefundsCents += Math.abs(p.amountCents);
+			if (p.ticket) {
+				const totals = computeTotals(p.ticket);
+				if (totals.totalCents > 0 && totals.taxCents > 0) {
+					const share = Math.min(1, p.amountCents / totals.totalCents);
+					taxCollectedCents += Math.round(totals.taxCents * share);
+				}
+			}
+		} else {
+			totalRefundsCents += Math.abs(p.amountCents);
+			totalVoidedTransactions++;
+		}
 	}
 	for (const t of tickets) if (t.discountCents > 0) totalDiscountsCents += t.discountCents;
 	const transactionCount = payments.filter((p) => p.amountCents > 0).length;
 	const avgTransactionCents = transactionCount > 0 ? Math.round(totalRevenueCents / transactionCount) : 0;
 	const employeeMap = /* @__PURE__ */ new Map();
 	for (const u of users) employeeMap.set(u.name.toLowerCase(), {
+		userId: u.id,
 		name: u.name,
+		username: u.username,
+		role: u.role,
+		hourlyWageCents: u.hourlyRateCents || 2200,
 		ticketsCreated: 0,
 		ticketsCompleted: 0,
 		laborBilledCents: 0,
@@ -1357,10 +1376,14 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 		actualHoursWorked: 0,
 		laborCostCents: 0
 	});
-	for (const t of tickets) {
-		const techName = (t.technician || "Unassigned").toLowerCase();
-		if (!employeeMap.has(techName)) employeeMap.set(techName, {
-			name: t.technician || "Unassigned",
+	const ensureEmployeeStat = (displayName, fallbackUser) => {
+		const key = displayName.toLowerCase();
+		if (!employeeMap.has(key)) employeeMap.set(key, {
+			userId: fallbackUser?.id || `staff-${key.replace(/[^a-z0-9]+/g, "-")}`,
+			name: displayName,
+			username: fallbackUser?.username || key,
+			role: fallbackUser?.role || "STAFF",
+			hourlyWageCents: fallbackUser?.hourlyRateCents || 0,
 			ticketsCreated: 0,
 			ticketsCompleted: 0,
 			laborBilledCents: 0,
@@ -1369,7 +1392,10 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 			actualHoursWorked: 0,
 			laborCostCents: 0
 		});
-		const stat = employeeMap.get(techName);
+		return employeeMap.get(key);
+	};
+	for (const t of tickets) {
+		const stat = ensureEmployeeStat(t.technician || "Unassigned");
 		stat.ticketsCreated++;
 		if (t.status === "COMPLETED") stat.ticketsCompleted++;
 		stat.laborBilledCents += t.laborCents;
@@ -1378,15 +1404,13 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 	}
 	for (const p of payments) {
 		if (p.amountCents <= 0) continue;
-		const techName = (p.ticket?.technician || "Unassigned").toLowerCase();
-		const stat = employeeMap.get(techName);
-		if (stat) stat.totalRevenueCents += p.amountCents;
+		const stat = ensureEmployeeStat(p.ticket?.technician || "Unassigned");
+		stat.totalRevenueCents += p.amountCents;
 	}
 	let totalLaborCostCents = 0;
 	let totalWorkedHours = 0;
 	for (const s of shifts) {
-		const techName = s.user.name.toLowerCase();
-		const stat = employeeMap.get(techName);
+		const stat = ensureEmployeeStat(s.user.name, s.user);
 		const regularHours = s.regularMinutes / 60;
 		const overtimeHours = s.overtimeMinutes / 60;
 		const shiftHours = s.totalMinutes / 60;
@@ -1394,10 +1418,8 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 		const shiftWageCents = Math.round(regularHours * s.user.hourlyRateCents + overtimeHours * otRate);
 		totalLaborCostCents += shiftWageCents;
 		totalWorkedHours += shiftHours;
-		if (stat) {
-			stat.actualHoursWorked += shiftHours;
-			stat.laborCostCents += shiftWageCents;
-		}
+		stat.actualHoursWorked += shiftHours;
+		stat.laborCostCents += shiftWageCents;
 	}
 	const salesByEmployee = Array.from(employeeMap.values()).filter((e) => e.ticketsCreated > 0 || e.actualHoursWorked > 0 || e.totalRevenueCents > 0).map((e) => {
 		const revenuePerHour = e.actualHoursWorked > 0 ? Math.round(e.totalRevenueCents / e.actualHoursWorked) : 0;
@@ -1419,16 +1441,23 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 		const otRate = s.user.overtimeRateCents || Math.round(s.user.hourlyRateCents * 1.5);
 		const shiftLaborCostCents = Math.round(regularHours * s.user.hourlyRateCents + overtimeHours * otRate);
 		const laborCostPct = shiftRevenueCents > 0 ? Number((shiftLaborCostCents / shiftRevenueCents * 100).toFixed(1)) : 0;
+		const workedHours = Number((s.totalMinutes / 60).toFixed(2));
 		return {
 			shiftId: s.id,
+			userId: s.user.id,
 			employeeName: s.user.name,
 			clockIn: s.clockIn,
 			clockOut: s.clockOut,
-			workedHours: Number((s.totalMinutes / 60).toFixed(2)),
+			workedHours,
+			durationHours: workedHours,
 			laborCostCents: shiftLaborCostCents,
+			shiftLaborCostCents,
 			revenueGeneratedCents: shiftRevenueCents,
+			shiftRevenueCents,
 			transactionsCount: shiftPayments.length,
-			laborCostPct
+			ticketsCount: shiftPayments.length,
+			laborCostPct,
+			shiftLaborCostPct: laborCostPct
 		};
 	});
 	const overallLaborCostPct = totalRevenueCents > 0 ? Number((totalLaborCostCents / totalRevenueCents * 100).toFixed(1)) : 0;
@@ -1437,7 +1466,7 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 		totalRevenueCents,
 		laborBilledCents: salesByEmployee.reduce((acc, e) => acc + (e.laborBilledCents || 0), 0),
 		partsBilledCents: salesByEmployee.reduce((acc, e) => acc + (e.partsBilledCents || 0), 0),
-		taxCollectedCents: 0,
+		taxCollectedCents,
 		totalLaborCostCents,
 		laborCostPct: overallLaborCostPct,
 		totalHoursWorked: Number(totalWorkedHours.toFixed(2)),
@@ -1448,15 +1477,15 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 	};
 	const salesBreakdown = {
 		byPaymentMethod: {
-			cashCents: byMethod.CASH || 0,
-			cardCents: byMethod.CARD || 0,
-			debitCents: byMethod.DEBIT || 0,
-			eTransferCents: byMethod.E_TRANSFER || 0,
-			otherCents: byMethod.OTHER || 0
+			cashCents: byMethod.CASH?.totalCents || 0,
+			cardCents: (byMethod.CARD?.totalCents || 0) + (byMethod.CREDIT?.totalCents || 0),
+			debitCents: byMethod.DEBIT?.totalCents || 0,
+			eTransferCents: byMethod.E_TRANSFER?.totalCents || 0,
+			otherCents: byMethod.OTHER?.totalCents || 0
 		},
 		totalDiscountsCents,
 		totalRefundsCents,
-		totalVoidedTransactions: 0
+		totalVoidedTransactions
 	};
 	return {
 		period: {
@@ -1613,7 +1642,7 @@ async function logoutUser(token, actorName) {
 	});
 	return { success: true };
 }
-async function listUsers(params) {
+async function listUsers(params, includeSyncPayload = false) {
 	const where = {};
 	if (params.role && params.role !== "ALL") where.role = params.role;
 	if (params.status && params.status !== "ALL") where.status = params.status;
@@ -1638,13 +1667,16 @@ async function listUsers(params) {
 			phone: true,
 			bench: true,
 			bio: true,
+			employeeNumber: true,
+			hourlyRateCents: true,
+			vacationPayPct: true,
 			preferences: true,
 			lastLoginAt: true,
 			createdAt: true,
 			updatedAt: true
 		},
 		orderBy: { createdAt: "desc" }
-	})).map(({ passwordHash, ...u }) => ({
+	})).map(({ passwordHash, ...u }) => includeSyncPayload ? {
 		...u,
 		syncPayload: createSignedUserPayload({
 			id: u.id,
@@ -1658,7 +1690,7 @@ async function listUsers(params) {
 			bench: u.bench,
 			bio: u.bio
 		})
-	}));
+	} : u);
 }
 async function getUser(id) {
 	const user = await prisma.user.findUnique({
@@ -1952,7 +1984,7 @@ async function getAdminOverview() {
 		},
 		system: {
 			status: "OPERATIONAL",
-			database: "ACID Relational SQLite",
+			database: process.env.DATABASE_URL?.startsWith("postgres://") || process.env.DATABASE_URL?.startsWith("postgresql://") ? "PostgreSQL (Supabase ACID)" : "ACID Relational SQLite",
 			serverTime: (/* @__PURE__ */ new Date()).toISOString(),
 			activeWorkstations: 4
 		},
@@ -2367,8 +2399,198 @@ CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_requesterId_idx" ON "ShiftSwapReque
 CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_targetUserId_idx" ON "ShiftSwapRequest"("targetUserId");
 CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_status_idx" ON "ShiftSwapRequest"("status");
 `;
+var POSTGRES_SCHEMA_STATEMENTS = [
+	`CREATE TABLE IF NOT EXISTS "WageRate" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "hourlyRateCents" INTEGER NOT NULL,
+    "overtimeRateCents" INTEGER NOT NULL,
+    "effectiveDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reason" TEXT,
+    "createdById" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "WageRate_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+	`CREATE TABLE IF NOT EXISTS "Shift" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "clockIn" TIMESTAMP(3) NOT NULL,
+    "clockOut" TIMESTAMP(3),
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "totalMinutes" INTEGER NOT NULL DEFAULT 0,
+    "regularMinutes" INTEGER NOT NULL DEFAULT 0,
+    "overtimeMinutes" INTEGER NOT NULL DEFAULT 0,
+    "breakMinutes" INTEGER NOT NULL DEFAULT 0,
+    "notes" TEXT,
+    "editedByAdminId" TEXT,
+    "editedAt" TIMESTAMP(3),
+    "editReason" TEXT,
+    "originalClockIn" TIMESTAMP(3),
+    "originalClockOut" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Shift_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+	`CREATE TABLE IF NOT EXISTS "ShiftBreak" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "shiftId" TEXT NOT NULL,
+    "startTime" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "endTime" TIMESTAMP(3),
+    "durationMinutes" INTEGER NOT NULL DEFAULT 0,
+    "type" TEXT NOT NULL DEFAULT 'UNPAID_MEAL',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ShiftBreak_shiftId_fkey" FOREIGN KEY ("shiftId") REFERENCES "Shift" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+	`CREATE TABLE IF NOT EXISTS "PayrollPeriod" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "periodNumber" INTEGER NOT NULL,
+    "periodType" TEXT NOT NULL DEFAULT 'BI_WEEKLY',
+    "startDate" TIMESTAMP(3) NOT NULL,
+    "endDate" TIMESTAMP(3) NOT NULL,
+    "payDate" TIMESTAMP(3) NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "totalGrossCents" INTEGER NOT NULL DEFAULT 0,
+    "totalNetCents" INTEGER NOT NULL DEFAULT 0,
+    "totalDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "finalizedAt" TIMESTAMP(3),
+    "finalizedById" TEXT,
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+	`CREATE TABLE IF NOT EXISTS "Paystub" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "payrollPeriodId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "regularHours" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "overtimeHours" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "hourlyRateCents" INTEGER NOT NULL,
+    "overtimeRateCents" INTEGER NOT NULL,
+    "regularPayCents" INTEGER NOT NULL DEFAULT 0,
+    "overtimePayCents" INTEGER NOT NULL DEFAULT 0,
+    "bonusCents" INTEGER NOT NULL DEFAULT 0,
+    "vacationPayCents" INTEGER NOT NULL DEFAULT 0,
+    "grossPayCents" INTEGER NOT NULL DEFAULT 0,
+    "cppCents" INTEGER NOT NULL DEFAULT 0,
+    "eiCents" INTEGER NOT NULL DEFAULT 0,
+    "incomeTaxCents" INTEGER NOT NULL DEFAULT 0,
+    "otherDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "totalDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "netPayCents" INTEGER NOT NULL DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "paidAt" TIMESTAMP(3),
+    "paymentMethod" TEXT NOT NULL DEFAULT 'DIRECT_DEPOSIT',
+    "paymentReference" TEXT,
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Paystub_payrollPeriodId_fkey" FOREIGN KEY ("payrollPeriodId") REFERENCES "PayrollPeriod" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Paystub_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+	`CREATE TABLE IF NOT EXISTS "ScheduledShift" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "shiftDate" TIMESTAMP(3) NOT NULL,
+    "startTime" TEXT NOT NULL,
+    "endTime" TEXT NOT NULL,
+    "startDateTime" TIMESTAMP(3) NOT NULL,
+    "endDateTime" TIMESTAMP(3) NOT NULL,
+    "breakMinutes" INTEGER NOT NULL DEFAULT 30,
+    "breakType" TEXT NOT NULL DEFAULT 'UNPAID_MEAL',
+    "scheduledHours" DOUBLE PRECISION NOT NULL DEFAULT 7.5,
+    "status" TEXT NOT NULL DEFAULT 'SCHEDULED',
+    "roleOrStation" TEXT,
+    "branchLocation" TEXT DEFAULT 'Main Shop',
+    "recurrenceRule" TEXT DEFAULT 'NONE',
+    "isPublished" BOOLEAN NOT NULL DEFAULT true,
+    "notes" TEXT,
+    "createdById" TEXT,
+    "createdByName" TEXT,
+    "updatedById" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ScheduledShift_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+	`CREATE TABLE IF NOT EXISTS "TimeOffRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "requestType" TEXT NOT NULL DEFAULT 'VACATION',
+    "startDate" TIMESTAMP(3) NOT NULL,
+    "endDate" TIMESTAMP(3) NOT NULL,
+    "reason" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "reviewedById" TEXT,
+    "reviewedByName" TEXT,
+    "reviewNotes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TimeOffRequest_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+	`CREATE TABLE IF NOT EXISTS "ShiftSwapRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "requesterId" TEXT NOT NULL,
+    "requesterShiftId" TEXT NOT NULL,
+    "targetUserId" TEXT NOT NULL,
+    "targetShiftId" TEXT,
+    "reason" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "reviewedById" TEXT,
+    "reviewedByName" TEXT,
+    "reviewNotes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ShiftSwapRequest_requesterId_fkey" FOREIGN KEY ("requesterId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "ShiftSwapRequest_targetUserId_fkey" FOREIGN KEY ("targetUserId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+	`CREATE INDEX IF NOT EXISTS "WageRate_userId_idx" ON "WageRate"("userId")`,
+	`CREATE INDEX IF NOT EXISTS "Shift_userId_idx" ON "Shift"("userId")`,
+	`CREATE INDEX IF NOT EXISTS "Shift_status_idx" ON "Shift"("status")`,
+	`CREATE INDEX IF NOT EXISTS "Shift_clockIn_idx" ON "Shift"("clockIn")`,
+	`CREATE INDEX IF NOT EXISTS "ShiftBreak_shiftId_idx" ON "ShiftBreak"("shiftId")`,
+	`CREATE INDEX IF NOT EXISTS "PayrollPeriod_status_idx" ON "PayrollPeriod"("status")`,
+	`CREATE INDEX IF NOT EXISTS "PayrollPeriod_startDate_idx" ON "PayrollPeriod"("startDate")`,
+	`CREATE INDEX IF NOT EXISTS "Paystub_payrollPeriodId_idx" ON "Paystub"("payrollPeriodId")`,
+	`CREATE INDEX IF NOT EXISTS "Paystub_userId_idx" ON "Paystub"("userId")`,
+	`CREATE INDEX IF NOT EXISTS "Paystub_status_idx" ON "Paystub"("status")`,
+	`CREATE INDEX IF NOT EXISTS "ScheduledShift_userId_idx" ON "ScheduledShift"("userId")`,
+	`CREATE INDEX IF NOT EXISTS "ScheduledShift_shiftDate_idx" ON "ScheduledShift"("shiftDate")`,
+	`CREATE INDEX IF NOT EXISTS "ScheduledShift_startDateTime_idx" ON "ScheduledShift"("startDateTime")`,
+	`CREATE INDEX IF NOT EXISTS "ScheduledShift_status_idx" ON "ScheduledShift"("status")`,
+	`CREATE INDEX IF NOT EXISTS "TimeOffRequest_userId_idx" ON "TimeOffRequest"("userId")`,
+	`CREATE INDEX IF NOT EXISTS "TimeOffRequest_status_idx" ON "TimeOffRequest"("status")`,
+	`CREATE INDEX IF NOT EXISTS "TimeOffRequest_startDate_idx" ON "TimeOffRequest"("startDate")`,
+	`CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_requesterId_idx" ON "ShiftSwapRequest"("requesterId")`,
+	`CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_targetUserId_idx" ON "ShiftSwapRequest"("targetUserId")`,
+	`CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_status_idx" ON "ShiftSwapRequest"("status")`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "employeeNumber" TEXT`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "hourlyRateCents" INTEGER NOT NULL DEFAULT 2200`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "overtimeRateCents" INTEGER`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "vacationPayPct" INTEGER NOT NULL DEFAULT 400`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "td1FederalClaimCents" INTEGER NOT NULL DEFAULT 1612900`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "td1OntarioClaimCents" INTEGER NOT NULL DEFAULT 1274600`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "sin" TEXT`,
+	`ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "ontarioMinWageCents" INTEGER NOT NULL DEFAULT 1720`,
+	`ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "overtimeThresholdWeeklyHours" DOUBLE PRECISION NOT NULL DEFAULT 44.0`,
+	`ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "overtimeMultiplierPct" INTEGER NOT NULL DEFAULT 150`,
+	`ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "minRestBetweenShiftsHours" DOUBLE PRECISION NOT NULL DEFAULT 11.0`,
+	`ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "maxWeeklyHoursBeforePermit" DOUBLE PRECISION NOT NULL DEFAULT 48.0`,
+	`ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "mandatoryMealBreakMinutes" INTEGER NOT NULL DEFAULT 30`,
+	`ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "vacationPayPctUnder5Years" INTEGER NOT NULL DEFAULT 400`,
+	`ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "vacationPayPctOver5Years" INTEGER NOT NULL DEFAULT 600`,
+	`ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "branchLocation" TEXT DEFAULT 'Main Shop'`,
+	`ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "recurrenceRule" TEXT DEFAULT 'NONE'`,
+	`ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "isPublished" BOOLEAN NOT NULL DEFAULT true`
+];
+async function ensurePostgresSchema() {
+	for (const sql of POSTGRES_SCHEMA_STATEMENTS) try {
+		await prisma.$executeRawUnsafe(sql);
+	} catch {}
+}
 async function ensureDatabaseSchema() {
-	if (!!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")))) return;
+	if (!!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")))) {
+		await ensurePostgresSchema();
+		return;
+	}
 	const statements = SCHEMA_SQL.split(";").map((s) => s.trim()).filter((s) => s.length > 0);
 	for (const sql of statements) try {
 		await prisma.$executeRawUnsafe(sql);
@@ -2380,7 +2602,18 @@ async function ensureDatabaseSchema() {
 		"ALTER TABLE \"User\" ADD COLUMN \"vacationPayPct\" INTEGER NOT NULL DEFAULT 400;",
 		"ALTER TABLE \"User\" ADD COLUMN \"td1FederalClaimCents\" INTEGER NOT NULL DEFAULT 1612900;",
 		"ALTER TABLE \"User\" ADD COLUMN \"td1OntarioClaimCents\" INTEGER NOT NULL DEFAULT 1274600;",
-		"ALTER TABLE \"User\" ADD COLUMN \"sin\" TEXT;"
+		"ALTER TABLE \"User\" ADD COLUMN \"sin\" TEXT;",
+		"ALTER TABLE \"Setting\" ADD COLUMN \"ontarioMinWageCents\" INTEGER NOT NULL DEFAULT 1720;",
+		"ALTER TABLE \"Setting\" ADD COLUMN \"overtimeThresholdWeeklyHours\" REAL NOT NULL DEFAULT 44.0;",
+		"ALTER TABLE \"Setting\" ADD COLUMN \"overtimeMultiplierPct\" INTEGER NOT NULL DEFAULT 150;",
+		"ALTER TABLE \"Setting\" ADD COLUMN \"minRestBetweenShiftsHours\" REAL NOT NULL DEFAULT 11.0;",
+		"ALTER TABLE \"Setting\" ADD COLUMN \"maxWeeklyHoursBeforePermit\" REAL NOT NULL DEFAULT 48.0;",
+		"ALTER TABLE \"Setting\" ADD COLUMN \"mandatoryMealBreakMinutes\" INTEGER NOT NULL DEFAULT 30;",
+		"ALTER TABLE \"Setting\" ADD COLUMN \"vacationPayPctUnder5Years\" INTEGER NOT NULL DEFAULT 400;",
+		"ALTER TABLE \"Setting\" ADD COLUMN \"vacationPayPctOver5Years\" INTEGER NOT NULL DEFAULT 600;",
+		"ALTER TABLE \"ScheduledShift\" ADD COLUMN \"branchLocation\" TEXT DEFAULT 'Main Shop';",
+		"ALTER TABLE \"ScheduledShift\" ADD COLUMN \"recurrenceRule\" TEXT DEFAULT 'NONE';",
+		"ALTER TABLE \"ScheduledShift\" ADD COLUMN \"isPublished\" INTEGER NOT NULL DEFAULT 1;"
 	]) try {
 		await prisma.$executeRawUnsafe(alter);
 	} catch {}
@@ -2527,9 +2760,28 @@ function getPeriodsPerYear(periodType, days = 14) {
 	switch (periodType) {
 		case "WEEKLY": return 52;
 		case "BI_WEEKLY": return 26;
+		case "SEMI_MONTHLY": return 24;
 		case "MONTHLY": return 12;
 		case "CUSTOM": return Math.max(1, Math.round(365 / Math.max(1, days)));
 		default: return 26;
+	}
+}
+function calculateShiftHours(shiftMinutes, priorWeeklyMinutes) {
+	const otThresholdMinutes = CRA_2026.ONTARIO_OVERTIME_WEEKLY_HOURS * 60;
+	if (priorWeeklyMinutes + shiftMinutes <= otThresholdMinutes) return {
+		regularMinutes: shiftMinutes,
+		overtimeMinutes: 0
+	};
+	else if (priorWeeklyMinutes >= otThresholdMinutes) return {
+		regularMinutes: 0,
+		overtimeMinutes: shiftMinutes
+	};
+	else {
+		const regularMinutes = otThresholdMinutes - priorWeeklyMinutes;
+		return {
+			regularMinutes,
+			overtimeMinutes: shiftMinutes - regularMinutes
+		};
 	}
 }
 /**
@@ -2650,6 +2902,29 @@ function calculatePayroll(input) {
 	};
 }
 // src/server/payrollService.ts
+function getOpenUnpaidBreakMinutes(breaks, now) {
+	if (!breaks || breaks.length === 0) return 0;
+	const openBreak = breaks.find((b) => b.endTime === null);
+	if (!openBreak || openBreak.type === "PAID_REST") return 0;
+	return Math.max(0, Math.round((now.getTime() - openBreak.startTime.getTime()) / 6e4));
+}
+async function getPriorWeeklyCompletedMinutes(userId, referenceClockIn, excludeShiftId) {
+	const dayOfWeek = (referenceClockIn.getDay() + 6) % 7;
+	const startOfDay = new Date(referenceClockIn.getFullYear(), referenceClockIn.getMonth(), referenceClockIn.getDate());
+	const weekStart = /* @__PURE__ */ new Date(startOfDay.getTime() - dayOfWeek * 864e5);
+	return (await prisma.shift.findMany({
+		where: {
+			userId,
+			...excludeShiftId ? { id: { not: excludeShiftId } } : {},
+			clockIn: {
+				gte: weekStart,
+				lt: referenceClockIn
+			},
+			status: "COMPLETED"
+		},
+		select: { totalMinutes: true }
+	})).reduce((sum, p) => sum + p.totalMinutes, 0);
+}
 async function getTimeClockStatus(userId) {
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
@@ -2676,28 +2951,37 @@ async function getTimeClockStatus(userId) {
 	const activeBreak = activeShift?.breaks.find((b) => b.endTime === null) || null;
 	const now = /* @__PURE__ */ new Date();
 	const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-	const todayShifts = await prisma.shift.findMany({ where: {
-		userId,
-		clockIn: { gte: todayStart }
-	} });
+	const todayShifts = await prisma.shift.findMany({
+		where: {
+			userId,
+			clockIn: { gte: todayStart }
+		},
+		include: { breaks: { where: { endTime: null } } }
+	});
 	let todayMinutes = 0;
 	for (const s of todayShifts) if (s.status === "COMPLETED") todayMinutes += s.totalMinutes;
 	else {
 		const elapsed = Math.round((now.getTime() - s.clockIn.getTime()) / 6e4);
-		todayMinutes += Math.max(0, elapsed - s.breakMinutes);
+		const openUnpaid = getOpenUnpaidBreakMinutes(s.breaks, now);
+		todayMinutes += Math.max(0, elapsed - s.breakMinutes - openUnpaid);
 	}
 	const dayOfWeek = (now.getDay() + 6) % 7;
 	const weekStart = /* @__PURE__ */ new Date(todayStart.getTime() - dayOfWeek * 864e5);
-	const weekShifts = await prisma.shift.findMany({ where: {
-		userId,
-		clockIn: { gte: weekStart }
-	} });
+	const weekShifts = await prisma.shift.findMany({
+		where: {
+			userId,
+			clockIn: { gte: weekStart }
+		},
+		include: { breaks: { where: { endTime: null } } }
+	});
 	let weekMinutes = 0;
 	for (const s of weekShifts) if (s.status === "COMPLETED") weekMinutes += s.totalMinutes;
 	else {
 		const elapsed = Math.round((now.getTime() - s.clockIn.getTime()) / 6e4);
-		weekMinutes += Math.max(0, elapsed - s.breakMinutes);
+		const openUnpaid = getOpenUnpaidBreakMinutes(s.breaks, now);
+		weekMinutes += Math.max(0, elapsed - s.breakMinutes - openUnpaid);
 	}
+	const activeOpenUnpaid = activeShift ? getOpenUnpaidBreakMinutes(activeShift.breaks, now) : 0;
 	return {
 		user,
 		isClockedIn: Boolean(activeShift),
@@ -2708,8 +2992,8 @@ async function getTimeClockStatus(userId) {
 			id: activeShift.id,
 			clockIn: activeShift.clockIn,
 			status: activeShift.status,
-			breakMinutes: activeShift.breakMinutes,
-			activeDurationMinutes: Math.max(0, Math.round((now.getTime() - activeShift.clockIn.getTime()) / 6e4) - activeShift.breakMinutes),
+			breakMinutes: activeShift.breakMinutes + activeOpenUnpaid,
+			activeDurationMinutes: Math.max(0, Math.round((now.getTime() - activeShift.clockIn.getTime()) / 6e4) - activeShift.breakMinutes - activeOpenUnpaid),
 			activeBreak
 		} : null,
 		todayMinutes,
@@ -2830,41 +3114,18 @@ async function clockOut(userId, notes, shiftData) {
 					durationMinutes: dur
 				}
 			});
-			shift.breakMinutes += dur;
+			if (openBreak.type !== "PAID_REST") shift.breakMinutes += dur;
 		}
 	}
 	const grossMinutes = Math.max(0, Math.round((clockOutTime.getTime() - shift.clockIn.getTime()) / 6e4));
 	const totalMinutes = Math.max(0, grossMinutes - shift.breakMinutes);
-	const dayOfWeek = (clockOutTime.getDay() + 6) % 7;
-	const startOfDay = new Date(clockOutTime.getFullYear(), clockOutTime.getMonth(), clockOutTime.getDate());
-	const weekStart = /* @__PURE__ */ new Date(startOfDay.getTime() - dayOfWeek * 864e5);
-	const priorWeekMinutes = (await prisma.shift.findMany({
-		where: {
-			userId,
-			id: { not: shift.id },
-			clockIn: {
-				gte: weekStart,
-				lt: clockOutTime
-			},
-			status: "COMPLETED"
-		},
-		select: { totalMinutes: true }
-	})).reduce((s, p) => s + p.totalMinutes, 0);
-	const otThresholdMinutes = CRA_2026.ONTARIO_OVERTIME_WEEKLY_HOURS * 60;
-	let regularMinutes = totalMinutes;
-	let overtimeMinutes = 0;
-	if (priorWeekMinutes >= otThresholdMinutes) {
-		regularMinutes = 0;
-		overtimeMinutes = totalMinutes;
-	} else if (priorWeekMinutes + totalMinutes > otThresholdMinutes) {
-		regularMinutes = Math.max(0, otThresholdMinutes - priorWeekMinutes);
-		overtimeMinutes = totalMinutes - regularMinutes;
-	}
+	const { regularMinutes, overtimeMinutes } = calculateShiftHours(totalMinutes, await getPriorWeeklyCompletedMinutes(userId, shift.clockIn, shift.id));
 	const updated = await prisma.shift.update({
 		where: { id: shift.id },
 		data: {
 			clockOut: clockOutTime,
 			status: "COMPLETED",
+			breakMinutes: shift.breakMinutes,
 			totalMinutes,
 			regularMinutes,
 			overtimeMinutes,
@@ -2930,18 +3191,19 @@ async function endBreak(userId) {
 			durationMinutes
 		}
 	});
+	const isPaidBreak = openBreak.type === "PAID_REST";
 	const updatedShift = await prisma.shift.update({
 		where: { id: shift.id },
 		data: {
 			status: "ACTIVE",
-			breakMinutes: { increment: durationMinutes }
+			...isPaidBreak ? {} : { breakMinutes: { increment: durationMinutes } }
 		}
 	});
 	await recordAudit({
 		userId,
 		actorName: shift.user.name,
 		action: "BREAK_END",
-		details: `Employee ${shift.user.name} ended break after ${durationMinutes} minutes`
+		details: `Employee ${shift.user.name} ended ${isPaidBreak ? "paid rest " : "unpaid meal "}break after ${durationMinutes} minutes`
 	});
 	return updatedShift;
 }
@@ -2994,7 +3256,10 @@ async function getMyPaystub(userId, paystubId, isAdmin = false) {
 async function getAttendanceOverview(filters) {
 	const where = {};
 	if (filters.userId && filters.userId !== "ALL") where.userId = filters.userId;
-	if (filters.status && filters.status !== "ALL") where.status = filters.status;
+	if (filters.status && filters.status !== "ALL") {
+		if (filters.status === "MODIFIED") where.editedByAdminId = { not: null };
+		else where.status = filters.status;
+	}
 	if (filters.startDate || filters.endDate) {
 		where.clockIn = {};
 		if (filters.startDate) where.clockIn.gte = new Date(filters.startDate);
@@ -3051,7 +3316,17 @@ async function getAttendanceOverview(filters) {
 }
 async function getLiveRoster() {
 	const now = /* @__PURE__ */ new Date();
-	return (await prisma.shift.findMany({
+	const [activeUsers, activeShifts] = await Promise.all([prisma.user.findMany({
+		where: { status: "ACTIVE" },
+		select: {
+			id: true,
+			name: true,
+			employeeNumber: true,
+			role: true,
+			bench: true
+		},
+		orderBy: { name: "asc" }
+	}), prisma.shift.findMany({
 		where: { status: { in: ["ACTIVE", "ON_BREAK"] } },
 		include: {
 			user: { select: {
@@ -3064,20 +3339,51 @@ async function getLiveRoster() {
 			breaks: { where: { endTime: null } }
 		},
 		orderBy: { clockIn: "asc" }
-	})).map((s) => {
-		const elapsedMinutes = Math.max(0, Math.round((now.getTime() - s.clockIn.getTime()) / 6e4));
-		const activeWorkedMinutes = Math.max(0, elapsedMinutes - s.breakMinutes);
+	})]);
+	const shiftByUserId = /* @__PURE__ */ new Map();
+	for (const s of activeShifts) if (!shiftByUserId.has(s.userId)) shiftByUserId.set(s.userId, s);
+	return activeUsers.map((u) => {
+		const s = shiftByUserId.get(u.id);
+		if (s) {
+			const elapsedMinutes = Math.max(0, Math.round((now.getTime() - s.clockIn.getTime()) / 6e4));
+			const openUnpaid = getOpenUnpaidBreakMinutes(s.breaks, now);
+			const activeWorkedMinutes = Math.max(0, elapsedMinutes - s.breakMinutes - openUnpaid);
+			return {
+				id: u.id,
+				name: u.name,
+				employeeNumber: u.employeeNumber,
+				role: u.role,
+				bench: u.bench,
+				isClockedIn: true,
+				isOnBreak: s.status === "ON_BREAK",
+				shiftId: s.id,
+				user: s.user,
+				clockIn: s.clockIn,
+				status: s.status,
+				activeBreak: s.breaks[0] || null,
+				breakMinutes: s.breakMinutes + openUnpaid,
+				activeWorkedMinutes,
+				activeWorkedHours: Number((activeWorkedMinutes / 60).toFixed(2))
+			};
+		}
 		return {
-			shiftId: s.id,
-			user: s.user,
-			clockIn: s.clockIn,
-			status: s.status,
-			activeBreak: s.breaks[0] || null,
-			breakMinutes: s.breakMinutes,
-			activeWorkedMinutes,
-			activeWorkedHours: Number((activeWorkedMinutes / 60).toFixed(2))
+			id: u.id,
+			name: u.name,
+			employeeNumber: u.employeeNumber,
+			role: u.role,
+			bench: u.bench,
+			isClockedIn: false,
+			isOnBreak: false,
+			shiftId: null,
+			user: u,
+			clockIn: null,
+			status: "CLOCKED_OUT",
+			activeBreak: null,
+			breakMinutes: 0,
+			activeWorkedMinutes: 0,
+			activeWorkedHours: 0
 		};
-	});
+	}).sort((a, b) => Number(b.isClockedIn) - Number(a.isClockedIn));
 }
 async function manualAddShift(data, adminUser) {
 	if (!data.reason?.trim()) throw new HttpError(400, "A modification reason is required for manual shift addition.");
@@ -3087,8 +3393,7 @@ async function manualAddShift(data, adminUser) {
 	const breakMins = Math.max(0, data.breakMinutes || 0);
 	const grossMins = Math.round((end.getTime() - start.getTime()) / 6e4);
 	const totalMinutes = Math.max(0, grossMins - breakMins);
-	const regularMinutes = Math.min(totalMinutes, 480);
-	const overtimeMinutes = Math.max(0, totalMinutes - regularMinutes);
+	const { regularMinutes, overtimeMinutes } = calculateShiftHours(totalMinutes, await getPriorWeeklyCompletedMinutes(data.userId, start));
 	const shift = await prisma.shift.create({
 		data: {
 			userId: data.userId,
@@ -3133,8 +3438,10 @@ async function manualEditShift(shiftId, data, adminUser) {
 		if (newClockOut <= newClockIn) throw new HttpError(400, "Clock out time must be later than clock in time.");
 		const grossMins = Math.round((newClockOut.getTime() - newClockIn.getTime()) / 6e4);
 		totalMinutes = Math.max(0, grossMins - breakMinutes);
-		regularMinutes = Math.min(totalMinutes, 480);
-		overtimeMinutes = Math.max(0, totalMinutes - regularMinutes);
+		const priorWeekMinutes = await getPriorWeeklyCompletedMinutes(existing.userId, newClockIn, shiftId);
+		const split = calculateShiftHours(totalMinutes, priorWeekMinutes);
+		regularMinutes = split.regularMinutes;
+		overtimeMinutes = split.overtimeMinutes;
 	}
 	const updated = await prisma.shift.update({
 		where: { id: shiftId },
@@ -3161,18 +3468,19 @@ async function manualEditShift(shiftId, data, adminUser) {
 	});
 	return updated;
 }
-async function deleteShift(shiftId, adminUser) {
+async function deleteShift(shiftId, adminUser, reason) {
 	const existing = await prisma.shift.findUnique({
 		where: { id: shiftId },
 		include: { user: { select: { name: true } } }
 	});
 	if (!existing) throw new HttpError(404, "Shift not found");
 	await prisma.shift.delete({ where: { id: shiftId } });
+	const reasonSuffix = reason?.trim() ? ` Reason: ${reason.trim()}` : "";
 	await recordAudit({
 		userId: adminUser.id,
 		actorName: adminUser.name,
 		action: "SHIFT_DELETED",
-		details: `Admin ${adminUser.name} deleted shift #${shiftId} for ${existing.user.name}`
+		details: `Admin ${adminUser.name} deleted shift #${shiftId} for ${existing.user.name}.${reasonSuffix}`
 	});
 	return { success: true };
 }
@@ -3261,14 +3569,17 @@ async function updateUserWage(userId, data, adminUser) {
 		reason: data.reason?.trim() || "Wage update",
 		createdById: adminUser.id
 	} });
-	const updatedUser = await prisma.user.update({
+	const shouldActivateNow = effective.getTime() <= Date.now() + 6e4;
+	const userUpdateData = {};
+	if (shouldActivateNow) {
+		userUpdateData.hourlyRateCents = hourly;
+		userUpdateData.overtimeRateCents = overtime;
+	}
+	if (data.vacationPayPct !== void 0) userUpdateData.vacationPayPct = data.vacationPayPct;
+	const updatedUser = Object.keys(userUpdateData).length ? await prisma.user.update({
 		where: { id: userId },
-		data: {
-			hourlyRateCents: hourly,
-			overtimeRateCents: overtime,
-			vacationPayPct: data.vacationPayPct !== void 0 ? data.vacationPayPct : user.vacationPayPct
-		}
-	});
+		data: userUpdateData
+	}) : user;
 	await recordAudit({
 		userId: adminUser.id,
 		actorName: adminUser.name,
@@ -3323,20 +3634,34 @@ async function getPayrollDashboardOverview() {
 	for (const s of shiftsThisWeek) {
 		const rate = s.user.hourlyRateCents || 2200;
 		const otRate = s.user.overtimeRateCents || Math.round(rate * 1.5);
-		const regPay = Math.round(s.regularMinutes / 60 * rate);
-		const otPay = Math.round(s.overtimeMinutes / 60 * otRate);
-		estimatedGrossCents += regPay + otPay;
+		const vacBps = s.user.vacationPayPct ?? 400;
+		const base = Math.round(s.regularMinutes / 60 * rate) + Math.round(s.overtimeMinutes / 60 * otRate);
+		const vac = Math.round(base * vacBps / 1e4);
+		estimatedGrossCents += base + vac;
 	}
 	const estimatedDeductionsCents = Math.round(estimatedGrossCents * .2395);
 	const estimatedNetCents = Math.max(0, estimatedGrossCents - estimatedDeductionsCents);
+	const regularHoursThisWeek = Number((regularMinutes / 60).toFixed(2));
+	const overtimeHoursThisWeek = Number((overtimeMinutes / 60).toFixed(2));
+	const totalHoursThisWeek = Number((totalMinutes / 60).toFixed(2));
 	return {
 		metrics: {
-			totalHoursThisWeek: Number((totalMinutes / 60).toFixed(2)),
-			regularHoursThisWeek: Number((regularMinutes / 60).toFixed(2)),
-			overtimeHoursThisWeek: Number((overtimeMinutes / 60).toFixed(2)),
+			totalHoursThisWeek,
+			regularHoursThisWeek,
+			overtimeHoursThisWeek,
 			estimatedGrossCents,
 			estimatedDeductionsCents,
 			estimatedNetCents,
+			clockedInCount,
+			activeEmployeeCount: activeEmployees.length
+		},
+		kpis: {
+			totalHours: totalHoursThisWeek,
+			totalRegularHours: regularHoursThisWeek,
+			totalOvertimeHours: overtimeHoursThisWeek,
+			estimatedGrossPayrollCents: estimatedGrossCents,
+			estimatedDeductionsCents,
+			estimatedNetPayrollCents: estimatedNetCents,
 			clockedInCount,
 			activeEmployeeCount: activeEmployees.length
 		},
@@ -3385,15 +3710,17 @@ async function calculatePeriodPayroll(options) {
 				td1OntarioClaimCents: emp.td1OntarioClaimCents
 			}
 		});
+		const userInfo = {
+			id: emp.id,
+			name: emp.name,
+			employeeNumber: emp.employeeNumber,
+			email: emp.email,
+			role: emp.role
+		};
 		employeePaystubs.push({
 			userId: emp.id,
-			employee: {
-				id: emp.id,
-				name: emp.name,
-				employeeNumber: emp.employeeNumber,
-				email: emp.email,
-				role: emp.role
-			},
+			user: userInfo,
+			employee: userInfo,
 			...calc
 		});
 	}
@@ -3429,10 +3756,19 @@ async function createPayrollPeriod(data, adminUser) {
 	const start = new Date(data.startDate);
 	const end = new Date(data.endDate);
 	const pay = new Date(data.payDate);
-	const periodNumber = await prisma.payrollPeriod.count() + 1;
-	const totalGrossCents = data.paystubs.reduce((s, p) => s + (p.grossPayCents || 0), 0);
-	const totalDeductionsCents = data.paystubs.reduce((s, p) => s + (p.totalDeductionsCents || 0), 0);
-	const totalNetCents = data.paystubs.reduce((s, p) => s + (p.netPayCents || 0), 0);
+	const periodNumber = ((await prisma.payrollPeriod.findFirst({
+		orderBy: { periodNumber: "desc" },
+		select: { periodNumber: true }
+	}))?.periodNumber || 0) + 1;
+	const seenUserIds = /* @__PURE__ */ new Set();
+	const uniquePaystubs = [];
+	for (const p of data.paystubs || []) if (p.userId && !seenUserIds.has(p.userId)) {
+		seenUserIds.add(p.userId);
+		uniquePaystubs.push(p);
+	}
+	const totalGrossCents = uniquePaystubs.reduce((s, p) => s + (p.grossPayCents || 0), 0);
+	const totalDeductionsCents = uniquePaystubs.reduce((s, p) => s + (p.totalDeductionsCents || 0), 0);
+	const totalNetCents = uniquePaystubs.reduce((s, p) => s + (p.netPayCents || 0), 0);
 	const period = await prisma.$transaction(async (tx) => {
 		const createdPeriod = await tx.payrollPeriod.create({ data: {
 			periodNumber,
@@ -3446,7 +3782,7 @@ async function createPayrollPeriod(data, adminUser) {
 			totalNetCents,
 			notes: data.notes?.trim() || null
 		} });
-		for (const p of data.paystubs) await tx.paystub.create({ data: {
+		for (const p of uniquePaystubs) await tx.paystub.create({ data: {
 			payrollPeriodId: createdPeriod.id,
 			userId: p.userId,
 			regularHours: p.regularHours || 0,
@@ -3836,21 +4172,125 @@ async function buildPaystubHtml(paystubId, isAdmin = false, currentUserId) {
 </html>`;
 }
 // src/server/scheduleService.ts
+var BUSINESS_TIMEZONE = "America/Toronto";
+function getTimeZoneOffsetMs(utcDate, timeZone = BUSINESS_TIMEZONE) {
+	const parts = new Intl.DateTimeFormat("en-US", {
+		timeZone,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit",
+		hour: "2-digit",
+		minute: "2-digit",
+		second: "2-digit",
+		hour12: false
+	}).formatToParts(utcDate);
+	const map = {};
+	for (const p of parts) if (p.type !== "literal") map[p.type] = parseInt(p.value, 10);
+	const hour = map.hour === 24 ? 0 : map.hour;
+	return Date.UTC(map.year, map.month - 1, map.day, hour, map.minute, map.second) - utcDate.getTime();
+}
+function zonedLocalToUtc(year, month0, day, hour, minute, timeZone = BUSINESS_TIMEZONE) {
+	const approxUtc = new Date(Date.UTC(year, month0, day, hour, minute, 0));
+	const offset1 = getTimeZoneOffsetMs(approxUtc, timeZone);
+	const pass1 = new Date(approxUtc.getTime() - offset1);
+	const offset2 = getTimeZoneOffsetMs(pass1, timeZone);
+	if (offset2 !== offset1) return new Date(approxUtc.getTime() - offset2);
+	return pass1;
+}
+function toBusinessDateStr(date, timeZone = BUSINESS_TIMEZONE) {
+	const parts = new Intl.DateTimeFormat("en-CA", {
+		timeZone,
+		year: "numeric",
+		month: "2-digit",
+		day: "2-digit"
+	}).formatToParts(date);
+	const map = {};
+	for (const p of parts) if (p.type !== "literal") map[p.type] = p.value;
+	return `${map.year}-${map.month}-${map.day}`;
+}
 function parseShiftDates(shiftDateStr, startTime, endTime) {
-	const d = new Date(shiftDateStr);
-	const year = d.getUTCFullYear();
-	const month = d.getUTCMonth();
-	const day = d.getUTCDate();
+	let year;
+	let month;
+	let day;
+	const isoPrefix = shiftDateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+	if (isoPrefix) {
+		year = parseInt(isoPrefix[1], 10);
+		month = parseInt(isoPrefix[2], 10) - 1;
+		day = parseInt(isoPrefix[3], 10);
+	} else {
+		const d = new Date(shiftDateStr);
+		year = d.getUTCFullYear();
+		month = d.getUTCMonth();
+		day = d.getUTCDate();
+	}
 	const [startH, startM] = startTime.split(":").map((n) => parseInt(n, 10));
 	const [endH, endM] = endTime.split(":").map((n) => parseInt(n, 10));
-	const startDateTime = new Date(Date.UTC(year, month, day, startH || 0, startM || 0, 0));
-	let endDateTime = new Date(Date.UTC(year, month, day, endH || 0, endM || 0, 0));
-	if (endDateTime.getTime() <= startDateTime.getTime()) endDateTime = new Date(endDateTime.getTime() + 864e5);
+	const startDateTime = zonedLocalToUtc(year, month, day, startH || 0, startM || 0);
+	let endDateTime = zonedLocalToUtc(year, month, day, endH || 0, endM || 0);
+	if (endDateTime.getTime() <= startDateTime.getTime()) endDateTime = zonedLocalToUtc(year, month, day + 1, endH || 0, endM || 0);
 	return {
 		shiftDate: new Date(Date.UTC(year, month, day, 0, 0, 0)),
 		startDateTime,
 		endDateTime
 	};
+}
+async function evaluateShiftComplianceWarnings(params) {
+	const { userId, startDateTime, endDateTime, breakMinutes, workedMinutes, scheduledHours, excludeShiftId } = params;
+	const warnings = [];
+	const notSelf = excludeShiftId ? { id: { not: excludeShiftId } } : {};
+	const overlapping = await prisma.scheduledShift.findFirst({ where: {
+		userId,
+		...notSelf,
+		status: { not: "CANCELLED" },
+		startDateTime: { lt: endDateTime },
+		endDateTime: { gt: startDateTime }
+	} });
+	if (overlapping) warnings.push(`⚠️ Scheduling Conflict: Employee already has an overlapping shift scheduled from ${overlapping.startTime} to ${overlapping.endTime} on this date.`);
+	const elevenHoursMs = 396e5;
+	const prevShift = await prisma.scheduledShift.findFirst({
+		where: {
+			userId,
+			...notSelf,
+			status: { not: "CANCELLED" },
+			endDateTime: { lte: startDateTime }
+		},
+		orderBy: { endDateTime: "desc" }
+	});
+	if (prevShift && startDateTime.getTime() - prevShift.endDateTime.getTime() < elevenHoursMs) {
+		const restHours = ((startDateTime.getTime() - prevShift.endDateTime.getTime()) / 36e5).toFixed(1);
+		warnings.push(`⚠️ Ontario ESA Rest Notice: Only ${restHours} hours rest between previous shift (${prevShift.endTime}) and this shift (ESA minimum is 11 consecutive hours).`);
+	}
+	const nextShift = await prisma.scheduledShift.findFirst({
+		where: {
+			userId,
+			...notSelf,
+			status: { not: "CANCELLED" },
+			startDateTime: { gte: endDateTime }
+		},
+		orderBy: { startDateTime: "asc" }
+	});
+	if (nextShift && nextShift.startDateTime.getTime() - endDateTime.getTime() < elevenHoursMs) {
+		const restHours = ((nextShift.startDateTime.getTime() - endDateTime.getTime()) / 36e5).toFixed(1);
+		warnings.push(`⚠️ Ontario ESA Rest Notice: Only ${restHours} hours rest between this shift and next scheduled shift (${nextShift.startTime}) on ${nextShift.shiftDate.toISOString().slice(0, 10)}.`);
+	}
+	if (workedMinutes > 300 && breakMinutes < 30) warnings.push(`⚠️ Ontario ESA Meal Break Notice: Shifts exceeding 5 consecutive hours require at least a 30-minute eating period.`);
+	const [y, m, d] = toBusinessDateStr(startDateTime).split("-").map((n) => parseInt(n, 10));
+	const localRef = new Date(Date.UTC(y, m - 1, d));
+	const dayOfWeek = (localRef.getUTCDay() + 6) % 7;
+	const weekStart = /* @__PURE__ */ new Date(localRef.getTime() - dayOfWeek * 864e5);
+	const weekEnd = new Date(weekStart.getTime() + 6048e5);
+	const totalProjectedHours = (await prisma.scheduledShift.findMany({ where: {
+		userId,
+		...notSelf,
+		status: { not: "CANCELLED" },
+		shiftDate: {
+			gte: weekStart,
+			lt: weekEnd
+		}
+	} })).reduce((sum, s) => sum + s.scheduledHours, 0) + scheduledHours;
+	if (totalProjectedHours > 44) warnings.push(`⚠️ Overtime Risk: Employee is scheduled for ${totalProjectedHours.toFixed(1)} hours this week (>44h threshold, Ontario 1.5x overtime rate applies).`);
+	if (totalProjectedHours > 48) warnings.push(`⚠️ Ontario ESA Maximum Hours Alert: Weekly hours exceed 48 hours (requires employee written excess hours agreement).`);
+	return warnings;
 }
 async function listScheduledShifts(filters) {
 	const where = {};
@@ -3884,54 +4324,15 @@ async function createScheduledShift(input, adminUser) {
 	const totalMinutes = Math.round((endDateTime.getTime() - startDateTime.getTime()) / 6e4);
 	const workedMinutes = breakType === "UNPAID_MEAL" ? Math.max(0, totalMinutes - breakMinutes) : totalMinutes;
 	const scheduledHours = Number((workedMinutes / 60).toFixed(2));
-	const warnings = [];
-	const overlapping = await prisma.scheduledShift.findFirst({ where: {
+	const warnings = await evaluateShiftComplianceWarnings({
 		userId: input.userId,
-		status: { not: "CANCELLED" },
-		startDateTime: { lt: endDateTime },
-		endDateTime: { gt: startDateTime }
-	} });
-	if (overlapping) warnings.push(`⚠️ Scheduling Conflict: Employee already has an overlapping shift scheduled from ${overlapping.startTime} to ${overlapping.endTime} on this date.`);
-	const elevenHoursMs = 396e5;
-	const prevShift = await prisma.scheduledShift.findFirst({
-		where: {
-			userId: input.userId,
-			status: { not: "CANCELLED" },
-			endDateTime: { lte: startDateTime }
-		},
-		orderBy: { endDateTime: "desc" }
+		shiftDate,
+		startDateTime,
+		endDateTime,
+		breakMinutes,
+		workedMinutes,
+		scheduledHours
 	});
-	if (prevShift && startDateTime.getTime() - prevShift.endDateTime.getTime() < elevenHoursMs) {
-		const restHours = ((startDateTime.getTime() - prevShift.endDateTime.getTime()) / 36e5).toFixed(1);
-		warnings.push(`⚠️ Ontario ESA Rest Notice: Only ${restHours} hours rest between previous shift (${prevShift.endTime}) and this shift (ESA minimum is 11 consecutive hours).`);
-	}
-	const nextShift = await prisma.scheduledShift.findFirst({
-		where: {
-			userId: input.userId,
-			status: { not: "CANCELLED" },
-			startDateTime: { gte: endDateTime }
-		},
-		orderBy: { startDateTime: "asc" }
-	});
-	if (nextShift && nextShift.startDateTime.getTime() - endDateTime.getTime() < elevenHoursMs) {
-		const restHours = ((nextShift.startDateTime.getTime() - endDateTime.getTime()) / 36e5).toFixed(1);
-		warnings.push(`⚠️ Ontario ESA Rest Notice: Only ${restHours} hours rest between this shift and next scheduled shift (${nextShift.startTime}) on ${nextShift.shiftDate.toISOString().slice(0, 10)}.`);
-	}
-	if (workedMinutes > 300 && breakMinutes < 30) warnings.push(`⚠️ Ontario ESA Meal Break Notice: Shifts exceeding 5 consecutive hours require at least a 30-minute eating period.`);
-	const dayOfWeek = (startDateTime.getUTCDay() + 6) % 7;
-	const weekStart = /* @__PURE__ */ new Date(startDateTime.getTime() - dayOfWeek * 864e5);
-	weekStart.setUTCHours(0, 0, 0, 0);
-	const weekEnd = new Date(weekStart.getTime() + 6048e5);
-	const totalProjectedHours = (await prisma.scheduledShift.findMany({ where: {
-		userId: input.userId,
-		status: { not: "CANCELLED" },
-		shiftDate: {
-			gte: weekStart,
-			lt: weekEnd
-		}
-	} })).reduce((sum, s) => sum + s.scheduledHours, 0) + scheduledHours;
-	if (totalProjectedHours > 44) warnings.push(`⚠️ Overtime Risk: Employee is scheduled for ${totalProjectedHours.toFixed(1)} hours this week (>44h threshold, Ontario 1.5x overtime rate applies).`);
-	if (totalProjectedHours > 48) warnings.push(`⚠️ Ontario ESA Maximum Hours Alert: Weekly hours exceed 48 hours (requires employee written excess hours agreement).`);
 	const shift = await prisma.scheduledShift.create({
 		data: {
 			userId: input.userId,
@@ -4010,18 +4411,33 @@ async function updateScheduledShift(id, input, adminUser) {
 		include: { user: true }
 	});
 	if (!existing) throw new HttpError(404, "Scheduled shift not found");
+	const targetUserId = input.userId || existing.userId;
+	if (input.userId && input.userId !== existing.userId) {
+		if (!await prisma.user.findUnique({ where: { id: input.userId } })) throw new HttpError(404, "Assigned employee user not found");
+	}
 	const shiftDateStr = input.shiftDate || existing.shiftDate.toISOString();
 	const startTime = input.startTime || existing.startTime;
 	const endTime = input.endTime || existing.endTime;
 	const { shiftDate, startDateTime, endDateTime } = parseShiftDates(shiftDateStr, startTime, endTime);
-	const breakMinutes = input.breakMinutes !== void 0 ? input.breakMinutes : existing.breakMinutes;
+	const breakMinutes = input.breakMinutes !== void 0 ? Math.max(0, input.breakMinutes) : existing.breakMinutes;
 	const breakType = input.breakType || existing.breakType;
 	const totalMinutes = Math.round((endDateTime.getTime() - startDateTime.getTime()) / 6e4);
 	const workedMinutes = breakType === "UNPAID_MEAL" ? Math.max(0, totalMinutes - breakMinutes) : totalMinutes;
 	const scheduledHours = Number((workedMinutes / 60).toFixed(2));
+	const warnings = await evaluateShiftComplianceWarnings({
+		userId: targetUserId,
+		shiftDate,
+		startDateTime,
+		endDateTime,
+		breakMinutes,
+		workedMinutes,
+		scheduledHours,
+		excludeShiftId: id
+	});
 	const updated = await prisma.scheduledShift.update({
 		where: { id },
 		data: {
+			userId: targetUserId,
 			shiftDate,
 			startTime,
 			endTime,
@@ -4031,6 +4447,8 @@ async function updateScheduledShift(id, input, adminUser) {
 			breakType,
 			scheduledHours,
 			roleOrStation: input.roleOrStation !== void 0 ? input.roleOrStation : existing.roleOrStation,
+			branchLocation: input.branchLocation !== void 0 ? input.branchLocation : existing.branchLocation,
+			isPublished: input.isPublished !== void 0 ? input.isPublished : existing.isPublished,
 			notes: input.notes !== void 0 ? input.notes : existing.notes,
 			status: input.status || existing.status,
 			updatedById: adminUser.id
@@ -4048,9 +4466,13 @@ async function updateScheduledShift(id, input, adminUser) {
 		userId: adminUser.id,
 		actorName: adminUser.name,
 		action: "SHIFT_SCHEDULE_UPDATE",
-		details: `Updated scheduled shift #${id} for ${existing.user.name}`
+		details: `Updated scheduled shift #${id} for ${updated.user.name}`
 	});
-	return updated;
+	return {
+		...updated,
+		shift: updated,
+		warnings
+	};
 }
 async function deleteScheduledShift(id, adminUser) {
 	const existing = await prisma.scheduledShift.findUnique({
@@ -4095,8 +4517,8 @@ async function compareScheduleVsActual(startDateStr, endDateStr) {
 	});
 	const actualShifts = await prisma.shift.findMany({
 		where: { clockIn: {
-			gte: start,
-			lte: new Date(end.getTime() + 864e5)
+			gte: /* @__PURE__ */ new Date(start.getTime() - 216e5),
+			lte: new Date(end.getTime() + 108e6)
 		} },
 		include: { user: { select: {
 			id: true,
@@ -4111,15 +4533,17 @@ async function compareScheduleVsActual(startDateStr, endDateStr) {
 	let missedCount = 0;
 	const comparison = scheduled.map((sc) => {
 		totalScheduledHours += sc.scheduledHours;
-		const dayStart = new Date(sc.shiftDate);
-		dayStart.setUTCHours(0, 0, 0, 0);
-		const dayEnd = new Date(dayStart.getTime() + 864e5);
-		const match = actualShifts.find((a) => a.userId === sc.userId && a.clockIn >= dayStart && a.clockIn < dayEnd);
+		const scDateStr = sc.shiftDate.toISOString().slice(0, 10);
+		const match = actualShifts.find((a) => a.userId === sc.userId && (toBusinessDateStr(a.clockIn) === scDateStr || Math.abs(a.clockIn.getTime() - sc.startDateTime.getTime()) <= 216e5));
 		let actualHours = 0;
 		let lateMinutes = 0;
 		let attendanceStatus = "PENDING";
 		if (match) {
-			actualHours = Number((match.totalMinutes / 60).toFixed(2));
+			if (match.status === "COMPLETED") actualHours = Number((match.totalMinutes / 60).toFixed(2));
+			else {
+				const elapsedMins = Math.max(0, Math.round((now.getTime() - match.clockIn.getTime()) / 6e4));
+				actualHours = Number((Math.max(0, elapsedMins - match.breakMinutes) / 60).toFixed(2));
+			}
 			totalActualHours += actualHours;
 			const diffMs = match.clockIn.getTime() - sc.startDateTime.getTime();
 			if (diffMs > 6e5) {
@@ -4206,12 +4630,16 @@ async function duplicateScheduledShift(id, targetDate, targetUserId, adminUser) 
 }
 async function createTimeOffRequest(input) {
 	if (!await prisma.user.findUnique({ where: { id: input.userId } })) throw new HttpError(404, "User not found");
+	const startDate = new Date(input.startDate);
+	const endDate = new Date(input.endDate);
+	if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) throw new HttpError(400, "Valid startDate and endDate are required.");
+	if (endDate < startDate) throw new HttpError(400, "Time-off end date cannot be earlier than start date.");
 	return await prisma.timeOffRequest.create({
 		data: {
 			userId: input.userId,
 			requestType: input.requestType || "VACATION",
-			startDate: new Date(input.startDate),
-			endDate: new Date(input.endDate),
+			startDate,
+			endDate,
 			reason: input.reason || null,
 			status: "PENDING"
 		},
@@ -4264,6 +4692,10 @@ async function reviewTimeOffRequest(id, review, adminUser) {
 	return updated;
 }
 async function createShiftSwapRequest(input) {
+	if (input.targetUserId === input.requesterId) throw new HttpError(400, "Cannot request a shift swap with yourself.");
+	const requesterShift = await prisma.scheduledShift.findUnique({ where: { id: input.requesterShiftId } });
+	if (!requesterShift) throw new HttpError(404, "Selected shift was not found.");
+	if (requesterShift.userId !== input.requesterId) throw new HttpError(403, "You can only request swaps for your own assigned shifts.");
 	return await prisma.shiftSwapRequest.create({
 		data: {
 			requesterId: input.requesterId,
@@ -4311,34 +4743,37 @@ async function listShiftSwapRequests(filters) {
 async function reviewShiftSwapRequest(id, review, adminUser) {
 	const swap = await prisma.shiftSwapRequest.findUnique({ where: { id } });
 	if (!swap) throw new HttpError(404, "Shift swap request not found");
-	if (review.status === "APPROVED") {
-		await prisma.scheduledShift.update({
-			where: { id: swap.requesterShiftId },
-			data: { userId: swap.targetUserId }
-		});
-		if (swap.targetShiftId) await prisma.scheduledShift.update({
-			where: { id: swap.targetShiftId },
-			data: { userId: swap.requesterId }
-		});
-	}
-	const updated = await prisma.shiftSwapRequest.update({
-		where: { id },
-		data: {
-			status: review.status,
-			reviewedById: adminUser.id,
-			reviewedByName: adminUser.name,
-			reviewNotes: review.reviewNotes
-		},
-		include: {
-			requester: { select: {
-				id: true,
-				name: true
-			} },
-			targetUser: { select: {
-				id: true,
-				name: true
-			} }
+	if (swap.status !== "PENDING") throw new HttpError(409, `This shift swap request has already been ${swap.status.toLowerCase()}.`);
+	const updated = await prisma.$transaction(async (tx) => {
+		if (review.status === "APPROVED") {
+			await tx.scheduledShift.update({
+				where: { id: swap.requesterShiftId },
+				data: { userId: swap.targetUserId }
+			});
+			if (swap.targetShiftId) await tx.scheduledShift.update({
+				where: { id: swap.targetShiftId },
+				data: { userId: swap.requesterId }
+			});
 		}
+		return tx.shiftSwapRequest.update({
+			where: { id },
+			data: {
+				status: review.status,
+				reviewedById: adminUser.id,
+				reviewedByName: adminUser.name,
+				reviewNotes: review.reviewNotes
+			},
+			include: {
+				requester: { select: {
+					id: true,
+					name: true
+				} },
+				targetUser: { select: {
+					id: true,
+					name: true
+				} }
+			}
+		});
 	});
 	await recordAudit({
 		userId: adminUser.id,
@@ -4488,7 +4923,7 @@ body { margin: 0; width: 80mm; padding: 4mm 4mm 8mm; font: 12px/1.35 'Arial', sy
 .footer { font-size: 9px; color: #475569; margin-top: 4px; font-family: monospace; }
 </style></head><body>
 <div class="header">
-  <span class="b" style="font-size:12px">${esc(shop.shopName || "APEXFIX BENCH")}</span>
+  <span class="b" style="font-size:12px">${esc(shop.shopName || "FASO FIX POS")}</span>
   <span class="wo">WO #${ticket.ticketNumber}</span>
 </div>
 <div style="font-size:14px;font-weight:900;margin-bottom:2px">${esc(ticket.customer?.fullName)}</div>
@@ -4567,10 +5002,10 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
 
 <div class="header">
   <div>
-    <div class="shop-name">${esc(shop.shopName || "Faso Fix Electronics")}</div>
+    <div class="shop-name">${esc(shop.shopName || "Faso Fix POS")}</div>
     <div style="font-size:11px;color:#64748b;margin-top:2px">Diagnostics • Board-Level Repair • Micro-Soldering Lab</div>
-    <div style="font-size:10px;color:#64748b">${esc(shop.address || "1084 Tech Boulevard, Suite 200 • San Jose, CA 95110")}</div>
-    <div style="font-size:10px;color:#4f46e5;font-weight:600">Tel: ${esc(shop.phone || "(555) 902-3482")} • Lic: #REP-99214 • HST/Tax: #ESD-4402</div>
+    <div style="font-size:10px;color:#64748b">${esc(shop.address || "Ontario, Canada")}</div>
+    ${shop.phone || shop.email ? `<div style="font-size:10px;color:#4f46e5;font-weight:600">${[shop.phone ? `Tel: ${esc(shop.phone)}` : "", shop.email ? esc(shop.email) : ""].filter(Boolean).join(" • ")}</div>` : ""}
   </div>
   <div style="text-align:right">
     <div class="badge ${isPaid ? "badge-paid" : "badge-due"}">
@@ -4602,7 +5037,7 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   </div>
   <div class="card">
     <div class="card-label">Lead Technician</div>
-    <div class="card-val">${esc(ticket.technician || "Alex Mercer")}</div>
+    <div class="card-val">${esc(ticket.technician || "Shop Technician")}</div>
     <div style="font-size:9px;color:#64748b">Station: ${esc(ticket.bench || "Bench #01")}</div>
   </div>
   <div class="card">
@@ -4618,7 +5053,7 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
     <div style="font-size:13px;font-weight:bold">${esc(ticket.customer?.fullName)}</div>
     <div style="font-size:11px;color:#334155;margin-top:2px">Phone: ${esc(ticket.customer?.phone)}${ticket.customer?.altPhone ? ` (Alt: ${esc(ticket.customer.altPhone)})` : ""}</div>
     ${ticket.customer?.email ? `<div style="font-size:10px;color:#64748b">Email: ${esc(ticket.customer.email)}</div>` : ""}
-    <div style="font-size:10px;color:#64748b">Address: ${esc(ticket.customer?.address || "742 Evergreen Terrace")}</div>
+    ${ticket.customer?.address ? `<div style="font-size:10px;color:#64748b">Address: ${esc(ticket.customer.address)}</div>` : ""}
   </div>
   <div class="card">
     <div class="card-label">Device Hardware Profile</div>
@@ -4691,10 +5126,10 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
     </div>` : ""}
     <div class="totals-row" style="border-top:1px solid #e2e8f0;padding-top:4px;font-weight:bold">
       <span>Subtotal (Pre-Tax):</span>
-      <span>${money(t.subtotalCents)}</span>
+      <span>${money(t.taxableCents ?? Math.max(0, t.subtotalCents - (t.discountCents || 0)))}</span>
     </div>
     <div class="totals-row" style="color:#64748b;font-size:10px">
-      <span>Sales Tax (${((t.taxRateBps || 1300) / 100).toFixed(1)}%):</span>
+      <span>${esc(shop.taxLabel || "Sales Tax")} (${((t.taxRateBps ?? ticket.taxRateBps ?? 1300) / 100).toFixed(1)}%):</span>
       <span>+${money(t.taxCents)}</span>
     </div>
     <div class="total-highlight">
@@ -4712,7 +5147,7 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   <div>
     <div class="card-label">Lead Technician Sign-off</div>
     <div class="sig-box">
-      <div style="font-weight:bold;font-style:italic;color:#4338ca;font-size:12px">${esc(ticket.technician || "Alex Mercer")}</div>
+      <div style="font-weight:bold;font-style:italic;color:#4338ca;font-size:12px">${esc(ticket.technician || "Shop Technician")}</div>
       <div style="font-size:9px;color:#64748b;font-family:monospace">DIGITALLY CERTIFIED • ${esc(ticket.bench || "Bench 01")}</div>
     </div>
   </div>
@@ -4895,7 +5330,15 @@ app.put("/api/auth/profile", requireAuth, wrap(async (req, res) => {
 		id: req.user.id,
 		name: req.user.name
 	};
-	const updated = await updateUser(req.user.id, req.body, actor);
+	const { name, email, phone, bench, bio, preferences } = req.body || {};
+	const sanitizedProfile = {};
+	if (name !== void 0) sanitizedProfile.name = name;
+	if (email !== void 0) sanitizedProfile.email = email;
+	if (phone !== void 0) sanitizedProfile.phone = phone;
+	if (bench !== void 0) sanitizedProfile.bench = bench;
+	if (bio !== void 0) sanitizedProfile.bio = bio;
+	if (preferences !== void 0) sanitizedProfile.preferences = preferences;
+	const updated = await updateUser(req.user.id, sanitizedProfile, actor);
 	res.json({
 		success: true,
 		user: updated
@@ -4920,7 +5363,7 @@ app.get("/api/admin/overview", requireAdmin, wrap(async (_req, res) => {
 	});
 }));
 app.get("/api/users", requireAuth, wrap(async (_req, res) => {
-	const users = await listUsers({});
+	const users = await listUsers({}, false);
 	res.json({
 		success: true,
 		count: users.length,
@@ -4928,11 +5371,14 @@ app.get("/api/users", requireAuth, wrap(async (_req, res) => {
 		users
 	});
 }));
-app.post("/api/sync/users", wrap(async (req, res) => {
+app.post("/api/sync/users", requireAdmin, wrap(async (req, res) => {
 	const { clientUsers, deletedUserIds } = req.body || {};
 	if (Array.isArray(deletedUserIds) && deletedUserIds.length > 0) {
-		await prisma.session.deleteMany({ where: { userId: { in: deletedUserIds } } }).catch(() => {});
-		await prisma.user.deleteMany({ where: { id: { in: deletedUserIds } } }).catch(() => {});
+		const safeDeletedIds = deletedUserIds.filter((id) => id && id !== req.user.id);
+		if (safeDeletedIds.length > 0) {
+			await prisma.session.deleteMany({ where: { userId: { in: safeDeletedIds } } }).catch(() => {});
+			await prisma.user.deleteMany({ where: { id: { in: safeDeletedIds } } }).catch(() => {});
+		}
 	}
 	if (Array.isArray(clientUsers) && clientUsers.length > 0) {
 		for (const cu of clientUsers) if (cu.payload && cu.signature) {
@@ -4966,7 +5412,7 @@ app.post("/api/sync/users", wrap(async (req, res) => {
 			} catch {}
 		}
 	}
-	const allUsers = await listUsers({});
+	const allUsers = await listUsers({}, true);
 	res.json({
 		success: true,
 		count: allUsers.length,
@@ -4981,7 +5427,7 @@ app.get("/api/admin/users", requireAdmin, wrap(async (req, res) => {
 		search,
 		role,
 		status
-	});
+	}, true);
 	res.json({
 		success: true,
 		count: users.length,
@@ -5458,14 +5904,10 @@ app.post("/api/timeclock/clock-out", requireAuth, wrap(async (req, res) => {
 		data: shift
 	});
 }));
-app.post("/api/sync/tickets", requireAuth, wrap(async (req, res) => {
+app.post("/api/sync/tickets", requireAdmin, wrap(async (req, res) => {
 	const { deletedIds } = req.body || {};
 	if (Array.isArray(deletedIds) && deletedIds.length > 0) {
-		await prisma.ticket.updateMany({
-			where: { id: { in: deletedIds } },
-			data: { deletedAt: /* @__PURE__ */ new Date() }
-		}).catch(() => {});
-		await prisma.ticket.deleteMany({ where: { id: { in: deletedIds } } }).catch(() => {});
+		for (const id of deletedIds) if (typeof id === "string" && id.trim()) await deleteTicket(id).catch(() => {});
 	}
 	res.json({
 		success: true,
@@ -5561,7 +6003,7 @@ app.delete("/api/admin/attendance/shifts/:id", requireAdmin, wrap(async (req, re
 	const result = await deleteShift(getParam(req, "id"), {
 		id: req.user.id,
 		name: req.user.name
-	});
+	}, req.body?.reason);
 	res.json({
 		success: true,
 		data: result
@@ -5621,6 +6063,17 @@ app.post("/api/admin/payroll/periods/calculate", requireAdmin, wrap(async (req, 
 	});
 }));
 app.post("/api/admin/payroll/periods", requireAdmin, wrap(async (req, res) => {
+	if (!req.body?.allowDuplicate && req.body?.startDate && req.body?.endDate) {
+		const existing = await prisma.payrollPeriod.findFirst({ where: {
+			startDate: new Date(req.body.startDate),
+			endDate: new Date(req.body.endDate),
+			periodType: req.body.periodType || "BI_WEEKLY"
+		} });
+		if (existing) return res.status(409).json({
+			success: false,
+			error: `A payroll period (#${existing.periodNumber}) already exists for this exact date range and frequency.`
+		});
+	}
 	const period = await createPayrollPeriod(req.body, {
 		id: req.user.id,
 		name: req.user.name
@@ -5667,6 +6120,20 @@ app.get("/api/admin/payroll/paystubs/:id/html", requireAdmin, wrap(async (req, r
 	const html = await buildPaystubHtml(getParam(req, "id"), true);
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
 	res.send(html);
+}));
+app.get("/api/schedules/my-schedule", requireAuth, wrap(async (req, res) => {
+	const shifts = await listScheduledShifts({
+		userId: req.user.id,
+		startDate: req.query.startDate,
+		endDate: req.query.endDate,
+		status: req.query.status
+	});
+	res.json({
+		success: true,
+		count: shifts.length,
+		data: shifts,
+		schedules: shifts
+	});
 }));
 app.get("/api/schedules", requireAuth, wrap(async (req, res) => {
 	const shifts = await listScheduledShifts({
@@ -5859,10 +6326,11 @@ app.use((err, _req, res, _next) => {
 		});
 	}
 	console.error("[API Error]", err);
+	const isProd = process.env.NODE_ENV === "production" || Boolean(process.env.VERCEL);
 	return res.status(500).json({
 		success: false,
-		error: err?.message || "Internal server error",
-		details: err?.stack || String(err)
+		error: isProd ? "Internal server error" : err?.message || "Internal server error",
+		...isProd ? {} : { details: err?.stack || String(err) }
 	});
 });
 if (!process.env.VERCEL) app.listen(Number(PORT), "0.0.0.0", async () => {

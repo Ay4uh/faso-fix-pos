@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Ticket } from '../types';
 import {
   X,
@@ -18,7 +18,15 @@ import {
   Usb,
 } from 'lucide-react';
 import { Barcode } from './Barcode';
-import { printReceipt, printBenchSlip, printLetterInvoice, openPrintSlip, printDeviceStickerLabel } from '../utils/receipt';
+import {
+  printReceipt,
+  printBenchSlip,
+  printLetterInvoice,
+  openPrintSlip,
+  printDeviceStickerLabel,
+  loadShop,
+  ReceiptShop,
+} from '../utils/receipt';
 import { buildTicketEscPos, printDirectWebUsb, printDirectWebSerial } from '../utils/escpos';
 
 interface PrintTicketModalProps {
@@ -27,24 +35,50 @@ interface PrintTicketModalProps {
 }
 
 export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onClose }) => {
-  if (!ticket) return null;
-
   const [paperFormat, setPaperFormat] = useState<'letter' | 'receipt' | 'sticker'>('letter');
   const [isEscPosPrinting, setIsEscPosPrinting] = useState(false);
   const [escPosStatus, setEscPosStatus] = useState<string | null>(null);
+  const [shop, setShop] = useState<ReceiptShop>({
+    shopName: 'Faso Fix POS',
+    address: 'Ontario, Canada',
+    phone: '',
+    email: 'service@fasofix.ca',
+    taxLabel: 'HST',
+    currencySymbol: '$',
+    warrantyDays: 90,
+  });
 
+  useEffect(() => {
+    loadShop()
+      .then((s) => {
+        if (s) setShop(s);
+      })
+      .catch(() => {});
+  }, []);
+
+  if (!ticket) return null;
+
+  const effectiveTaxBps = ticket.totals?.taxRateBps ?? ticket.taxRateBps ?? 1300;
   const totals = ticket.totals || {
     subtotalCents: ticket.laborCents,
     laborCents: ticket.laborCents,
     itemsCents: 0,
     discountCents: ticket.discountCents,
-    taxRateBps: ticket.taxRateBps || 1300,
-    taxCents: Math.round((ticket.laborCents * (ticket.taxRateBps || 1300)) / 10000),
-    totalCents: ticket.laborCents + Math.round((ticket.laborCents * (ticket.taxRateBps || 1300)) / 10000),
+    taxableCents: Math.max(0, ticket.laborCents - (ticket.discountCents || 0)),
+    taxRateBps: effectiveTaxBps,
+    taxCents: Math.round((Math.max(0, ticket.laborCents - (ticket.discountCents || 0)) * effectiveTaxBps) / 10000),
+    totalCents:
+      Math.max(0, ticket.laborCents - (ticket.discountCents || 0)) +
+      Math.round((Math.max(0, ticket.laborCents - (ticket.discountCents || 0)) * effectiveTaxBps) / 10000),
     paidCents: 0,
-    balanceCents: ticket.laborCents + Math.round((ticket.laborCents * (ticket.taxRateBps || 1300)) / 10000),
-    paymentStatus: 'UNPAID',
+    balanceCents:
+      Math.max(0, ticket.laborCents - (ticket.discountCents || 0)) +
+      Math.round((Math.max(0, ticket.laborCents - (ticket.discountCents || 0)) * effectiveTaxBps) / 10000),
+    paymentStatus: 'UNPAID' as const,
   };
+
+  const preTaxSubtotalCents = totals.taxableCents ?? Math.max(0, totals.subtotalCents - (totals.discountCents || 0));
+  const taxRatePctStr = ((totals.taxRateBps ?? ticket.taxRateBps ?? 1300) / 100).toFixed(1);
 
   const isPaid = totals.balanceCents <= 0;
   const woBarcode = `WO-${String(ticket.ticketNumber).padStart(4, '0')}`;
@@ -63,13 +97,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
     try {
       setIsEscPosPrinting(true);
       setEscPosStatus(`Connecting to ${type.toUpperCase()} printer...`);
-      const rawData = buildTicketEscPos(ticket, {
-        shopName: 'Faso Fix Electronics',
-        address: '1084 Tech Boulevard, Suite 200, San Jose, CA',
-        phone: '(555) 902-3482',
-        currencySymbol: '$',
-        warrantyDays: 90,
-      });
+      const rawData = buildTicketEscPos(ticket, shop);
 
       if (type === 'usb') {
         await printDirectWebUsb(rawData);
@@ -212,17 +240,19 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                 </div>
                 <div className="flex flex-col">
                   <span className="text-xl font-black text-slate-900 tracking-tight leading-tight">
-                    Faso Fix Electronics
+                    {shop.shopName || 'Faso Fix POS'}
                   </span>
                   <span className="text-xs text-slate-500 font-medium">
                     Diagnostics • Board-Level Repair • Micro-Soldering Lab
                   </span>
                   <span className="text-xs text-slate-500">
-                    1084 Tech Boulevard, Suite 200 • San Jose, CA 95110
+                    {shop.address || 'Ontario, Canada'}
                   </span>
-                  <span className="font-mono text-[11px] text-indigo-600 mt-0.5">
-                    Tel: (555) 902-3482 • BAR Lic: #REP-99214 • EPA: #ESD-4402
-                  </span>
+                  {(shop.phone || shop.email) && (
+                    <span className="font-mono text-[11px] text-indigo-600 mt-0.5">
+                      {[shop.phone ? `Tel: ${shop.phone}` : '', shop.email || ''].filter(Boolean).join(' • ')}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -349,10 +379,12 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                       <span>{ticket.customer.email}</span>
                     </div>
                   )}
-                  <div className="flex items-center gap-1.5 text-slate-500 text-xs">
-                    <MapPin className="w-3.5 h-3.5 text-slate-400" />
-                    <span>{ticket.customer.address || '742 Evergreen Terrace, Dundas Station'}</span>
-                  </div>
+                  {ticket.customer.address && (
+                    <div className="flex items-center gap-1.5 text-slate-500 text-xs">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{ticket.customer.address}</span>
+                    </div>
+                  )}
                 </div>
                 <div className="mt-3 pt-2 border-t border-slate-200/60 flex items-center justify-between text-slate-400 font-mono text-[10px]">
                   <span>Account: #CUST-{ticket.customerId.slice(0, 5).toUpperCase()}</span>
@@ -381,7 +413,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                     <div>
                       <span className="text-slate-400 block text-[10px]">Serial Number:</span>
                       <span className="text-slate-800 font-semibold truncate block">
-                        {ticket.device?.serialNumber || 'F2LX90KLQ23A'}
+                        {ticket.device?.serialNumber || 'N/A'}
                       </span>
                     </div>
                     <div>
@@ -591,10 +623,10 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                   )}
                   <div className="flex items-center justify-between font-bold text-slate-700 pt-1 border-t border-slate-200">
                     <span>Subtotal (Pre-Tax):</span>
-                    <span className="font-mono">${(totals.subtotalCents / 100).toFixed(2)}</span>
+                    <span className="font-mono">${(preTaxSubtotalCents / 100).toFixed(2)}</span>
                   </div>
                   <div className="flex items-center justify-between text-slate-500 font-mono text-[11px] pb-1">
-                    <span>Sales Tax ({(totals.taxRateBps / 100).toFixed(1)}%):</span>
+                    <span>{shop.taxLabel || 'Sales Tax'} ({taxRatePctStr}%):</span>
                     <span>+${(totals.taxCents / 100).toFixed(2)}</span>
                   </div>
                 </div>
@@ -685,16 +717,6 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
           </div>
         )}
 
-        {/* ESC/POS Status Notification */}
-        {escPosStatus && (
-          <div className="px-5 py-2 bg-slate-900 text-white text-xs font-semibold flex items-center justify-between">
-            <span>{escPosStatus}</span>
-            <button onClick={() => setEscPosStatus(null)} className="text-slate-400 hover:text-white">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
-        )}
-
         {/* ========================================================
             FORMAT 2: COMPACT THERMAL BENCH SLIP (2"x1" or 4"x2" Sticker)
            ======================================================== */}
@@ -702,7 +724,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
           <div className="p-6 flex justify-center bg-slate-100 print:bg-white print:p-0">
             <div className="w-80 bg-white border border-slate-300 shadow-md p-4 rounded-xl font-mono text-xs space-y-2.5 print:border-none print:shadow-none print:w-full">
               <div className="flex items-center justify-between border-b border-dashed border-slate-300 pb-2">
-                <span className="font-bold font-sans text-xs">APEXFIX BENCH</span>
+                <span className="font-bold font-sans text-xs">{shop.shopName || 'FASO FIX POS'}</span>
                 <span className="font-bold text-sm text-indigo-700">WO #{ticket.ticketNumber}</span>
               </div>
 

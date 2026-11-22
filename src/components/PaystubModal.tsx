@@ -1,6 +1,7 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState, useEffect } from 'react';
 import { X, Printer, ShieldCheck, DollarSign } from 'lucide-react';
 import { getToken } from '../utils/auth';
+import { loadShop, ReceiptShop } from '../utils/receipt';
 
 interface PaystubModalProps {
   paystub: any | null;
@@ -9,6 +10,20 @@ interface PaystubModalProps {
 
 export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) => {
   const printAreaRef = useRef<HTMLDivElement>(null);
+  const [shop, setShop] = useState<ReceiptShop>({
+    shopName: 'Faso Fix POS',
+    address: 'Ontario, Canada',
+    phone: '',
+    email: 'support@fasofix.ca',
+  });
+
+  useEffect(() => {
+    loadShop()
+      .then((s) => {
+        if (s) setShop(s);
+      })
+      .catch(() => {});
+  }, []);
 
   if (!paystub) return null;
 
@@ -26,7 +41,12 @@ export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) 
   };
 
   const period = paystub.payrollPeriod || {};
-  const user = paystub.user || {};
+  const user = paystub.user || paystub.employee || {};
+  const isFinalized =
+    paystub.status === 'FINALIZED' ||
+    paystub.status === 'APPROVED' ||
+    period.status === 'FINALIZED';
+  const vacationRatePct = ((user.vacationPayPct ?? 400) / 100).toFixed(1);
 
   const fmtCurrency = (cents: number) => `$${((cents || 0) / 100).toFixed(2)}`;
 
@@ -74,19 +94,23 @@ export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) 
                 <span className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm">
                   FF
                 </span>
-                <span className="text-xl font-black text-slate-900 tracking-tight">Faso Fix POS</span>
+                <span className="text-xl font-black text-slate-900 tracking-tight">
+                  {shop.shopName || 'Faso Fix POS'}
+                </span>
               </div>
               <p className="text-xs text-slate-500 mt-1">Device Repair &amp; Retail Operations CRM</p>
-              <p className="text-xs text-slate-500">123 Tech Avenue, Toronto, ON, Canada</p>
-              <p className="text-xs text-slate-500">Business HST: 123456789RT0001</p>
+              <p className="text-xs text-slate-500">{shop.address || 'Ontario, Canada'}</p>
+              <p className="text-xs text-slate-500">
+                {[shop.phone ? `Tel: ${shop.phone}` : '', shop.email || ''].filter(Boolean).join(' • ') || 'CRA Payroll Compliance'}
+              </p>
             </div>
             <div className="text-left sm:text-right space-y-1">
               <span className={`inline-block px-2.5 py-1 text-xs font-bold uppercase tracking-wider rounded-md ${
-                paystub.status === 'FINALIZED'
+                isFinalized
                   ? 'bg-emerald-100 text-emerald-800'
                   : 'bg-amber-100 text-amber-800'
               }`}>
-                {paystub.status === 'FINALIZED' ? 'Official / Finalized' : 'Draft / Estimated'}
+                {isFinalized ? 'Official / Finalized' : 'Draft / Estimated'}
               </span>
               <p className="text-xs text-slate-500 font-mono">
                 Period #{period.periodNumber || 1} ({period.periodType || 'BI_WEEKLY'})
@@ -159,10 +183,10 @@ export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) 
                   {paystub.vacationPayCents > 0 && (
                     <tr>
                       <td className="py-2.5 px-4 font-sans font-medium text-slate-800">
-                        Vacation Pay (Statutory 4.0% Ontario ESA)
+                        Vacation Pay (Statutory {vacationRatePct}% Ontario ESA)
                       </td>
                       <td className="py-2.5 px-4 text-center text-slate-400">—</td>
-                      <td className="py-2.5 px-4 text-right text-slate-400">4.0%</td>
+                      <td className="py-2.5 px-4 text-right text-slate-400">{vacationRatePct}%</td>
                       <td className="py-2.5 px-4 text-right font-bold text-slate-900">{fmtCurrency(paystub.vacationPayCents)}</td>
                     </tr>
                   )}

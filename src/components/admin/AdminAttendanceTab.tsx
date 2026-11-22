@@ -87,12 +87,19 @@ export const AdminAttendanceTab: React.FC = () => {
     }
   };
 
+  const toLocalDateTimeInput = (val: Date | string) => {
+    const d = typeof val === 'string' ? new Date(val) : val;
+    if (Number.isNaN(d.getTime())) return '';
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  };
+
   const handleOpenAdd = () => {
     setFormUserId(employees[0]?.id || '');
     const now = new Date();
     const earlier = new Date(now.getTime() - 8 * 3600000);
-    setFormClockIn(earlier.toISOString().slice(0, 16));
-    setFormClockOut(now.toISOString().slice(0, 16));
+    setFormClockIn(toLocalDateTimeInput(earlier));
+    setFormClockOut(toLocalDateTimeInput(now));
     setFormBreakMinutes(30);
     setFormReason('');
     setFormNotes('');
@@ -133,8 +140,8 @@ export const AdminAttendanceTab: React.FC = () => {
 
   const handleOpenEdit = (shift: any) => {
     setEditingShift(shift);
-    setFormClockIn(new Date(shift.clockIn).toISOString().slice(0, 16));
-    setFormClockOut(shift.clockOut ? new Date(shift.clockOut).toISOString().slice(0, 16) : '');
+    setFormClockIn(toLocalDateTimeInput(shift.clockIn));
+    setFormClockOut(shift.clockOut ? toLocalDateTimeInput(shift.clockOut) : '');
     setFormBreakMinutes(shift.breakMinutes || 0);
     setFormReason('');
     setFormNotes(shift.notes || '');

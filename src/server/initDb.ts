@@ -334,12 +334,208 @@ CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_targetUserId_idx" ON "ShiftSwapRequ
 CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_status_idx" ON "ShiftSwapRequest"("status");
 `;
 
+const POSTGRES_SCHEMA_STATEMENTS: string[] = [
+  `CREATE TABLE IF NOT EXISTS "WageRate" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "hourlyRateCents" INTEGER NOT NULL,
+    "overtimeRateCents" INTEGER NOT NULL,
+    "effectiveDate" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "reason" TEXT,
+    "createdById" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "WageRate_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "Shift" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "clockIn" TIMESTAMP(3) NOT NULL,
+    "clockOut" TIMESTAMP(3),
+    "status" TEXT NOT NULL DEFAULT 'ACTIVE',
+    "totalMinutes" INTEGER NOT NULL DEFAULT 0,
+    "regularMinutes" INTEGER NOT NULL DEFAULT 0,
+    "overtimeMinutes" INTEGER NOT NULL DEFAULT 0,
+    "breakMinutes" INTEGER NOT NULL DEFAULT 0,
+    "notes" TEXT,
+    "editedByAdminId" TEXT,
+    "editedAt" TIMESTAMP(3),
+    "editReason" TEXT,
+    "originalClockIn" TIMESTAMP(3),
+    "originalClockOut" TIMESTAMP(3),
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Shift_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "ShiftBreak" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "shiftId" TEXT NOT NULL,
+    "startTime" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "endTime" TIMESTAMP(3),
+    "durationMinutes" INTEGER NOT NULL DEFAULT 0,
+    "type" TEXT NOT NULL DEFAULT 'UNPAID_MEAL',
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ShiftBreak_shiftId_fkey" FOREIGN KEY ("shiftId") REFERENCES "Shift" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "PayrollPeriod" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "periodNumber" INTEGER NOT NULL,
+    "periodType" TEXT NOT NULL DEFAULT 'BI_WEEKLY',
+    "startDate" TIMESTAMP(3) NOT NULL,
+    "endDate" TIMESTAMP(3) NOT NULL,
+    "payDate" TIMESTAMP(3) NOT NULL,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "totalGrossCents" INTEGER NOT NULL DEFAULT 0,
+    "totalNetCents" INTEGER NOT NULL DEFAULT 0,
+    "totalDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "finalizedAt" TIMESTAMP(3),
+    "finalizedById" TEXT,
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP
+  )`,
+  `CREATE TABLE IF NOT EXISTS "Paystub" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "payrollPeriodId" TEXT NOT NULL,
+    "userId" TEXT NOT NULL,
+    "regularHours" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "overtimeHours" DOUBLE PRECISION NOT NULL DEFAULT 0,
+    "hourlyRateCents" INTEGER NOT NULL,
+    "overtimeRateCents" INTEGER NOT NULL,
+    "regularPayCents" INTEGER NOT NULL DEFAULT 0,
+    "overtimePayCents" INTEGER NOT NULL DEFAULT 0,
+    "bonusCents" INTEGER NOT NULL DEFAULT 0,
+    "vacationPayCents" INTEGER NOT NULL DEFAULT 0,
+    "grossPayCents" INTEGER NOT NULL DEFAULT 0,
+    "cppCents" INTEGER NOT NULL DEFAULT 0,
+    "eiCents" INTEGER NOT NULL DEFAULT 0,
+    "incomeTaxCents" INTEGER NOT NULL DEFAULT 0,
+    "otherDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "totalDeductionsCents" INTEGER NOT NULL DEFAULT 0,
+    "netPayCents" INTEGER NOT NULL DEFAULT 0,
+    "status" TEXT NOT NULL DEFAULT 'DRAFT',
+    "paidAt" TIMESTAMP(3),
+    "paymentMethod" TEXT NOT NULL DEFAULT 'DIRECT_DEPOSIT',
+    "paymentReference" TEXT,
+    "notes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "Paystub_payrollPeriodId_fkey" FOREIGN KEY ("payrollPeriodId") REFERENCES "PayrollPeriod" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "Paystub_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "ScheduledShift" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "shiftDate" TIMESTAMP(3) NOT NULL,
+    "startTime" TEXT NOT NULL,
+    "endTime" TEXT NOT NULL,
+    "startDateTime" TIMESTAMP(3) NOT NULL,
+    "endDateTime" TIMESTAMP(3) NOT NULL,
+    "breakMinutes" INTEGER NOT NULL DEFAULT 30,
+    "breakType" TEXT NOT NULL DEFAULT 'UNPAID_MEAL',
+    "scheduledHours" DOUBLE PRECISION NOT NULL DEFAULT 7.5,
+    "status" TEXT NOT NULL DEFAULT 'SCHEDULED',
+    "roleOrStation" TEXT,
+    "branchLocation" TEXT DEFAULT 'Main Shop',
+    "recurrenceRule" TEXT DEFAULT 'NONE',
+    "isPublished" BOOLEAN NOT NULL DEFAULT true,
+    "notes" TEXT,
+    "createdById" TEXT,
+    "createdByName" TEXT,
+    "updatedById" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ScheduledShift_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "TimeOffRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
+    "requestType" TEXT NOT NULL DEFAULT 'VACATION',
+    "startDate" TIMESTAMP(3) NOT NULL,
+    "endDate" TIMESTAMP(3) NOT NULL,
+    "reason" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "reviewedById" TEXT,
+    "reviewedByName" TEXT,
+    "reviewNotes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TimeOffRequest_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE TABLE IF NOT EXISTS "ShiftSwapRequest" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "requesterId" TEXT NOT NULL,
+    "requesterShiftId" TEXT NOT NULL,
+    "targetUserId" TEXT NOT NULL,
+    "targetShiftId" TEXT,
+    "reason" TEXT,
+    "status" TEXT NOT NULL DEFAULT 'PENDING',
+    "reviewedById" TEXT,
+    "reviewedByName" TEXT,
+    "reviewNotes" TEXT,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "ShiftSwapRequest_requesterId_fkey" FOREIGN KEY ("requesterId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "ShiftSwapRequest_targetUserId_fkey" FOREIGN KEY ("targetUserId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+  `CREATE INDEX IF NOT EXISTS "WageRate_userId_idx" ON "WageRate"("userId")`,
+  `CREATE INDEX IF NOT EXISTS "Shift_userId_idx" ON "Shift"("userId")`,
+  `CREATE INDEX IF NOT EXISTS "Shift_status_idx" ON "Shift"("status")`,
+  `CREATE INDEX IF NOT EXISTS "Shift_clockIn_idx" ON "Shift"("clockIn")`,
+  `CREATE INDEX IF NOT EXISTS "ShiftBreak_shiftId_idx" ON "ShiftBreak"("shiftId")`,
+  `CREATE INDEX IF NOT EXISTS "PayrollPeriod_status_idx" ON "PayrollPeriod"("status")`,
+  `CREATE INDEX IF NOT EXISTS "PayrollPeriod_startDate_idx" ON "PayrollPeriod"("startDate")`,
+  `CREATE INDEX IF NOT EXISTS "Paystub_payrollPeriodId_idx" ON "Paystub"("payrollPeriodId")`,
+  `CREATE INDEX IF NOT EXISTS "Paystub_userId_idx" ON "Paystub"("userId")`,
+  `CREATE INDEX IF NOT EXISTS "Paystub_status_idx" ON "Paystub"("status")`,
+  `CREATE INDEX IF NOT EXISTS "ScheduledShift_userId_idx" ON "ScheduledShift"("userId")`,
+  `CREATE INDEX IF NOT EXISTS "ScheduledShift_shiftDate_idx" ON "ScheduledShift"("shiftDate")`,
+  `CREATE INDEX IF NOT EXISTS "ScheduledShift_startDateTime_idx" ON "ScheduledShift"("startDateTime")`,
+  `CREATE INDEX IF NOT EXISTS "ScheduledShift_status_idx" ON "ScheduledShift"("status")`,
+  `CREATE INDEX IF NOT EXISTS "TimeOffRequest_userId_idx" ON "TimeOffRequest"("userId")`,
+  `CREATE INDEX IF NOT EXISTS "TimeOffRequest_status_idx" ON "TimeOffRequest"("status")`,
+  `CREATE INDEX IF NOT EXISTS "TimeOffRequest_startDate_idx" ON "TimeOffRequest"("startDate")`,
+  `CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_requesterId_idx" ON "ShiftSwapRequest"("requesterId")`,
+  `CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_targetUserId_idx" ON "ShiftSwapRequest"("targetUserId")`,
+  `CREATE INDEX IF NOT EXISTS "ShiftSwapRequest_status_idx" ON "ShiftSwapRequest"("status")`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "employeeNumber" TEXT`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "hourlyRateCents" INTEGER NOT NULL DEFAULT 2200`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "overtimeRateCents" INTEGER`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "vacationPayPct" INTEGER NOT NULL DEFAULT 400`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "td1FederalClaimCents" INTEGER NOT NULL DEFAULT 1612900`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "td1OntarioClaimCents" INTEGER NOT NULL DEFAULT 1274600`,
+  `ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "sin" TEXT`,
+  `ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "ontarioMinWageCents" INTEGER NOT NULL DEFAULT 1720`,
+  `ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "overtimeThresholdWeeklyHours" DOUBLE PRECISION NOT NULL DEFAULT 44.0`,
+  `ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "overtimeMultiplierPct" INTEGER NOT NULL DEFAULT 150`,
+  `ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "minRestBetweenShiftsHours" DOUBLE PRECISION NOT NULL DEFAULT 11.0`,
+  `ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "maxWeeklyHoursBeforePermit" DOUBLE PRECISION NOT NULL DEFAULT 48.0`,
+  `ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "mandatoryMealBreakMinutes" INTEGER NOT NULL DEFAULT 30`,
+  `ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "vacationPayPctUnder5Years" INTEGER NOT NULL DEFAULT 400`,
+  `ALTER TABLE "Setting" ADD COLUMN IF NOT EXISTS "vacationPayPctOver5Years" INTEGER NOT NULL DEFAULT 600`,
+  `ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "branchLocation" TEXT DEFAULT 'Main Shop'`,
+  `ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "recurrenceRule" TEXT DEFAULT 'NONE'`,
+  `ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "isPublished" BOOLEAN NOT NULL DEFAULT true`,
+];
+
+async function ensurePostgresSchema() {
+  for (const sql of POSTGRES_SCHEMA_STATEMENTS) {
+    try {
+      await prisma.$executeRawUnsafe(sql);
+    } catch {
+      // Ignore already-existing tables/columns/constraints
+    }
+  }
+}
+
 export async function ensureDatabaseSchema() {
   const isPostgres = !!(
     process.env.DATABASE_URL &&
     (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))
   );
-  if (isPostgres) return;
+  if (isPostgres) {
+    await ensurePostgresSchema();
+    return;
+  }
 
   const statements = SCHEMA_SQL.split(';')
     .map((s) => s.trim())
@@ -352,8 +548,8 @@ export async function ensureDatabaseSchema() {
     }
   }
 
-  // Safe migrations for User table columns if added to an existing SQLite DB
-  const userMigrations = [
+  // Safe migrations for User, Setting, and ScheduledShift columns on existing SQLite DBs
+  const sqliteMigrations = [
     'ALTER TABLE "User" ADD COLUMN "employeeNumber" TEXT;',
     'ALTER TABLE "User" ADD COLUMN "hourlyRateCents" INTEGER NOT NULL DEFAULT 2200;',
     'ALTER TABLE "User" ADD COLUMN "overtimeRateCents" INTEGER;',
@@ -361,8 +557,19 @@ export async function ensureDatabaseSchema() {
     'ALTER TABLE "User" ADD COLUMN "td1FederalClaimCents" INTEGER NOT NULL DEFAULT 1612900;',
     'ALTER TABLE "User" ADD COLUMN "td1OntarioClaimCents" INTEGER NOT NULL DEFAULT 1274600;',
     'ALTER TABLE "User" ADD COLUMN "sin" TEXT;',
+    'ALTER TABLE "Setting" ADD COLUMN "ontarioMinWageCents" INTEGER NOT NULL DEFAULT 1720;',
+    'ALTER TABLE "Setting" ADD COLUMN "overtimeThresholdWeeklyHours" REAL NOT NULL DEFAULT 44.0;',
+    'ALTER TABLE "Setting" ADD COLUMN "overtimeMultiplierPct" INTEGER NOT NULL DEFAULT 150;',
+    'ALTER TABLE "Setting" ADD COLUMN "minRestBetweenShiftsHours" REAL NOT NULL DEFAULT 11.0;',
+    'ALTER TABLE "Setting" ADD COLUMN "maxWeeklyHoursBeforePermit" REAL NOT NULL DEFAULT 48.0;',
+    'ALTER TABLE "Setting" ADD COLUMN "mandatoryMealBreakMinutes" INTEGER NOT NULL DEFAULT 30;',
+    'ALTER TABLE "Setting" ADD COLUMN "vacationPayPctUnder5Years" INTEGER NOT NULL DEFAULT 400;',
+    'ALTER TABLE "Setting" ADD COLUMN "vacationPayPctOver5Years" INTEGER NOT NULL DEFAULT 600;',
+    'ALTER TABLE "ScheduledShift" ADD COLUMN "branchLocation" TEXT DEFAULT \'Main Shop\';',
+    'ALTER TABLE "ScheduledShift" ADD COLUMN "recurrenceRule" TEXT DEFAULT \'NONE\';',
+    'ALTER TABLE "ScheduledShift" ADD COLUMN "isPublished" INTEGER NOT NULL DEFAULT 1;',
   ];
-  for (const alter of userMigrations) {
+  for (const alter of sqliteMigrations) {
     try {
       await prisma.$executeRawUnsafe(alter);
     } catch {}

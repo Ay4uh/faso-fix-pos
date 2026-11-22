@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Ticket } from '../types';
 import { X, MessageSquare, Send } from 'lucide-react';
 import { posAudio } from '../utils/audio';
@@ -11,13 +11,20 @@ interface SendSmsModalProps {
 }
 
 export const SendSmsModal: React.FC<SendSmsModalProps> = ({ ticket, onClose, onSuccess }) => {
-  if (!ticket) return null;
-
-  const [message, setMessage] = useState(
-    `Hello ${ticket.customer.fullName}, Faso Fix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) is currently ${ticket.status.toLowerCase().replace('_', ' ')}.`
-  );
+  const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (ticket) {
+      setMessage(
+        `Hello ${ticket.customer.fullName}, Faso Fix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) is currently ${ticket.status.toLowerCase().replace('_', ' ')}.`
+      );
+      setErrorMsg(null);
+    }
+  }, [ticket?.id]);
+
+  if (!ticket) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

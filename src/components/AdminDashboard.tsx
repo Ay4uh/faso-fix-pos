@@ -1367,6 +1367,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
   const [hourlyWage, setHourlyWage] = useState('22.00');
   const [vacationPct, setVacationPct] = useState('4.0');
   const [initialWage, setInitialWage] = useState('22.00');
+  const [initialVacationPct, setInitialVacationPct] = useState('4.0');
   const [wageReason, setWageReason] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1376,16 +1377,20 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
     fetchWithAuth(`/api/admin/users/${user.id}/wages`)
       .then((res) => res.json())
       .then((json) => {
-        if (json.data?.currentWage) {
-          const val = ((json.data.currentWage.hourlyRateCents || 2200) / 100).toFixed(2);
+        const wageSource = json.data?.user || json.data?.currentWage;
+        if (wageSource) {
+          const val = ((wageSource.hourlyRateCents || 2200) / 100).toFixed(2);
+          const vacVal = ((wageSource.vacationPayPct ?? 400) / 100).toFixed(1);
           setHourlyWage(val);
           setInitialWage(val);
+          setVacationPct(vacVal);
+          setInitialVacationPct(vacVal);
         }
       })
       .catch(() => {});
   }, [user.id]);
 
-  const isWageChanged = hourlyWage !== initialWage;
+  const isWageChanged = hourlyWage !== initialWage || vacationPct !== initialVacationPct;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

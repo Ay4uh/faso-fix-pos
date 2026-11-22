@@ -280,7 +280,16 @@ app.get('/api/auth/me', wrap(async (req, res) => {
 
 app.put('/api/auth/profile', requireAuth, wrap(async (req, res) => {
   const actor = { id: req.user!.id, name: req.user!.name };
-  const updated = await updateUser(req.user!.id, req.body, actor);
+  const { name, email, phone, bench, bio, preferences } = req.body || {};
+  const sanitizedProfile: Record<string, unknown> = {};
+  if (name !== undefined) sanitizedProfile.name = name;
+  if (email !== undefined) sanitizedProfile.email = email;
+  if (phone !== undefined) sanitizedProfile.phone = phone;
+  if (bench !== undefined) sanitizedProfile.bench = bench;
+  if (bio !== undefined) sanitizedProfile.bio = bio;
+  if (preferences !== undefined) sanitizedProfile.preferences = preferences;
+
+  const updated = await updateUser(req.user!.id, sanitizedProfile, actor);
   res.json({ success: true, user: updated });
 }));
 
@@ -304,15 +313,18 @@ app.get('/api/admin/overview', requireAdmin, wrap(async (_req, res) => {
 }));
 
 app.get('/api/users', requireAuth, wrap(async (_req, res) => {
-  const users = await listUsers({});
+  const users = await listUsers({}, false);
   res.json({ success: true, count: users.length, data: users, users });
 }));
 
-app.post('/api/sync/users', wrap(async (req, res) => {
+app.post('/api/sync/users', requireAdmin, wrap(async (req, res) => {
   const { clientUsers, deletedUserIds } = req.body || {};
   if (Array.isArray(deletedUserIds) && deletedUserIds.length > 0) {
-    await prisma.session.deleteMany({ where: { userId: { in: deletedUserIds } } }).catch(() => {});
-    await prisma.user.deleteMany({ where: { id: { in: deletedUserIds } } }).catch(() => {});
+    const safeDeletedIds = deletedUserIds.filter((id: string) => id && id !== req.user!.id);
+    if (safeDeletedIds.length > 0) {
+      await prisma.session.deleteMany({ where: { userId: { in: safeDeletedIds } } }).catch(() => {});
+      await prisma.user.deleteMany({ where: { id: { in: safeDeletedIds } } }).catch(() => {});
+    }
   }
   if (Array.isArray(clientUsers) && clientUsers.length > 0) {
     for (const cu of clientUsers) {
@@ -350,7 +362,7 @@ app.post('/api/sync/users', wrap(async (req, res) => {
       }
     }
   }
-  const allUsers = await listUsers({});
+  const allUsers = await listUsers({}, true);
   res.json({ success: true, count: allUsers.length, data: allUsers });
 }));
 
@@ -358,7 +370,7 @@ app.get('/api/admin/users', requireAdmin, wrap(async (req, res) => {
   const search = req.query.search as string | undefined;
   const role = req.query.role as string | undefined;
   const status = req.query.status as string | undefined;
-  const users = await listUsers({ search, role, status });
+  const users = await listUsers({ search, role, status }, true);
   res.json({ success: true, count: users.length, data: users });
 }));
 
@@ -779,16 +791,14 @@ app.post('/api/timeclock/clock-out', requireAuth, wrap(async (req, res) => {
   res.json({ success: true, data: shift });
 }));
 
-app.post('/api/sync/tickets', requireAuth, wrap(async (req, res) => {
+app.post('/api/sync/tickets', requireAdmin, wrap(async (req, res) => {
   const { deletedIds } = req.body || {};
   if (Array.isArray(deletedIds) && deletedIds.length > 0) {
-    await prisma.ticket.updateMany({
-      where: { id: { in: deletedIds } },
-      data: { deletedAt: new Date() },
-    }).catch(() => {});
-    await prisma.ticket.deleteMany({
-      where: { id: { in: deletedIds } },
-    }).catch(() => {});
+    for (const id of deletedIds) {
+      if (typeof id === 'string' && id.trim()) {
+        await deleteTicket(id).catch(() => {});
+      }
+    }
   }
 
   res.json({ success: true, message: 'Sync complete' });
@@ -870,7 +880,8 @@ app.put('/api/admin/attendance/shifts/:id', requireAdmin, wrap(async (req, res) 
 app.delete('/api/admin/attendance/shifts/:id', requireAdmin, wrap(async (req, res) => {
   const result = await payrollService.deleteShift(
     getParam(req, 'id'),
-    { id: req.user!.id, name: req.user!.name }
+    { id: req.user!.id, name: req.user!.name },
+    req.body?.reason
   );
   res.json({ success: true, data: result });
 }));
@@ -930,6 +941,21 @@ app.post('/api/admin/payroll/periods/calculate', requireAdmin, wrap(async (req, 
 }));
 
 app.post('/api/admin/payroll/periods', requireAdmin, wrap(async (req, res) => {
+  if (!req.body?.allowDuplicate && req.body?.startDate && req.body?.endDate) {
+    const existing = await prisma.payrollPeriod.findFirst({
+      where: {
+        startDate: new Date(req.body.startDate),
+        endDate: new Date(req.body.endDate),
+        periodType: req.body.periodType || 'BI_WEEKLY',
+      },
+    });
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        error: `A payroll period (#${existing.periodNumber}) already exists for this exact date range and frequency.`,
+      });
+    }
+  }
   const period = await payrollService.createPayrollPeriod(
     req.body,
     { id: req.user!.id, name: req.user!.name }
@@ -975,6 +1001,16 @@ app.get('/api/admin/payroll/paystubs/:id/html', requireAdmin, wrap(async (req, r
 // ---------------------------------------------------------------------------
 // Employee Shift Scheduling & Compliance Endpoints
 // ---------------------------------------------------------------------------
+
+app.get('/api/schedules/my-schedule', requireAuth, wrap(async (req, res) => {
+  const shifts = await scheduleService.listScheduledShifts({
+    userId: req.user!.id,
+    startDate: req.query.startDate as string | undefined,
+    endDate: req.query.endDate as string | undefined,
+    status: req.query.status as any,
+  });
+  res.json({ success: true, count: shifts.length, data: shifts, schedules: shifts });
+}));
 
 app.get('/api/schedules', requireAuth, wrap(async (req, res) => {
   const isAdmin = req.user?.role === 'ADMIN' || req.user?.role === 'MANAGER';
@@ -1173,10 +1209,11 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     return res.status(400).json({ success: false, error: message || 'Invalid input', details: err.flatten() });
   }
   console.error('[API Error]', err);
+  const isProd = process.env.NODE_ENV === 'production' || Boolean(process.env.VERCEL);
   return res.status(500).json({
     success: false,
-    error: err?.message || 'Internal server error',
-    details: err?.stack || String(err),
+    error: isProd ? 'Internal server error' : (err?.message || 'Internal server error'),
+    ...(isProd ? {} : { details: err?.stack || String(err) }),
   });
 });
 

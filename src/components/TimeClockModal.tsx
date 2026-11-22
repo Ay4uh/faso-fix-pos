@@ -24,6 +24,11 @@ interface TimeClockModalProps {
   onStatusChange?: () => void;
 }
 
+const toLocalDateStr = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
+
 export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   isOpen,
   onClose,
@@ -45,8 +50,8 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   const [isSwapModalOpen, setIsSwapModalOpen] = useState(false);
   const [timeOffForm, setTimeOffForm] = useState({
     requestType: 'VACATION',
-    startDate: new Date().toISOString().slice(0, 10),
-    endDate: new Date().toISOString().slice(0, 10),
+    startDate: toLocalDateStr(new Date()),
+    endDate: toLocalDateStr(new Date()),
     reason: '',
   });
   const [swapForm, setSwapForm] = useState({
@@ -118,7 +123,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
 
   const loadShifts = async () => {
     try {
-      const res = await fetchWithAuth('/api/timeclock/shifts');
+      const res = await fetchWithAuth('/api/timeclock/my-shifts');
       if (res.ok) {
         const json = await res.json();
         setShifts(json.data || json.shifts || []);
@@ -138,7 +143,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
 
   const loadPaystubs = async () => {
     try {
-      const res = await fetchWithAuth('/api/payroll/my-paystubs');
+      const res = await fetchWithAuth('/api/timeclock/my-paystubs');
       if (res.ok) {
         const json = await res.json();
         setPaystubs(json.data || json.paystubs || []);
@@ -328,7 +333,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       await res.json().catch(() => ({}));
 
       setNotes('');
-      await loadShifts();
+      await Promise.all([loadStatus(), loadShifts()]);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error clocking out');
     } finally {
@@ -367,6 +372,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to start break');
+      await loadStatus();
     } catch (err: any) {
       setErrorMsg(err.message || 'Error starting break');
     } finally {
@@ -402,6 +408,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to end break');
+      await loadStatus();
     } catch (err: any) {
       setErrorMsg(err.message || 'Error ending break');
     } finally {
@@ -420,12 +427,30 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   let elapsedFormatted = '00:00:00';
   if (isClockedIn && activeShift?.clockIn) {
     const startMs = new Date(activeShift.clockIn).getTime();
-    const diffSec = Math.max(0, Math.floor((currentTime.getTime() - startMs) / 1000));
-    const hours = Math.floor(diffSec / 3600);
-    const mins = Math.floor((diffSec % 3600) / 60);
-    const secs = diffSec % 60;
-    const pad = (n: number) => String(n).padStart(2, '0');
-    elapsedFormatted = `${pad(hours)}:${pad(mins)}:${pad(secs)}`;
+    let breakDeductionSec = (activeShift.breakMinutes || 0) * 60;
+    if (isOnBreak && activeShift.activeBreak?.startTime && activeShift.activeBreak.type !== 'PAID_REST') {
+      const extraOpenSec = Math.max(
+        0,
+        Math.floor((currentTime.getTime() - new Date(activeShift.activeBreak.startTime).getTime()) / 1000)
+      );
+      // activeShift.breakMinutes from server already includes open break up to last fetch; use whichever paused point is cleaner
+      const totalElapsedSec = Math.max(0, Math.floor((currentTime.getTime() - startMs) / 1000));
+      const priorCompletedBreakSec = Math.max(0, (activeShift.breakMinutes || 0) * 60);
+      breakDeductionSec = Math.max(priorCompletedBreakSec, extraOpenSec);
+      const netSec = Math.max(0, totalElapsedSec - breakDeductionSec);
+      const hours = Math.floor(netSec / 3600);
+      const mins = Math.floor((netSec % 3600) / 60);
+      const secs = netSec % 60;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      elapsedFormatted = `${pad(hours)}:${pad(mins)}:${pad(secs)}`;
+    } else {
+      const diffSec = Math.max(0, Math.floor((currentTime.getTime() - startMs) / 1000) - breakDeductionSec);
+      const hours = Math.floor(diffSec / 3600);
+      const mins = Math.floor((diffSec % 3600) / 60);
+      const secs = diffSec % 60;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      elapsedFormatted = `${pad(hours)}:${pad(mins)}:${pad(secs)}`;
+    }
   }
 
   const hoursThisPeriod = Number(clockStatus?.weeklyHours ?? clockStatus?.weekHours ?? 0).toFixed(2);
@@ -1108,36 +1133,48 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
               {paystubs.length === 0 ? (
                 <div className="text-center py-10 text-slate-500 text-xs">No finalized paystubs available yet.</div>
               ) : (
-                paystubs.map((p) => (
-                  <div
-                    key={p.id}
-                    className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs hover:border-[#0284c7] transition"
-                  >
-                    <div>
-                      <div className="font-bold text-slate-900">
-                        Pay Period: {p.periodStart} to {p.periodEnd}
-                      </div>
-                      <div className="text-slate-600 font-mono text-[11px] mt-0.5">
-                        Gross: {fmtCurrency(p.grossPayCents)} • Deductions: {fmtCurrency(p.totalDeductionsCents)}
-                      </div>
-                      <div className="text-[10px] text-slate-500">Payment Date: {p.paymentDate}</div>
-                    </div>
-                    <div className="text-right flex items-center space-x-3">
+                paystubs.map((p) => {
+                  const pStart = p.payrollPeriod?.startDate
+                    ? new Date(p.payrollPeriod.startDate).toLocaleDateString('en-CA')
+                    : (p.periodStart || 'N/A');
+                  const pEnd = p.payrollPeriod?.endDate
+                    ? new Date(p.payrollPeriod.endDate).toLocaleDateString('en-CA')
+                    : (p.periodEnd || 'N/A');
+                  const pDate = p.payrollPeriod?.payDate
+                    ? new Date(p.payrollPeriod.payDate).toLocaleDateString('en-CA')
+                    : (p.paymentDate || 'Pending');
+
+                  return (
+                    <div
+                      key={p.id}
+                      className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs hover:border-[#0284c7] transition"
+                    >
                       <div>
-                        <div className="text-sm font-black font-mono text-emerald-600">
-                          {fmtCurrency(p.netPayCents)}
+                        <div className="font-bold text-slate-900">
+                          Pay Period: {pStart} to {pEnd}
                         </div>
-                        <span className="text-[10px] text-slate-500 uppercase font-bold">Net Pay</span>
+                        <div className="text-slate-600 font-mono text-[11px] mt-0.5">
+                          Gross: {fmtCurrency(p.grossPayCents)} • Deductions: {fmtCurrency(p.totalDeductionsCents)}
+                        </div>
+                        <div className="text-[10px] text-slate-500">Payment Date: {pDate}</div>
                       </div>
-                      <button
-                        onClick={() => setSelectedPaystub(p)}
-                        className="px-3 py-1.5 bg-[#0284c7] hover:bg-[#0369a1] text-white rounded-lg text-xs font-bold cursor-pointer"
-                      >
-                        View Slip
-                      </button>
+                      <div className="text-right flex items-center space-x-3">
+                        <div>
+                          <div className="text-sm font-black font-mono text-emerald-600">
+                            {fmtCurrency(p.netPayCents)}
+                          </div>
+                          <span className="text-[10px] text-slate-500 uppercase font-bold">Net Pay</span>
+                        </div>
+                        <button
+                          onClick={() => setSelectedPaystub({ ...p, user: p.user || currentUser })}
+                          className="px-3 py-1.5 bg-[#0284c7] hover:bg-[#0369a1] text-white rounded-lg text-xs font-bold cursor-pointer"
+                        >
+                          View Slip
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

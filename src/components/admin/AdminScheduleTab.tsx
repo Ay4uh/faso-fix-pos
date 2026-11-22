@@ -131,6 +131,11 @@ function getEmployeeColor(userId: string, activeUsers: User[]) {
   return EMPLOYEE_COLORS[(index >= 0 ? index : 0) % EMPLOYEE_COLORS.length];
 }
 
+function toLocalDateStr(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => {
   const [calendarView, setCalendarView] = useState<'month' | 'week' | 'day' | 'list' | 'requests' | 'compare'>('week');
   const [shifts, setShifts] = useState<ScheduledShift[]>([]);
@@ -148,7 +153,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
   const [shiftForm, setShiftForm] = useState({
     userId: '',
-    shiftDate: new Date().toISOString().slice(0, 10),
+    shiftDate: toLocalDateStr(new Date()),
     startTime: '09:00',
     endTime: '17:00',
     breakMinutes: 30,
@@ -160,10 +165,19 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
     notes: '',
   });
   const [formWarnings, setFormWarnings] = useState<string[]>([]);
+  const [savedWithWarnings, setSavedWithWarnings] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
   const activeUsers = users.filter((u) => u.status !== 'DISABLED');
+
+  const getApprovedTimeOffForDate = (dateStr: string) =>
+    timeOffRequests.filter((to) => {
+      if (to.status !== 'APPROVED') return false;
+      const startStr = to.startDate.slice(0, 10);
+      const endStr = to.endDate.slice(0, 10);
+      return dateStr >= startStr && dateStr <= endStr && (selectedUserId === 'ALL' || to.userId === selectedUserId);
+    });
 
   // Load shifts for current anchor range
   const loadShifts = async () => {
@@ -229,6 +243,10 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
   };
 
   useEffect(() => {
+    loadRequests();
+  }, []);
+
+  useEffect(() => {
     if (calendarView === 'compare') {
       loadComparison();
     } else if (calendarView === 'requests') {
@@ -271,7 +289,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
     setEditingShiftId(null);
     setShiftForm({
       userId: activeUsers[0]?.id || '',
-      shiftDate: targetDateStr || new Date().toISOString().slice(0, 10),
+      shiftDate: targetDateStr || toLocalDateStr(new Date()),
       startTime: '09:00',
       endTime: '17:00',
       breakMinutes: 30,
@@ -283,6 +301,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
       notes: '',
     });
     setFormWarnings([]);
+    setSavedWithWarnings(false);
     setIsModalOpen(true);
   };
 
@@ -302,11 +321,17 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
       notes: shift.notes || '',
     });
     setFormWarnings([]);
+    setSavedWithWarnings(false);
     setIsModalOpen(true);
   };
 
   const handleSaveShift = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (savedWithWarnings) {
+      setIsModalOpen(false);
+      setSavedWithWarnings(false);
+      return;
+    }
     setIsSubmitting(true);
     setActionMessage(null);
 
@@ -331,11 +356,6 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
         throw new Error(json.error || 'Failed to save shift');
       }
 
-      if (json.warnings && json.warnings.length > 0) {
-        setFormWarnings(json.warnings);
-        posAudio.playWarningBeep();
-      }
-
       posAudio.playSuccessChime();
       setActionMessage({
         type: 'success',
@@ -344,7 +364,11 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
           : `Shift scheduled successfully${json.createdShifts?.length > 1 ? ` (${json.createdShifts.length} recurring shifts created)` : ''}!`,
       });
 
-      if (!json.warnings || json.warnings.length === 0) {
+      if (json.warnings && json.warnings.length > 0) {
+        setFormWarnings(json.warnings);
+        setSavedWithWarnings(true);
+        posAudio.playWarningBeep();
+      } else {
         setIsModalOpen(false);
       }
       loadShifts();
@@ -682,7 +706,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
           <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-slate-600 text-xs font-bold">
             {getWeekDates().map((d, i) => {
               const isToday = d.toDateString() === new Date().toDateString();
-              const dateStr = d.toISOString().slice(0, 10);
+              const dateStr = toLocalDateStr(d);
               const dayShifts = shifts.filter((s) => s.shiftDate.slice(0, 10) === dateStr);
               const totalDayHours = dayShifts.reduce((acc, s) => acc + s.scheduledHours, 0);
 
@@ -707,12 +731,22 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
 
           <div className="grid grid-cols-7 min-h-[480px] divide-x divide-slate-100 bg-slate-50/30">
             {getWeekDates().map((d, i) => {
-              const dateStr = d.toISOString().slice(0, 10);
+              const dateStr = toLocalDateStr(d);
               const dayShifts = shifts.filter((s) => s.shiftDate.slice(0, 10) === dateStr);
+              const dayTimeOffs = getApprovedTimeOffForDate(dateStr);
 
               return (
                 <div key={i} className="p-2 space-y-2 flex flex-col justify-between group">
                   <div className="space-y-2">
+                    {dayTimeOffs.map((to) => (
+                      <div
+                        key={`to-${to.id}-${dateStr}`}
+                        className="px-2 py-1 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-[10px] font-semibold truncate"
+                        title={`${to.user?.name || 'Staff'}: Approved ${to.requestType}`}
+                      >
+                        Off: {to.user?.name || 'Staff'} ({to.requestType})
+                      </div>
+                    ))}
                     {dayShifts.map((shift) => {
                       const color = getEmployeeColor(shift.userId, activeUsers);
                       return (
@@ -812,9 +846,10 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                     return <div key={dIndex} className="bg-slate-50/50 p-2" />;
                   }
 
-                  const dateStr = date.toISOString().slice(0, 10);
+                  const dateStr = toLocalDateStr(date);
                   const isToday = date.toDateString() === new Date().toDateString();
                   const dayShifts = shifts.filter((s) => s.shiftDate.slice(0, 10) === dateStr);
+                  const dayTimeOffs = getApprovedTimeOffForDate(dateStr);
 
                   return (
                     <div
@@ -846,6 +881,14 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                       </div>
 
                       <div className="space-y-1 my-1">
+                        {dayTimeOffs.slice(0, 1).map((to) => (
+                          <div
+                            key={`mto-${to.id}-${dateStr}`}
+                            className="px-1.5 py-0.5 rounded text-[9px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 truncate"
+                          >
+                            Off: {to.user?.name || 'Staff'}
+                          </div>
+                        ))}
                         {dayShifts.slice(0, 3).map((shift) => {
                           const color = getEmployeeColor(shift.userId, activeUsers);
                           return (
@@ -898,7 +941,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
               </p>
             </div>
             <button
-              onClick={() => openCreateModal(currentDateAnchor.toISOString().slice(0, 10))}
+              onClick={() => openCreateModal(toLocalDateStr(currentDateAnchor))}
               className="flex items-center space-x-1.5 px-3 py-1.5 bg-[#0284c7] hover:bg-[#0369a1] text-white rounded-lg text-xs font-bold transition shadow-xs cursor-pointer"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -906,11 +949,11 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
             </button>
           </div>
 
-          {shifts.filter((s) => s.shiftDate.slice(0, 10) === currentDateAnchor.toISOString().slice(0, 10)).length === 0 ? (
+          {shifts.filter((s) => s.shiftDate.slice(0, 10) === toLocalDateStr(currentDateAnchor)).length === 0 ? (
             <div className="text-center py-16 text-slate-400 text-xs">
               No shifts scheduled for this day.{' '}
               <button
-                onClick={() => openCreateModal(currentDateAnchor.toISOString().slice(0, 10))}
+                onClick={() => openCreateModal(toLocalDateStr(currentDateAnchor))}
                 className="text-[#0284c7] font-bold hover:underline"
               >
                 Click here to schedule staff.
@@ -919,7 +962,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
           ) : (
             <div className="space-y-3">
               {shifts
-                .filter((s) => s.shiftDate.slice(0, 10) === currentDateAnchor.toISOString().slice(0, 10))
+                .filter((s) => s.shiftDate.slice(0, 10) === toLocalDateStr(currentDateAnchor))
                 .map((shift) => {
                   const color = getEmployeeColor(shift.userId, activeUsers);
                   return (
@@ -1342,7 +1385,9 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                     </div>
                   ))}
                   <p className="text-[10px] text-amber-700 italic pt-1">
-                    You may proceed and save this shift if an authorized exception or written agreement applies.
+                    {savedWithWarnings
+                      ? 'This shift has been saved with the compliance notices recorded above.'
+                      : 'Review notices above before closing.'}
                   </p>
                 </div>
               )}
@@ -1490,25 +1535,41 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
 
               {/* Form Buttons */}
               <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="px-5 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
-                >
-                  {isSubmitting ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
+                {savedWithWarnings ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsModalOpen(false);
+                      setSavedWithWarnings(false);
+                    }}
+                    className="px-5 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
+                  >
                     <Check className="w-3.5 h-3.5" />
-                  )}
-                  <span>{editingShiftId ? 'Update Shift' : 'Save & Publish Shift'}</span>
-                </button>
+                    <span>Acknowledge Warnings &amp; Close</span>
+                  </button>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsModalOpen(false)}
+                      className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={isSubmitting}
+                      className="px-5 py-2 bg-[#0284c7] hover:bg-[#0369a1] text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer flex items-center gap-1.5"
+                    >
+                      {isSubmitting ? (
+                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Check className="w-3.5 h-3.5" />
+                      )}
+                      <span>{editingShiftId ? 'Update Shift' : 'Save & Publish Shift'}</span>
+                    </button>
+                  </>
+                )}
               </div>
             </form>
           </div>

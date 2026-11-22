@@ -161,9 +161,9 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                 <Package className="w-4 h-4 text-slate-500" />
                 <span>Parts Inventory</span>
               </div>
-              {stats && stats.waitingOnParts > 0 ? (
+              {stats && stats.lowStock > 0 ? (
                 <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">
-                  {stats.waitingOnParts}
+                  {stats.lowStock} Low
                 </span>
               ) : null}
             </button>

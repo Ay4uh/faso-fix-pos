@@ -33,10 +33,28 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
   }, [days]);
 
   const total = tickets.length || 1;
-  const completedCount = tickets.filter((t) => t.status === 'COMPLETED').length;
-  const inProgressCount = tickets.filter((t) => t.status === 'IN_PROGRESS').length;
+  const completedCount = tickets.filter((t) => t.status === 'COMPLETED' || t.status === 'READY_FOR_PICKUP').length;
+  const inProgressCount = tickets.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'DIAGNOSING').length;
   const waitingPartsCount = tickets.filter((t) => t.status === 'WAITING_ON_PARTS').length;
-  const pendingCount = tickets.filter((t) => t.status === 'PENDING').length;
+  const pendingCount = tickets.filter(
+    (t) => t.status === 'PENDING' || t.status === 'CHECKED_IN' || t.status === 'WAITING_ON_APPROVAL'
+  ).length;
+
+  const handleExportTicketsCsv = async () => {
+    try {
+      const res = await fetchWithAuth('/api/export/tickets');
+      if (!res.ok) throw new Error('Export failed');
+      const blob = await res.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `FasoFix-WorkOrders-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      window.URL.revokeObjectURL(url);
+    } catch {
+      alert('Failed to download work orders CSV export');
+    }
+  };
 
   const totalValue = tickets.reduce(
     (acc, t) => acc + (t.totals ? t.totals.totalCents / 100 : t.laborCents / 100),
@@ -58,7 +76,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
                 Operations & Performance
               </span>
               <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                Live SQLite Telemetry
+                Live POS Telemetry
               </span>
             </div>
             <h2 className="text-xl font-bold text-slate-900 tracking-tight">Faso Fix Bench Diagnostics & Velocity</h2>
@@ -70,14 +88,14 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
           <div className="flex flex-wrap items-center gap-3">
             {/* Days Span Selector & CSV Export */}
             <div className="flex items-center gap-2">
-              <a
-                href="/api/export/tickets"
-                download="FasoFix-WorkOrders.csv"
+              <button
+                type="button"
+                onClick={handleExportTicketsCsv}
                 className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg border border-slate-200 text-xs font-semibold transition flex items-center space-x-1.5 cursor-pointer shadow-2xs"
               >
                 <Download className="w-3.5 h-3.5 text-slate-600" />
                 <span>Export CSV</span>
-              </a>
+              </button>
 
               <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200 text-xs font-semibold">
                 {[7, 30, 90].map((d) => (
@@ -143,7 +161,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
             <span className="text-2xl font-bold font-mono text-slate-900">
               {report?.avgTurnaroundHours !== null && report?.avgTurnaroundHours !== undefined
                 ? `${(report.avgTurnaroundHours / 24).toFixed(1)} Days`
-                : '1.8 Days'}
+                : '—'}
             </span>
             <span className="text-xs text-indigo-600 font-semibold flex items-center gap-0.5">
               <Clock className="w-3.5 h-3.5" />
@@ -163,7 +181,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
             <span className="text-2xl font-bold font-mono text-slate-900">
               {report?.onTimeRate !== null && report?.onTimeRate !== undefined
                 ? `${Math.round(report.onTimeRate * 100)}%`
-                : '100%'}
+                : '—'}
             </span>
             <span className="text-xs text-emerald-600 font-semibold flex items-center gap-0.5">
               <CheckCircle2 className="w-3.5 h-3.5" />

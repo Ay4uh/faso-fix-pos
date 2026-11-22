@@ -16,7 +16,7 @@ export interface PayrollCalculationInput {
   overtimeHours: number;
   bonusCents?: number;
   otherDeductionsCents?: number;
-  periodType: 'WEEKLY' | 'BI_WEEKLY' | 'MONTHLY' | 'CUSTOM';
+  periodType: 'WEEKLY' | 'BI_WEEKLY' | 'SEMI_MONTHLY' | 'MONTHLY' | 'CUSTOM';
   daysInPeriod?: number;
   employee: EmployeeCompensationInput;
 }
@@ -69,6 +69,8 @@ export function getPeriodsPerYear(periodType: string, days = 14): number {
       return 52;
     case 'BI_WEEKLY':
       return 26;
+    case 'SEMI_MONTHLY':
+      return 24;
     case 'MONTHLY':
       return 12;
     case 'CUSTOM':

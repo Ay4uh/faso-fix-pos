@@ -18,6 +18,7 @@ interface HeaderProps {
   isOnBreak?: boolean;
   timeClockElapsed?: string;
   clockInTime?: string | Date | null;
+  breakMinutes?: number;
   onQuickClockIn?: () => void;
   onQuickClockOut?: () => void;
   onQuickToggleBreak?: () => void;
@@ -38,6 +39,7 @@ export const Header: React.FC<HeaderProps> = ({
   isOnBreak,
   timeClockElapsed: _timeClockElapsed,
   clockInTime,
+  breakMinutes = 0,
   onQuickClockIn,
   onQuickClockOut,
   onQuickToggleBreak,
@@ -75,8 +77,12 @@ export const Header: React.FC<HeaderProps> = ({
     }
 
     const updateTimer = () => {
+      if (isOnBreak) {
+        setLiveElapsed('Break');
+        return;
+      }
       const start = new Date(clockInTime).getTime();
-      const diffSec = Math.max(0, Math.floor((Date.now() - start) / 1000));
+      const diffSec = Math.max(0, Math.floor((Date.now() - start) / 1000) - (breakMinutes || 0) * 60);
       const hrs = Math.floor(diffSec / 3600);
       const mins = Math.floor((diffSec % 3600) / 60);
       const secs = diffSec % 60;
@@ -91,12 +97,23 @@ export const Header: React.FC<HeaderProps> = ({
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [isClockedIn, clockInTime]);
+  }, [isClockedIn, isOnBreak, clockInTime, breakMinutes]);
 
-  // Global hotkey: '/' or 'Cmd+K' to focus God Mode search
+  // Global hotkey: '/' (when not typing in an input) or 'Cmd+K'/'Ctrl+K' to focus God Mode search
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if ((e.key === '/' || (e.key === 'k' && (e.metaKey || e.ctrlKey))) && document.activeElement !== searchInputRef.current) {
+      const target = e.target as HTMLElement | null;
+      const isEditingText =
+        target &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT' ||
+          target.isContentEditable);
+
+      const isSlash = e.key === '/' && !isEditingText && !e.metaKey && !e.ctrlKey && !e.altKey;
+      const isCmdK = e.key.toLowerCase() === 'k' && (e.metaKey || e.ctrlKey);
+
+      if ((isSlash || isCmdK) && document.activeElement !== searchInputRef.current) {
         e.preventDefault();
         searchInputRef.current?.focus();
       }

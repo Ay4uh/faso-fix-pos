@@ -10,13 +10,14 @@ export type TicketStatus =
 export type TicketPriority = 'LOW' | 'STANDARD' | 'URGENT';
 export type PaymentMethod = 'CASH' | 'CARD' | 'DEBIT' | 'E_TRANSFER' | 'OTHER';
 export type EventKind = 'STATUS' | 'CUSTOMER_NOTE' | 'INTERNAL_NOTE' | 'PAYMENT' | 'ITEM' | 'MESSAGE' | 'SYSTEM';
-export type PaymentStatus = 'UNPAID' | 'PARTIALLY_PAID' | 'PAID' | 'OVERPAID';
+export type PaymentStatus = 'UNPAID' | 'PARTIAL' | 'PARTIALLY_PAID' | 'PAID' | 'OVERPAID';
 
 export interface Totals {
   subtotalCents: number;
   laborCents: number;
   itemsCents: number;
   discountCents: number;
+  taxableCents?: number;
   taxRateBps: number;
   taxCents: number;
   totalCents: number;

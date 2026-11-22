@@ -673,7 +673,11 @@ export async function getDashboard() {
 
   const open = tickets.filter((t) => OPEN_STATUSES.includes(t.status));
   const count = (s: string) => tickets.filter((t) => t.status === s).length;
-  const readyUnpaid = tickets.filter((t) => t.status === 'COMPLETED' && computeTotals(t).balanceCents > 0);
+  const awaitingPickupTickets = tickets.filter(
+    (t) =>
+      t.status === 'READY_FOR_PICKUP' ||
+      (t.status === 'COMPLETED' && computeTotals(t).balanceCents > 0)
+  );
 
   return {
     open: open.length,
@@ -684,8 +688,8 @@ export async function getDashboard() {
     overdue: open.filter((t) => t.dueDate < today).length,
     dueToday: open.filter((t) => t.dueDate >= today && t.dueDate < tomorrow).length,
     openValueCents: Math.max(0, open.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0)),
-    awaitingPickupCount: count('READY_FOR_PICKUP') + readyUnpaid.length,
-    awaitingPickupCents: readyUnpaid.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
+    awaitingPickupCount: awaitingPickupTickets.length,
+    awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
     collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
     collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
     customerCount: await prisma.customer.count({
@@ -796,6 +800,11 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
             id: true,
             ticketNumber: true,
             technician: true,
+            laborCents: true,
+            discountCents: true,
+            taxRateBps: true,
+            items: { select: { quantity: true, unitPriceCents: true } },
+            payments: { select: { amountCents: true } },
           },
         },
       },
@@ -811,6 +820,7 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
             id: true,
             name: true,
             username: true,
+            role: true,
             hourlyRateCents: true,
             overtimeRateCents: true,
           },
@@ -822,6 +832,7 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
         id: true,
         name: true,
         username: true,
+        role: true,
         hourlyRateCents: true,
         bench: true,
       },
@@ -840,6 +851,8 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
   let totalRevenueCents = 0;
   let totalDiscountsCents = 0;
   let totalRefundsCents = 0;
+  let totalVoidedTransactions = 0;
+  let taxCollectedCents = 0;
 
   for (const p of payments) {
     const m = (p.method || 'OTHER').toUpperCase();
@@ -848,8 +861,16 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
       byMethod[m].count++;
       byMethod[m].totalCents += p.amountCents;
       totalRevenueCents += p.amountCents;
+      if (p.ticket) {
+        const totals = computeTotals(p.ticket);
+        if (totals.totalCents > 0 && totals.taxCents > 0) {
+          const share = Math.min(1, p.amountCents / totals.totalCents);
+          taxCollectedCents += Math.round(totals.taxCents * share);
+        }
+      }
     } else {
       totalRefundsCents += Math.abs(p.amountCents);
+      totalVoidedTransactions++;
     }
   }
 
@@ -862,7 +883,11 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
 
   // 2. Sales Attribution by Employee
   const employeeMap = new Map<string, {
+    userId: string;
     name: string;
+    username: string;
+    role: string;
+    hourlyWageCents: number;
     ticketsCreated: number;
     ticketsCompleted: number;
     laborBilledCents: number;
@@ -874,7 +899,11 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
 
   for (const u of users) {
     employeeMap.set(u.name.toLowerCase(), {
+      userId: u.id,
       name: u.name,
+      username: u.username,
+      role: u.role,
+      hourlyWageCents: u.hourlyRateCents || 2200,
       ticketsCreated: 0,
       ticketsCompleted: 0,
       laborBilledCents: 0,
@@ -885,11 +914,15 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
     });
   }
 
-  for (const t of tickets) {
-    const techName = (t.technician || 'Unassigned').toLowerCase();
-    if (!employeeMap.has(techName)) {
-      employeeMap.set(techName, {
-        name: t.technician || 'Unassigned',
+  const ensureEmployeeStat = (displayName: string, fallbackUser?: { id: string; username: string; role: string; hourlyRateCents: number }) => {
+    const key = displayName.toLowerCase();
+    if (!employeeMap.has(key)) {
+      employeeMap.set(key, {
+        userId: fallbackUser?.id || `staff-${key.replace(/[^a-z0-9]+/g, '-')}`,
+        name: displayName,
+        username: fallbackUser?.username || key,
+        role: fallbackUser?.role || 'STAFF',
+        hourlyWageCents: fallbackUser?.hourlyRateCents || 0,
         ticketsCreated: 0,
         ticketsCompleted: 0,
         laborBilledCents: 0,
@@ -899,7 +932,11 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
         laborCostCents: 0,
       });
     }
-    const stat = employeeMap.get(techName)!;
+    return employeeMap.get(key)!;
+  };
+
+  for (const t of tickets) {
+    const stat = ensureEmployeeStat(t.technician || 'Unassigned');
     stat.ticketsCreated++;
     if (t.status === 'COMPLETED') stat.ticketsCompleted++;
     stat.laborBilledCents += t.laborCents;
@@ -910,11 +947,8 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
 
   for (const p of payments) {
     if (p.amountCents <= 0) continue;
-    const techName = (p.ticket?.technician || 'Unassigned').toLowerCase();
-    const stat = employeeMap.get(techName);
-    if (stat) {
-      stat.totalRevenueCents += p.amountCents;
-    }
+    const stat = ensureEmployeeStat(p.ticket?.technician || 'Unassigned');
+    stat.totalRevenueCents += p.amountCents;
   }
 
   // Factor in actual hours worked and labor cost
@@ -922,21 +956,18 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
   let totalWorkedHours = 0;
 
   for (const s of shifts) {
-    const techName = s.user.name.toLowerCase();
-    const stat = employeeMap.get(techName);
+    const stat = ensureEmployeeStat(s.user.name, s.user);
     const regularHours = s.regularMinutes / 60;
     const overtimeHours = s.overtimeMinutes / 60;
-    const shiftHours = (s.totalMinutes) / 60;
+    const shiftHours = s.totalMinutes / 60;
     const otRate = s.user.overtimeRateCents || Math.round(s.user.hourlyRateCents * 1.5);
     const shiftWageCents = Math.round(regularHours * s.user.hourlyRateCents + overtimeHours * otRate);
 
     totalLaborCostCents += shiftWageCents;
     totalWorkedHours += shiftHours;
 
-    if (stat) {
-      stat.actualHoursWorked += shiftHours;
-      stat.laborCostCents += shiftWageCents;
-    }
+    stat.actualHoursWorked += shiftHours;
+    stat.laborCostCents += shiftWageCents;
   }
 
   const salesByEmployee = Array.from(employeeMap.values())
@@ -969,17 +1000,24 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
     const shiftLaborCostCents = Math.round(regularHours * s.user.hourlyRateCents + overtimeHours * otRate);
 
     const laborCostPct = shiftRevenueCents > 0 ? Number(((shiftLaborCostCents / shiftRevenueCents) * 100).toFixed(1)) : 0;
+    const workedHours = Number((s.totalMinutes / 60).toFixed(2));
 
     return {
       shiftId: s.id,
+      userId: s.user.id,
       employeeName: s.user.name,
       clockIn: s.clockIn,
       clockOut: s.clockOut,
-      workedHours: Number((s.totalMinutes / 60).toFixed(2)),
+      workedHours,
+      durationHours: workedHours,
       laborCostCents: shiftLaborCostCents,
+      shiftLaborCostCents,
       revenueGeneratedCents: shiftRevenueCents,
+      shiftRevenueCents,
       transactionsCount: shiftPayments.length,
+      ticketsCount: shiftPayments.length,
       laborCostPct,
+      shiftLaborCostPct: laborCostPct,
     };
   });
 
@@ -990,7 +1028,7 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
     totalRevenueCents,
     laborBilledCents: salesByEmployee.reduce((acc, e) => acc + (e.laborBilledCents || 0), 0),
     partsBilledCents: salesByEmployee.reduce((acc, e) => acc + (e.partsBilledCents || 0), 0),
-    taxCollectedCents: 0,
+    taxCollectedCents,
     totalLaborCostCents,
     laborCostPct: overallLaborCostPct,
     totalHoursWorked: Number(totalWorkedHours.toFixed(2)),
@@ -1002,15 +1040,15 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
 
   const salesBreakdown = {
     byPaymentMethod: {
-      cashCents: byMethod.CASH || 0,
-      cardCents: byMethod.CARD || 0,
-      debitCents: byMethod.DEBIT || 0,
-      eTransferCents: byMethod.E_TRANSFER || 0,
-      otherCents: byMethod.OTHER || 0,
+      cashCents: byMethod.CASH?.totalCents || 0,
+      cardCents: (byMethod.CARD?.totalCents || 0) + (byMethod.CREDIT?.totalCents || 0),
+      debitCents: byMethod.DEBIT?.totalCents || 0,
+      eTransferCents: byMethod.E_TRANSFER?.totalCents || 0,
+      otherCents: byMethod.OTHER?.totalCents || 0,
     },
     totalDiscountsCents,
     totalRefundsCents,
-    totalVoidedTransactions: 0,
+    totalVoidedTransactions,
   };
 
   return {
@@ -1199,7 +1237,10 @@ export async function logoutUser(token: string, actorName?: string) {
   return { success: true };
 }
 
-export async function listUsers(params: { search?: string; role?: string; status?: string }) {
+export async function listUsers(
+  params: { search?: string; role?: string; status?: string },
+  includeSyncPayload = false
+) {
   const where: Prisma.UserWhereInput = {};
 
   if (params.role && params.role !== 'ALL') {
@@ -1232,6 +1273,9 @@ export async function listUsers(params: { search?: string; role?: string; status
       phone: true,
       bench: true,
       bio: true,
+      employeeNumber: true,
+      hourlyRateCents: true,
+      vacationPayPct: true,
       preferences: true,
       lastLoginAt: true,
       createdAt: true,
@@ -1240,21 +1284,25 @@ export async function listUsers(params: { search?: string; role?: string; status
     orderBy: { createdAt: 'desc' },
   });
 
-  return users.map(({ passwordHash, ...u }) => ({
-    ...u,
-    syncPayload: createSignedUserPayload({
-      id: u.id,
-      username: u.username,
-      email: u.email,
-      name: u.name,
-      passwordHash,
-      role: u.role,
-      status: u.status,
-      phone: u.phone,
-      bench: u.bench,
-      bio: u.bio,
-    }),
-  }));
+  return users.map(({ passwordHash, ...u }) =>
+    includeSyncPayload
+      ? {
+          ...u,
+          syncPayload: createSignedUserPayload({
+            id: u.id,
+            username: u.username,
+            email: u.email,
+            name: u.name,
+            passwordHash,
+            role: u.role,
+            status: u.status,
+            phone: u.phone,
+            bench: u.bench,
+            bio: u.bio,
+          }),
+        }
+      : u
+  );
 }
 
 export async function getUser(id: string) {
@@ -1621,7 +1669,11 @@ export async function getAdminOverview() {
     },
     system: {
       status: 'OPERATIONAL',
-      database: 'ACID Relational SQLite',
+      database:
+        process.env.DATABASE_URL?.startsWith('postgres://') ||
+        process.env.DATABASE_URL?.startsWith('postgresql://')
+          ? 'PostgreSQL (Supabase ACID)'
+          : 'ACID Relational SQLite',
       serverTime: new Date().toISOString(),
       activeWorkstations: 4,
     },

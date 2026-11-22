@@ -22,7 +22,6 @@ import { Ticket, Customer, DashboardStats, User } from './types';
 import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
 import { fetchWithAuth, getToken, removeToken } from './utils/auth';
-import { syncUsersWithServer } from './utils/userSync';
 
 const getInitialUser = (): User | null => {
   try {
@@ -92,6 +91,7 @@ export function App() {
   // Modals / Screens
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [prefillCustomer, setPrefillCustomer] = useState<Customer | null>(null);
   const [isTimeClockModalOpen, setIsTimeClockModalOpen] = useState(false);
   const [timeClockStatus, setTimeClockStatus] = useState<any | null>(null);
   const [selectedTicket, setSelectedTicket] = useState<Ticket | null>(null);
@@ -170,7 +170,13 @@ export function App() {
             try {
               localStorage.setItem('apexfix_cached_user', JSON.stringify(json.user));
             } catch {}
+          } else {
+            removeToken();
+            setCurrentUser(null);
           }
+        } else if (res.status === 401 || res.status === 403) {
+          removeToken();
+          setCurrentUser(null);
         }
       } catch (err) {
         console.error('[Session Check Error]', err);
@@ -179,36 +185,51 @@ export function App() {
       }
     };
     verifySession();
-    syncUsersWithServer().catch(() => {});
   }, []);
 
   const fetchTimeClockStatus = async () => {
     if (!currentUser) return;
+    const applyOfflineFallback = () => {
+      const localActiveRaw = localStorage.getItem(`apexfix_active_shift_${currentUser.id}`);
+      if (localActiveRaw) {
+        try {
+          const localShift = JSON.parse(localActiveRaw);
+          if (localShift?.clockIn) {
+            setTimeClockStatus((prev: any) => ({
+              ...prev,
+              isClockedIn: localShift.status === 'ACTIVE' || localShift.status === 'ON_BREAK',
+              clockedIn: localShift.status === 'ACTIVE' || localShift.status === 'ON_BREAK',
+              isOnBreak: localShift.status === 'ON_BREAK',
+              onBreak: localShift.status === 'ON_BREAK',
+              activeShift: localShift,
+            }));
+          }
+        } catch {}
+      }
+    };
+
     try {
       const res = await fetchWithAuth('/api/timeclock/status');
       if (res.ok) {
         const json = await res.json();
-        let s = json.data;
-        const localActiveRaw = localStorage.getItem(`apexfix_active_shift_${currentUser.id}`);
-        if (localActiveRaw) {
+        const s = json.data;
+        const serverClockedIn = Boolean(s?.isClockedIn ?? s?.clockedIn);
+        if (serverClockedIn && s?.activeShift) {
           try {
-            const localShift = JSON.parse(localActiveRaw);
-            const serverClockedIn = Boolean(s?.isClockedIn ?? s?.clockedIn);
-            if (!serverClockedIn && localShift?.clockIn) {
-              s = {
-                ...s,
-                isClockedIn: true,
-                clockedIn: true,
-                isOnBreak: localShift.status === 'ON_BREAK',
-                onBreak: localShift.status === 'ON_BREAK',
-                activeShift: localShift,
-              };
-            }
+            localStorage.setItem(`apexfix_active_shift_${currentUser.id}`, JSON.stringify(s.activeShift));
+          } catch {}
+        } else {
+          try {
+            localStorage.removeItem(`apexfix_active_shift_${currentUser.id}`);
           } catch {}
         }
         setTimeClockStatus(s);
+      } else {
+        applyOfflineFallback();
       }
-    } catch {}
+    } catch {
+      applyOfflineFallback();
+    }
   };
 
   useEffect(() => {
@@ -497,12 +518,16 @@ export function App() {
   };
 
   useEffect(() => {
+    if (!currentUser) {
+      setIsLoading(false);
+      return;
+    }
     fetchData();
     const interval = setInterval(() => {
       fetchData(true);
     }, 6000);
     return () => clearInterval(interval);
-  }, [activeFilter, searchQuery, selectedBench, selectedTicket?.id]);
+  }, [currentUser?.id, activeFilter, searchQuery, selectedBench, selectedTicket?.id]);
 
   // Real-time live updates via Server-Sent Events (SSE)
   // Only connect on localhost. On Vercel serverless, SSE holds lambdas open and forces multi-container divergence.
@@ -755,6 +780,7 @@ export function App() {
         isClockedIn={Boolean(timeClockStatus?.isClockedIn ?? timeClockStatus?.clockedIn)}
         isOnBreak={Boolean(timeClockStatus?.isOnBreak ?? timeClockStatus?.onBreak)}
         clockInTime={timeClockStatus?.activeShift?.clockIn}
+        breakMinutes={timeClockStatus?.activeShift?.breakMinutes || 0}
         onQuickClockIn={handleQuickClockIn}
         onQuickClockOut={handleQuickClockOut}
         onQuickToggleBreak={handleQuickToggleBreak}
@@ -806,7 +832,8 @@ export function App() {
             <CustomersView
               customers={customers}
               tickets={tickets.filter((t) => !isDummyTicket(t))}
-              onOpenCreateWithCustomer={(_c) => {
+              onOpenCreateWithCustomer={(c) => {
+                setPrefillCustomer(c);
                 setIsCreateModalOpen(true);
               }}
               onSelectTicket={handleSelectTicket}
@@ -939,7 +966,11 @@ export function App() {
       {/* Modals */}
       <CreateTicketModal
         isOpen={isCreateModalOpen}
-        onClose={() => setIsCreateModalOpen(false)}
+        onClose={() => {
+          setIsCreateModalOpen(false);
+          setPrefillCustomer(null);
+        }}
+        initialCustomer={prefillCustomer}
         onSuccess={(createdTicket) => {
           if (createdTicket) {
             setTickets((prev) => {

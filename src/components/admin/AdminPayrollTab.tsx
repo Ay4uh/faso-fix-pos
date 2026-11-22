@@ -264,7 +264,7 @@ export const AdminPayrollTab: React.FC = () => {
             <Clock className="w-4 h-4 text-indigo-600" />
           </div>
           <p className="text-2xl font-black text-slate-900 font-mono">
-            {overview?.kpis?.totalRegularHours?.toFixed(1) || '0.0'}h
+            {(overview?.kpis?.totalRegularHours ?? overview?.metrics?.regularHoursThisWeek ?? 0).toFixed(1)}h
           </p>
           <span className="text-[10px] text-slate-400">Current cycle</span>
         </div>
@@ -275,7 +275,7 @@ export const AdminPayrollTab: React.FC = () => {
             <TrendingUp className="w-4 h-4 text-amber-600" />
           </div>
           <p className="text-2xl font-black text-amber-700 font-mono">
-            {overview?.kpis?.totalOvertimeHours?.toFixed(1) || '0.0'}h
+            {(overview?.kpis?.totalOvertimeHours ?? overview?.metrics?.overtimeHoursThisWeek ?? 0).toFixed(1)}h
           </p>
           <span className="text-[10px] text-slate-400">Ontario &gt;44h @ 1.5x</span>
         </div>
@@ -286,9 +286,9 @@ export const AdminPayrollTab: React.FC = () => {
             <DollarSign className="w-4 h-4 text-slate-600" />
           </div>
           <p className="text-2xl font-black text-slate-900 font-mono">
-            {fmtCurrency(overview?.kpis?.estimatedGrossPayrollCents || 0)}
+            {fmtCurrency(overview?.kpis?.estimatedGrossPayrollCents ?? overview?.metrics?.estimatedGrossCents ?? 0)}
           </p>
-          <span className="text-[10px] text-slate-400">Wages + 4% vacation</span>
+          <span className="text-[10px] text-slate-400">Wages + vacation</span>
         </div>
 
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs">
@@ -297,7 +297,7 @@ export const AdminPayrollTab: React.FC = () => {
             <Percent className="w-4 h-4 text-red-500" />
           </div>
           <p className="text-2xl font-black text-red-600 font-mono">
-            -{fmtCurrency(overview?.kpis?.estimatedDeductionsCents || 0)}
+            -{fmtCurrency(overview?.kpis?.estimatedDeductionsCents ?? overview?.metrics?.estimatedDeductionsCents ?? 0)}
           </p>
           <span className="text-[10px] text-slate-400">CPP, EI &amp; Income Tax</span>
         </div>
@@ -308,7 +308,7 @@ export const AdminPayrollTab: React.FC = () => {
             <ShieldCheck className="w-4 h-4 text-emerald-600" />
           </div>
           <p className="text-2xl font-black text-emerald-700 font-mono">
-            {fmtCurrency(overview?.kpis?.estimatedNetPayrollCents || 0)}
+            {fmtCurrency(overview?.kpis?.estimatedNetPayrollCents ?? overview?.metrics?.estimatedNetCents ?? 0)}
           </p>
           <span className="text-[10px] text-slate-400">Direct deposit payout</span>
         </div>
@@ -432,7 +432,7 @@ export const AdminPayrollTab: React.FC = () => {
                           </button>
                         )}
                         <button
-                          onClick={() => setSelectedPaystub(ps)}
+                          onClick={() => setSelectedPaystub({ ...ps, payrollPeriod: ps.payrollPeriod || selectedPeriod })}
                           title="View Official Statement / PDF"
                           className="p-1 text-indigo-600 hover:text-indigo-800 hover:bg-indigo-50 rounded transition cursor-pointer"
                         >
@@ -648,7 +648,7 @@ export const AdminPayrollTab: React.FC = () => {
                         {calculatedDraft.paystubs.map((ps: any) => (
                           <tr key={ps.userId}>
                             <td className="py-2.5 px-3 font-sans font-bold text-slate-900">
-                              {ps.user?.name}
+                              {ps.user?.name || ps.employee?.name || 'Employee'}
                             </td>
                             <td className="py-2.5 px-3 text-right">{ps.regularHours}h</td>
                             <td className="py-2.5 px-3 text-right">

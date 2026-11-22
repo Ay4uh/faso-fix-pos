@@ -636,7 +636,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   Active Security Session
                 </div>
                 <p className="text-slate-500 text-[11px] leading-relaxed">
-                  Your session is authenticated via persistent cryptographic token stored locally. Session tokens auto-expire after 7 days of inactivity.
+                  Your session is authenticated via persistent cryptographic token stored locally. Session tokens strictly expire after 24 hours across all roles.
                 </p>
                 <div className="text-[11px] font-mono text-slate-400">
                   Status: <span className="text-emerald-600 font-bold">Authenticated &bull; TLS / Local Session Active</span>
@@ -1031,7 +1031,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <div className="space-y-0.5">
                       <span className="font-bold text-slate-900 text-xs flex items-center gap-2">
                         <Database className="w-4 h-4 text-purple-600" />
-                        ACID Database Engine: SQLite (dev.db)
+                        ACID Relational Database Engine (Auto-Synced)
                       </span>
                       <p className="text-[11px] text-slate-500">
                         Next Sequential Ticket Counter: #{settings?.nextTicketNumber || 1} &bull; All transactions sync atomically.

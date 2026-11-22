@@ -18,6 +18,7 @@ export interface CreateScheduledShiftInput {
 }
 
 export interface UpdateScheduledShiftInput {
+  userId?: string;
   shiftDate?: string;
   startTime?: string;
   endTime?: string;
@@ -30,25 +31,203 @@ export interface UpdateScheduledShiftInput {
   status?: 'SCHEDULED' | 'CONFIRMED' | 'COMPLETED' | 'MISSED' | 'CANCELLED';
 }
 
+const BUSINESS_TIMEZONE = 'America/Toronto';
+
+function getTimeZoneOffsetMs(utcDate: Date, timeZone = BUSINESS_TIMEZONE): number {
+  const dtf = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  });
+  const parts = dtf.formatToParts(utcDate);
+  const map: Record<string, number> = {};
+  for (const p of parts) {
+    if (p.type !== 'literal') {
+      map[p.type] = parseInt(p.value, 10);
+    }
+  }
+  const hour = map.hour === 24 ? 0 : map.hour;
+  const tzAsUtc = Date.UTC(map.year, map.month - 1, map.day, hour, map.minute, map.second);
+  return tzAsUtc - utcDate.getTime();
+}
+
+function zonedLocalToUtc(
+  year: number,
+  month0: number,
+  day: number,
+  hour: number,
+  minute: number,
+  timeZone = BUSINESS_TIMEZONE
+): Date {
+  const approxUtc = new Date(Date.UTC(year, month0, day, hour, minute, 0));
+  const offset1 = getTimeZoneOffsetMs(approxUtc, timeZone);
+  const pass1 = new Date(approxUtc.getTime() - offset1);
+  // Second pass handles exact DST spring-forward / fall-back boundaries cleanly
+  const offset2 = getTimeZoneOffsetMs(pass1, timeZone);
+  if (offset2 !== offset1) {
+    return new Date(approxUtc.getTime() - offset2);
+  }
+  return pass1;
+}
+
+function toBusinessDateStr(date: Date, timeZone = BUSINESS_TIMEZONE): string {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const map: Record<string, string> = {};
+  for (const p of parts) {
+    if (p.type !== 'literal') map[p.type] = p.value;
+  }
+  return `${map.year}-${map.month}-${map.day}`;
+}
+
 function parseShiftDates(shiftDateStr: string, startTime: string, endTime: string) {
-  const d = new Date(shiftDateStr);
-  const year = d.getUTCFullYear();
-  const month = d.getUTCMonth();
-  const day = d.getUTCDate();
+  let year: number;
+  let month: number;
+  let day: number;
+
+  const isoPrefix = shiftDateStr.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (isoPrefix) {
+    year = parseInt(isoPrefix[1], 10);
+    month = parseInt(isoPrefix[2], 10) - 1;
+    day = parseInt(isoPrefix[3], 10);
+  } else {
+    const d = new Date(shiftDateStr);
+    year = d.getUTCFullYear();
+    month = d.getUTCMonth();
+    day = d.getUTCDate();
+  }
 
   const [startH, startM] = startTime.split(':').map((n) => parseInt(n, 10));
   const [endH, endM] = endTime.split(':').map((n) => parseInt(n, 10));
 
-  const startDateTime = new Date(Date.UTC(year, month, day, startH || 0, startM || 0, 0));
-  let endDateTime = new Date(Date.UTC(year, month, day, endH || 0, endM || 0, 0));
+  const startDateTime = zonedLocalToUtc(year, month, day, startH || 0, startM || 0);
+  let endDateTime = zonedLocalToUtc(year, month, day, endH || 0, endM || 0);
 
   // Overnight shift handling
   if (endDateTime.getTime() <= startDateTime.getTime()) {
-    endDateTime = new Date(endDateTime.getTime() + 86_400_000);
+    endDateTime = zonedLocalToUtc(year, month, day + 1, endH || 0, endM || 0);
   }
 
   const shiftDate = new Date(Date.UTC(year, month, day, 0, 0, 0));
   return { shiftDate, startDateTime, endDateTime };
+}
+
+async function evaluateShiftComplianceWarnings(params: {
+  userId: string;
+  shiftDate: Date;
+  startDateTime: Date;
+  endDateTime: Date;
+  breakMinutes: number;
+  workedMinutes: number;
+  scheduledHours: number;
+  excludeShiftId?: string;
+}): Promise<string[]> {
+  const { userId, startDateTime, endDateTime, breakMinutes, workedMinutes, scheduledHours, excludeShiftId } = params;
+  const warnings: string[] = [];
+  const notSelf = excludeShiftId ? { id: { not: excludeShiftId } } : {};
+
+  // 1. Conflict / Overlap Detection for this Employee
+  const overlapping = await prisma.scheduledShift.findFirst({
+    where: {
+      userId,
+      ...notSelf,
+      status: { not: 'CANCELLED' },
+      startDateTime: { lt: endDateTime },
+      endDateTime: { gt: startDateTime },
+    },
+  });
+
+  if (overlapping) {
+    warnings.push(
+      `⚠️ Scheduling Conflict: Employee already has an overlapping shift scheduled from ${overlapping.startTime} to ${overlapping.endTime} on this date.`
+    );
+  }
+
+  // 2. Ontario ESA Section 18 Compliance: Daily Rest Period (Minimum 11 consecutive hours free from work)
+  const elevenHoursMs = 11 * 3600 * 1000;
+  const prevShift = await prisma.scheduledShift.findFirst({
+    where: {
+      userId,
+      ...notSelf,
+      status: { not: 'CANCELLED' },
+      endDateTime: { lte: startDateTime },
+    },
+    orderBy: { endDateTime: 'desc' },
+  });
+
+  if (prevShift && startDateTime.getTime() - prevShift.endDateTime.getTime() < elevenHoursMs) {
+    const restHours = ((startDateTime.getTime() - prevShift.endDateTime.getTime()) / 3600000).toFixed(1);
+    warnings.push(
+      `⚠️ Ontario ESA Rest Notice: Only ${restHours} hours rest between previous shift (${prevShift.endTime}) and this shift (ESA minimum is 11 consecutive hours).`
+    );
+  }
+
+  const nextShift = await prisma.scheduledShift.findFirst({
+    where: {
+      userId,
+      ...notSelf,
+      status: { not: 'CANCELLED' },
+      startDateTime: { gte: endDateTime },
+    },
+    orderBy: { startDateTime: 'asc' },
+  });
+
+  if (nextShift && nextShift.startDateTime.getTime() - endDateTime.getTime() < elevenHoursMs) {
+    const restHours = ((nextShift.startDateTime.getTime() - endDateTime.getTime()) / 3600000).toFixed(1);
+    warnings.push(
+      `⚠️ Ontario ESA Rest Notice: Only ${restHours} hours rest between this shift and next scheduled shift (${nextShift.startTime}) on ${nextShift.shiftDate.toISOString().slice(0, 10)}.`
+    );
+  }
+
+  // 3. Ontario ESA Section 20 Compliance: Eating periods (at least 30 minutes for work > 5 consecutive hours)
+  if (workedMinutes > 5 * 60 && breakMinutes < 30) {
+    warnings.push(
+      `⚠️ Ontario ESA Meal Break Notice: Shifts exceeding 5 consecutive hours require at least a 30-minute eating period.`
+    );
+  }
+
+  // 4. Weekly Overtime Risk (> 44 hours / week threshold)
+  const localDayStr = toBusinessDateStr(startDateTime);
+  const [y, m, d] = localDayStr.split('-').map((n) => parseInt(n, 10));
+  const localRef = new Date(Date.UTC(y, m - 1, d));
+  const dayOfWeek = (localRef.getUTCDay() + 6) % 7; // Monday = 0
+  const weekStart = new Date(localRef.getTime() - dayOfWeek * 86_400_000);
+  const weekEnd = new Date(weekStart.getTime() + 7 * 86_400_000);
+
+  const weekShifts = await prisma.scheduledShift.findMany({
+    where: {
+      userId,
+      ...notSelf,
+      status: { not: 'CANCELLED' },
+      shiftDate: { gte: weekStart, lt: weekEnd },
+    },
+  });
+
+  const currentWeeklyHours = weekShifts.reduce((sum, s) => sum + s.scheduledHours, 0);
+  const totalProjectedHours = currentWeeklyHours + scheduledHours;
+
+  if (totalProjectedHours > 44) {
+    warnings.push(
+      `⚠️ Overtime Risk: Employee is scheduled for ${totalProjectedHours.toFixed(1)} hours this week (>44h threshold, Ontario 1.5x overtime rate applies).`
+    );
+  }
+
+  if (totalProjectedHours > 48) {
+    warnings.push(
+      `⚠️ Ontario ESA Maximum Hours Alert: Weekly hours exceed 48 hours (requires employee written excess hours agreement).`
+    );
+  }
+
+  return warnings;
 }
 
 export async function listScheduledShifts(filters: {
@@ -135,93 +314,15 @@ export async function createScheduledShift(
   const workedMinutes = breakType === 'UNPAID_MEAL' ? Math.max(0, totalMinutes - breakMinutes) : totalMinutes;
   const scheduledHours = Number((workedMinutes / 60).toFixed(2));
 
-  const warnings: string[] = [];
-
-  // 1. Conflict / Overlap Detection for this Employee
-  const overlapping = await prisma.scheduledShift.findFirst({
-    where: {
-      userId: input.userId,
-      status: { not: 'CANCELLED' },
-      startDateTime: { lt: endDateTime },
-      endDateTime: { gt: startDateTime },
-    },
+  const warnings = await evaluateShiftComplianceWarnings({
+    userId: input.userId,
+    shiftDate,
+    startDateTime,
+    endDateTime,
+    breakMinutes,
+    workedMinutes,
+    scheduledHours,
   });
-
-  if (overlapping) {
-    warnings.push(
-      `⚠️ Scheduling Conflict: Employee already has an overlapping shift scheduled from ${overlapping.startTime} to ${overlapping.endTime} on this date.`
-    );
-  }
-
-  // 2. Ontario ESA Section 18 Compliance: Daily Rest Period (Minimum 11 consecutive hours free from work)
-  const elevenHoursMs = 11 * 3600 * 1000;
-  const prevShift = await prisma.scheduledShift.findFirst({
-    where: {
-      userId: input.userId,
-      status: { not: 'CANCELLED' },
-      endDateTime: { lte: startDateTime },
-    },
-    orderBy: { endDateTime: 'desc' },
-  });
-
-  if (prevShift && startDateTime.getTime() - prevShift.endDateTime.getTime() < elevenHoursMs) {
-    const restHours = ((startDateTime.getTime() - prevShift.endDateTime.getTime()) / 3600000).toFixed(1);
-    warnings.push(
-      `⚠️ Ontario ESA Rest Notice: Only ${restHours} hours rest between previous shift (${prevShift.endTime}) and this shift (ESA minimum is 11 consecutive hours).`
-    );
-  }
-
-  const nextShift = await prisma.scheduledShift.findFirst({
-    where: {
-      userId: input.userId,
-      status: { not: 'CANCELLED' },
-      startDateTime: { gte: endDateTime },
-    },
-    orderBy: { startDateTime: 'asc' },
-  });
-
-  if (nextShift && nextShift.startDateTime.getTime() - endDateTime.getTime() < elevenHoursMs) {
-    const restHours = ((nextShift.startDateTime.getTime() - endDateTime.getTime()) / 3600000).toFixed(1);
-    warnings.push(
-      `⚠️ Ontario ESA Rest Notice: Only ${restHours} hours rest between this shift and next scheduled shift (${nextShift.startTime}) on ${nextShift.shiftDate.toISOString().slice(0, 10)}.`
-    );
-  }
-
-  // 3. Ontario ESA Section 20 Compliance: Eating periods (at least 30 minutes for work > 5 consecutive hours)
-  if (workedMinutes > 5 * 60 && breakMinutes < 30) {
-    warnings.push(
-      `⚠️ Ontario ESA Meal Break Notice: Shifts exceeding 5 consecutive hours require at least a 30-minute eating period.`
-    );
-  }
-
-  // 4. Weekly Overtime Risk (> 44 hours / week threshold)
-  const dayOfWeek = (startDateTime.getUTCDay() + 6) % 7; // Monday = 0
-  const weekStart = new Date(startDateTime.getTime() - dayOfWeek * 86_400_000);
-  weekStart.setUTCHours(0, 0, 0, 0);
-  const weekEnd = new Date(weekStart.getTime() + 7 * 86_400_000);
-
-  const weekShifts = await prisma.scheduledShift.findMany({
-    where: {
-      userId: input.userId,
-      status: { not: 'CANCELLED' },
-      shiftDate: { gte: weekStart, lt: weekEnd },
-    },
-  });
-
-  const currentWeeklyHours = weekShifts.reduce((sum, s) => sum + s.scheduledHours, 0);
-  const totalProjectedHours = currentWeeklyHours + scheduledHours;
-
-  if (totalProjectedHours > 44) {
-    warnings.push(
-      `⚠️ Overtime Risk: Employee is scheduled for ${totalProjectedHours.toFixed(1)} hours this week (>44h threshold, Ontario 1.5x overtime rate applies).`
-    );
-  }
-
-  if (totalProjectedHours > 48) {
-    warnings.push(
-      `⚠️ Ontario ESA Maximum Hours Alert: Weekly hours exceed 48 hours (requires employee written excess hours agreement).`
-    );
-  }
 
   const shift = await prisma.scheduledShift.create({
     data: {
@@ -315,21 +416,39 @@ export async function updateScheduledShift(
   });
   if (!existing) throw new HttpError(404, 'Scheduled shift not found');
 
+  const targetUserId = input.userId || existing.userId;
+  if (input.userId && input.userId !== existing.userId) {
+    const nextUser = await prisma.user.findUnique({ where: { id: input.userId } });
+    if (!nextUser) throw new HttpError(404, 'Assigned employee user not found');
+  }
+
   const shiftDateStr = input.shiftDate || existing.shiftDate.toISOString();
   const startTime = input.startTime || existing.startTime;
   const endTime = input.endTime || existing.endTime;
 
   const { shiftDate, startDateTime, endDateTime } = parseShiftDates(shiftDateStr, startTime, endTime);
 
-  const breakMinutes = input.breakMinutes !== undefined ? input.breakMinutes : existing.breakMinutes;
-  const breakType = input.breakType || existing.breakType;
+  const breakMinutes = input.breakMinutes !== undefined ? Math.max(0, input.breakMinutes) : existing.breakMinutes;
+  const breakType = input.breakType || (existing.breakType as 'UNPAID_MEAL' | 'PAID_REST');
   const totalMinutes = Math.round((endDateTime.getTime() - startDateTime.getTime()) / 60000);
   const workedMinutes = breakType === 'UNPAID_MEAL' ? Math.max(0, totalMinutes - breakMinutes) : totalMinutes;
   const scheduledHours = Number((workedMinutes / 60).toFixed(2));
 
+  const warnings = await evaluateShiftComplianceWarnings({
+    userId: targetUserId,
+    shiftDate,
+    startDateTime,
+    endDateTime,
+    breakMinutes,
+    workedMinutes,
+    scheduledHours,
+    excludeShiftId: id,
+  });
+
   const updated = await prisma.scheduledShift.update({
     where: { id },
     data: {
+      userId: targetUserId,
       shiftDate,
       startTime,
       endTime,
@@ -339,6 +458,8 @@ export async function updateScheduledShift(
       breakType,
       scheduledHours,
       roleOrStation: input.roleOrStation !== undefined ? input.roleOrStation : existing.roleOrStation,
+      branchLocation: input.branchLocation !== undefined ? input.branchLocation : existing.branchLocation,
+      isPublished: input.isPublished !== undefined ? input.isPublished : existing.isPublished,
       notes: input.notes !== undefined ? input.notes : existing.notes,
       status: input.status || existing.status,
       updatedById: adminUser.id,
@@ -361,10 +482,10 @@ export async function updateScheduledShift(
     userId: adminUser.id,
     actorName: adminUser.name,
     action: 'SHIFT_SCHEDULE_UPDATE',
-    details: `Updated scheduled shift #${id} for ${existing.user.name}`,
+    details: `Updated scheduled shift #${id} for ${updated.user.name}`,
   });
 
-  return updated;
+  return { ...updated, shift: updated, warnings };
 }
 
 export async function deleteScheduledShift(id: string, adminUser: { id: string; name: string }) {
@@ -414,7 +535,10 @@ export async function compareScheduleVsActual(startDateStr: string, endDateStr: 
 
   const actualShifts = await prisma.shift.findMany({
     where: {
-      clockIn: { gte: start, lte: new Date(end.getTime() + 86_400_000) },
+      clockIn: {
+        gte: new Date(start.getTime() - 6 * 3600_000),
+        lte: new Date(end.getTime() + 30 * 3600_000),
+      },
     },
     include: {
       user: { select: { id: true, name: true } },
@@ -431,13 +555,13 @@ export async function compareScheduleVsActual(startDateStr: string, endDateStr: 
   const comparison = scheduled.map((sc) => {
     totalScheduledHours += sc.scheduledHours;
 
-    // Find actual clock-in on same day for this employee
-    const dayStart = new Date(sc.shiftDate);
-    dayStart.setUTCHours(0, 0, 0, 0);
-    const dayEnd = new Date(dayStart.getTime() + 86_400_000);
-
+    // Match actual clock-in on same business day (America/Toronto) or within +/- 6h of scheduled start
+    const scDateStr = sc.shiftDate.toISOString().slice(0, 10);
     const match = actualShifts.find(
-      (a) => a.userId === sc.userId && a.clockIn >= dayStart && a.clockIn < dayEnd
+      (a) =>
+        a.userId === sc.userId &&
+        (toBusinessDateStr(a.clockIn) === scDateStr ||
+          Math.abs(a.clockIn.getTime() - sc.startDateTime.getTime()) <= 6 * 3600_000)
     );
 
     let actualHours = 0;
@@ -445,10 +569,15 @@ export async function compareScheduleVsActual(startDateStr: string, endDateStr: 
     let attendanceStatus: 'ON_TIME' | 'LATE' | 'MISSED' | 'PENDING' = 'PENDING';
 
     if (match) {
-      actualHours = Number((match.totalMinutes / 60).toFixed(2));
+      if (match.status === 'COMPLETED') {
+        actualHours = Number((match.totalMinutes / 60).toFixed(2));
+      } else {
+        const elapsedMins = Math.max(0, Math.round((now.getTime() - match.clockIn.getTime()) / 60000));
+        actualHours = Number((Math.max(0, elapsedMins - match.breakMinutes) / 60).toFixed(2));
+      }
       totalActualHours += actualHours;
 
-      // Check late arrival (> 10 minutes past scheduled start)
+      // Check late arrival (> 10 minutes past scheduled start in America/Toronto)
       const diffMs = match.clockIn.getTime() - sc.startDateTime.getTime();
       if (diffMs > 10 * 60 * 1000) {
         lateMinutes = Math.round(diffMs / 60000);
@@ -458,7 +587,7 @@ export async function compareScheduleVsActual(startDateStr: string, endDateStr: 
         attendanceStatus = 'ON_TIME';
       }
     } else {
-      // If the scheduled start time is in the past, it's missed
+      // If the scheduled shift end time is in the past, it's missed
       if (sc.endDateTime < now) {
         attendanceStatus = 'MISSED';
         missedCount++;
@@ -570,12 +699,21 @@ export async function createTimeOffRequest(input: {
   const user = await prisma.user.findUnique({ where: { id: input.userId } });
   if (!user) throw new HttpError(404, 'User not found');
 
+  const startDate = new Date(input.startDate);
+  const endDate = new Date(input.endDate);
+  if (Number.isNaN(startDate.getTime()) || Number.isNaN(endDate.getTime())) {
+    throw new HttpError(400, 'Valid startDate and endDate are required.');
+  }
+  if (endDate < startDate) {
+    throw new HttpError(400, 'Time-off end date cannot be earlier than start date.');
+  }
+
   return await prisma.timeOffRequest.create({
     data: {
       userId: input.userId,
       requestType: input.requestType || 'VACATION',
-      startDate: new Date(input.startDate),
-      endDate: new Date(input.endDate),
+      startDate,
+      endDate,
       reason: input.reason || null,
       status: 'PENDING',
     },
@@ -644,6 +782,20 @@ export async function createShiftSwapRequest(input: {
   targetShiftId?: string;
   reason?: string;
 }) {
+  if (input.targetUserId === input.requesterId) {
+    throw new HttpError(400, 'Cannot request a shift swap with yourself.');
+  }
+
+  const requesterShift = await prisma.scheduledShift.findUnique({
+    where: { id: input.requesterShiftId },
+  });
+  if (!requesterShift) {
+    throw new HttpError(404, 'Selected shift was not found.');
+  }
+  if (requesterShift.userId !== input.requesterId) {
+    throw new HttpError(403, 'You can only request swaps for your own assigned shifts.');
+  }
+
   return await prisma.shiftSwapRequest.create({
     data: {
       requesterId: input.requesterId,
@@ -684,35 +836,40 @@ export async function reviewShiftSwapRequest(
 ) {
   const swap = await prisma.shiftSwapRequest.findUnique({ where: { id } });
   if (!swap) throw new HttpError(404, 'Shift swap request not found');
-
-  if (review.status === 'APPROVED') {
-    // Perform shift swap on requester shift
-    await prisma.scheduledShift.update({
-      where: { id: swap.requesterShiftId },
-      data: { userId: swap.targetUserId },
-    });
-
-    // If target had a shift assigned, assign to requester
-    if (swap.targetShiftId) {
-      await prisma.scheduledShift.update({
-        where: { id: swap.targetShiftId },
-        data: { userId: swap.requesterId },
-      });
-    }
+  if (swap.status !== 'PENDING') {
+    throw new HttpError(409, `This shift swap request has already been ${swap.status.toLowerCase()}.`);
   }
 
-  const updated = await prisma.shiftSwapRequest.update({
-    where: { id },
-    data: {
-      status: review.status,
-      reviewedById: adminUser.id,
-      reviewedByName: adminUser.name,
-      reviewNotes: review.reviewNotes,
-    },
-    include: {
-      requester: { select: { id: true, name: true } },
-      targetUser: { select: { id: true, name: true } },
-    },
+  const updated = await prisma.$transaction(async (tx) => {
+    if (review.status === 'APPROVED') {
+      // Perform shift swap on requester shift
+      await tx.scheduledShift.update({
+        where: { id: swap.requesterShiftId },
+        data: { userId: swap.targetUserId },
+      });
+
+      // If target had a shift assigned, assign to requester
+      if (swap.targetShiftId) {
+        await tx.scheduledShift.update({
+          where: { id: swap.targetShiftId },
+          data: { userId: swap.requesterId },
+        });
+      }
+    }
+
+    return tx.shiftSwapRequest.update({
+      where: { id },
+      data: {
+        status: review.status,
+        reviewedById: adminUser.id,
+        reviewedByName: adminUser.name,
+        reviewNotes: review.reviewNotes,
+      },
+      include: {
+        requester: { select: { id: true, name: true } },
+        targetUser: { select: { id: true, name: true } },
+      },
+    });
   });
 
   await recordAudit({

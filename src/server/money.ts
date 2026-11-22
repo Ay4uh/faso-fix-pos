@@ -16,6 +16,7 @@ export interface Totals {
   subtotalCents: number;
   discountCents: number;
   taxableCents: number;
+  taxRateBps: number;
   taxCents: number;
   totalCents: number;
   paidCents: number;
@@ -46,6 +47,7 @@ export function computeTotals(t: MoneyInputs): Totals {
     subtotalCents,
     discountCents,
     taxableCents,
+    taxRateBps: t.taxRateBps,
     taxCents,
     totalCents,
     paidCents,
