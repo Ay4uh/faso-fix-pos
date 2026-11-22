@@ -574,7 +574,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                   Password &amp; Security Authentication
                 </h3>
                 <p className="text-xs text-slate-500 font-medium mt-0.5">
-                  Update your account password with NIST SP 800-63B compliant cryptographic scrypt protection.
+                  Update your account password.
                 </p>
               </div>
 

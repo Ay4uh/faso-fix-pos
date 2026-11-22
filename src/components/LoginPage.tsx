@@ -6,7 +6,6 @@ import {
   Eye,
   EyeOff,
   Wrench,
-  ShieldCheck,
   AlertCircle,
   ArrowRight,
   Cpu,
@@ -200,9 +199,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
 
             {/* Username / Email Field */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
-                <span>Username or Email</span>
-                <span className="text-[10px] text-slate-400 font-normal">Case-insensitive</span>
+              <label className="text-xs font-bold text-slate-700">
+                Username or Email
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -224,9 +222,8 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
 
             {/* Password Field with Show/Hide */}
             <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
-                <span>Password</span>
-                <span className="text-[10px] text-slate-400 font-normal">Encrypted Scrypt</span>
+              <label className="text-xs font-bold text-slate-700">
+                Password
               </label>
               <div className="relative">
                 <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -290,15 +287,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
               </div>
             </div>
           )}
-        </div>
-
-        {/* Security & Access Policies Footnote */}
-        <div className="text-center space-y-1 text-slate-400 text-[11px]">
-          <p className="flex items-center justify-center gap-1.5 font-medium">
-            <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-            <span className="text-slate-500">NIST SP 800-63B Scrypt Hashing &bull; Public registration disabled</span>
-          </p>
-          <p className="text-[10px] text-slate-400">Account provisioning is restricted to authorized store administrators.</p>
         </div>
       </div>
     </div>
