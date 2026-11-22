@@ -10,11 +10,26 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script>
-      if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.getRegistrations().then((regs) => {
-          for (let r of regs) r.unregister();
-        });
-      }
+      (function() {
+        if ('caches' in window) {
+          caches.keys().then(function(names) {
+            names.forEach(function(name) { caches.delete(name); });
+          });
+        }
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(function(registrations) {
+            registrations.forEach(function(reg) { reg.unregister(); });
+          });
+        }
+        var BUILD_ID = "2026-11-22-v4-timetrakgo";
+        var currentBuild = localStorage.getItem("faso_pos_build_id");
+        if (currentBuild !== BUILD_ID) {
+          localStorage.setItem("faso_pos_build_id", BUILD_ID);
+          if (currentBuild) {
+            window.location.reload();
+          }
+        }
+      })();
     </script>
   </head>
   <body class="bg-[#f8fafc] text-slate-800 antialiased font-sans">
