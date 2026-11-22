@@ -966,13 +966,33 @@ app.get('/api/admin/payroll/paystubs/:id/html', requireAdmin, wrap(async (req, r
 const distPath = path.resolve(process.cwd(), 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
+
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith('/api/')) return next();
     if (req.method !== 'GET') return next();
-    // Do NOT return index.html for missing assets or static files
+
+    // Self-healing: if an old/stale JS asset is requested by a cached browser, force-reload the client
+    if (req.path.startsWith('/assets/') && req.path.endsWith('.js')) {
+      res.setHeader('Content-Type', 'application/javascript; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+      return res.send(`
+        console.warn("[Faso Fix POS] Purging stale client cache...");
+        if ('caches' in window) {
+          caches.keys().then(keys => Promise.all(keys.map(k => caches.delete(k))));
+        }
+        if ('serviceWorker' in navigator) {
+          navigator.serviceWorker.getRegistrations().then(regs => {
+            regs.forEach(r => r.unregister());
+          });
+        }
+        window.location.reload();
+      `);
+    }
+
     if (req.path.startsWith('/assets/') || req.path.includes('.')) {
       return res.status(404).send('Not Found');
     }
+
     res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.sendFile(path.join(distPath, 'index.html'));
   });

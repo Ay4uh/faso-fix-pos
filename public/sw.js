@@ -1,68 +1,28 @@
-// Faso Fix POS Service Worker - Offline Shell Caching & Network Resilience
-const CACHE_NAME = 'faso-fix-pos-v1';
-const STATIC_ASSETS = [
-  '/',
-  '/index.html',
-  '/manifest.webmanifest',
-];
-
-self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      return cache.addAll(STATIC_ASSETS);
-    })
-  );
+// Faso Fix POS Service Worker - Auto-cleanup & Cache Purge
+self.addEventListener('install', () => {
   self.skipWaiting();
 });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((keys) => {
-      return Promise.all(
-        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
-      );
-    })
-  );
-  self.clients.claim();
-});
-
-self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
-
-  // API calls use Network-First strategy
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(
-      fetch(event.request).catch(async () => {
-        // Fallback for offline API requests
-        return new Response(
-          JSON.stringify({
-            offline: true,
-            error: 'Network offline. Action will sync when reconnected.',
-          }),
-          {
-            headers: { 'Content-Type': 'application/json' },
-            status: 503,
-          }
-        );
-      })
-    );
-    return;
-  }
-
-  // Static assets: Cache-First, fallback to Network
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) return cached;
-      return fetch(event.request).then((response) => {
-        if (!response || response.status !== 200 || response.type !== 'basic') {
-          return response;
+      return Promise.all(keys.map((k) => caches.delete(k)));
+    }).then(() => {
+      return self.registration.unregister();
+    }).then(() => {
+      return self.clients.claim();
+    }).then(() => {
+      return self.clients.matchAll();
+    }).then((clients) => {
+      clients.forEach((client) => {
+        if (client.url && 'navigate' in client) {
+          client.navigate(client.url);
         }
-        const toCache = response.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(event.request, toCache);
-        });
-        return response;
       });
     })
   );
+});
+
+self.addEventListener('fetch', (event) => {
+  event.respondWith(fetch(event.request));
 });
