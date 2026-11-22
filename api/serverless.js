@@ -1,10 +1,10 @@
 import express from "express";
 import cors from "cors";
 import crypto from "node:crypto";
+import path from "node:path";
+import fs from "node:fs";
 import { ZodError, z } from "zod";
 import { PrismaClient } from "@prisma/client";
-import fs from "node:fs";
-import path from "node:path";
 // src/server/prisma.ts
 var isPostgres = !!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")));
 if (process.env.VERCEL && !isPostgres) {
@@ -4827,6 +4827,14 @@ app.get("/api/admin/payroll/paystubs/:id/html", requireAdmin, wrap(async (req, r
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
 	res.send(html);
 }));
+var distPath = path.resolve(process.cwd(), "dist");
+if (fs.existsSync(distPath)) {
+	app.use(express.static(distPath));
+	app.get("*", (req, res, next) => {
+		if (req.path.startsWith("/api/")) return next();
+		res.sendFile(path.join(distPath, "index.html"));
+	});
+}
 app.use((err, _req, res, _next) => {
 	if (err instanceof HttpError) return res.status(err.status).json({
 		success: false,

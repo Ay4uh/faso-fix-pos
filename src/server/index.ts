@@ -1,6 +1,8 @@
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
 import crypto from 'node:crypto';
+import path from 'node:path';
+import fs from 'node:fs';
 import { ZodError } from 'zod';
 import {
   HttpError,
@@ -964,6 +966,18 @@ app.get('/api/admin/payroll/paystubs/:id/html', requireAdmin, wrap(async (req, r
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
 }));
+
+// ---------------------------------------------------------------------------
+// Static Frontend Production Serving (Railway / Render / Persistent Server)
+// ---------------------------------------------------------------------------
+const distPath = path.resolve(process.cwd(), 'dist');
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+  app.get('*', (req: Request, res: Response, next: NextFunction) => {
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(distPath, 'index.html'));
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Central Error Handler
