@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Play, Square, Coffee, Zap, Tablet, WifiOff } from 'lucide-react';
+import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Play, Square, Coffee, Zap, WifiOff } from 'lucide-react';
 import { Ticket, User } from '../types';
 import { flushOfflineQueue } from '../utils/offlineSync';
 
@@ -14,7 +14,6 @@ interface HeaderProps {
   onLogout?: () => void;
   onOpenMobileMenu?: () => void;
   onOpenTimeClock?: () => void;
-  onOpenKiosk?: () => void;
   isClockedIn?: boolean;
   isOnBreak?: boolean;
   timeClockElapsed?: string;
@@ -35,7 +34,6 @@ export const Header: React.FC<HeaderProps> = ({
   onLogout,
   onOpenMobileMenu,
   onOpenTimeClock,
-  onOpenKiosk,
   isClockedIn,
   isOnBreak,
   timeClockElapsed,
@@ -296,18 +294,6 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
         </div>
-
-        {onOpenKiosk && (
-          <button
-            type="button"
-            onClick={onOpenKiosk}
-            title="Launch Counter Self Check-in Kiosk"
-            className="inline-flex items-center space-x-1.5 px-3 py-2 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200"
-          >
-            <Tablet className="w-3.5 h-3.5 text-indigo-600" />
-            <span className="hidden lg:inline">Kiosk Mode</span>
-          </button>
-        )}
 
         <button
           onClick={openCreateModal}

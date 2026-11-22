@@ -4322,14 +4322,6 @@ app.get("/api/tickets/:id/print", requireAuth, wrap(async (req, res) => {
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
 	res.send(html);
 }));
-app.post("/api/kiosk/checkin", wrap(async (req, res) => {
-	const ticket = await createTicket(req.body);
-	broadcastLiveEvent("ticket_created", ticket);
-	res.status(201).json({
-		success: true,
-		data: ticket
-	});
-}));
 app.post("/api/tickets", requireAuth, wrap(async (req, res) => {
 	const ticket = await createTicket(req.body);
 	broadcastLiveEvent("ticket_created", ticket);
@@ -4870,7 +4862,7 @@ app.use((err, _req, res, _next) => {
 		details: err?.stack || String(err)
 	});
 });
-if (!process.env.VERCEL) app.listen(PORT, async () => {
+if (!process.env.VERCEL) app.listen(Number(PORT), "0.0.0.0", async () => {
 	console.log(`[Faso Fix API] Running on http://localhost:${PORT}`);
 	try {
 		await configureSqlite();
