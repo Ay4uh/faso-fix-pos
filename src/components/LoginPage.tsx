@@ -14,13 +14,14 @@ import {
 import { setToken } from '../utils/auth';
 import { posAudio } from '../utils/audio';
 import { User as UserType } from '../types';
-import { getCachedRegisteredUsers, saveRegisteredUsers } from '../utils/userSync';
+import { getCachedRegisteredUsers } from '../utils/userSync';
 
 interface LoginPageProps {
   onLoginSuccess: (user: UserType, targetView: 'repairs' | 'admin') => void;
+  sessionExpiredNotice?: string | null;
 }
 
-export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
+export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExpiredNotice }) => {
   const [isAdminMode, setIsAdminMode] = useState(false);
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -69,7 +70,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
         throw new Error(data?.error || 'Authentication failed. Please verify credentials.');
       }
 
-      setToken(data.token);
+      setToken(data.token, data.expiresAtMs);
       posAudio.playSuccessChime();
       
       const targetView: 'repairs' | 'admin' = (data.user.role === 'ADMIN' && isAdminMode) ? 'admin' : 'repairs';
@@ -188,6 +189,16 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess }) => {
 
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
+            {sessionExpiredNotice && (
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-xs text-amber-900 flex items-start gap-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-bold">Security Session Expired</p>
+                  <p className="text-amber-800 text-[11px] mt-0.5 leading-snug">{sessionExpiredNotice}</p>
+                </div>
+              </div>
+            )}
+
             {errorMessage && (
               <div className="p-3.5 bg-rose-50 border border-rose-200 rounded-2xl text-xs text-rose-800 flex items-start gap-2.5 animate-in fade-in slide-in-from-top-1 duration-150">
                 <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />

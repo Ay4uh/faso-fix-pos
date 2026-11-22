@@ -9,14 +9,12 @@ import {
   Wrench,
   Smartphone,
   User,
-  ShieldCheck,
   Check,
   CreditCard,
   Phone,
   Mail,
   MapPin,
   ExternalLink,
-  Zap,
   Usb,
 } from 'lucide-react';
 import { Barcode } from './Barcode';

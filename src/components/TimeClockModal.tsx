@@ -12,6 +12,7 @@ import {
   X,
   History,
   Timer,
+  Calendar,
 } from 'lucide-react';
 import { fetchWithAuth } from '../utils/auth';
 import { PaystubModal } from './PaystubModal';
@@ -29,9 +30,10 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   currentUser,
   onStatusChange,
 }) => {
-  const [activeTab, setActiveTab] = useState<'clock' | 'history' | 'paystubs'>('clock');
+  const [activeTab, setActiveTab] = useState<'clock' | 'history' | 'schedule' | 'paystubs'>('clock');
   const [clockStatus, setClockStatus] = useState<any>(null);
   const [shifts, setShifts] = useState<any[]>([]);
+  const [scheduledShifts, setScheduledShifts] = useState<any[]>([]);
   const [paystubs, setPaystubs] = useState<any[]>([]);
   const [selectedPaystub, setSelectedPaystub] = useState<any | null>(null);
 
@@ -53,11 +55,22 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     if (isOpen) {
       loadClockStatus();
       loadShifts();
+      loadScheduledShifts();
       loadPaystubs();
       setErrorMsg(null);
       setSuccessMsg(null);
     }
   }, [isOpen]);
+
+  const loadScheduledShifts = async () => {
+    try {
+      const res = await fetchWithAuth(`/api/schedules?userId=${currentUser?.id}`);
+      if (res.ok) {
+        const json = await res.json();
+        setScheduledShifts(json.data || []);
+      }
+    } catch {}
+  };
 
   const getActiveShiftKey = () => `apexfix_active_shift_${currentUser?.id || 'default'}`;
 
@@ -226,7 +239,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ notes, shiftData }),
       });
-      const json = await res.json().catch(() => ({}));
+      await res.json().catch(() => ({}));
 
       setNotes('');
       await loadShifts();
@@ -237,7 +250,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     }
   };
 
-  const handleStartBreak = async () => {
+  const handleStartBreak = async (breakType: 'UNPAID_MEAL' | 'PAID_REST' = 'UNPAID_MEAL') => {
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -247,6 +260,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       ...prev,
       isOnBreak: true,
       onBreak: true,
+      activeBreakType: breakType,
     }));
     try {
       const raw = localStorage.getItem(getActiveShiftKey());
@@ -256,14 +270,14 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
         localStorage.setItem(getActiveShiftKey(), JSON.stringify(shift));
       }
     } catch {}
-    setSuccessMsg('Break timer started.');
+    setSuccessMsg(breakType === 'PAID_REST' ? 'Paid rest break started.' : 'Unpaid meal break started.');
     onStatusChange?.();
 
     try {
       const res = await fetchWithAuth('/api/timeclock/break-start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type: 'UNPAID_MEAL' }),
+        body: JSON.stringify({ type: breakType }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to start break');
@@ -381,6 +395,22 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
             <span>Attendance History</span>
           </button>
           <button
+            onClick={() => setActiveTab('schedule')}
+            className={`flex items-center space-x-2 py-3 px-4 text-xs font-bold border-b-2 transition cursor-pointer ${
+              activeTab === 'schedule'
+                ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-lg'
+                : 'border-transparent text-slate-500 hover:text-slate-900'
+            }`}
+          >
+            <Calendar className="w-4 h-4" />
+            <span>Assigned Shifts</span>
+            {scheduledShifts.length > 0 && (
+              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-indigo-100 text-indigo-700 font-mono">
+                {scheduledShifts.length}
+              </span>
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab('paystubs')}
             className={`flex items-center space-x-2 py-3 px-4 text-xs font-bold border-b-2 transition cursor-pointer ${
               activeTab === 'paystubs'
@@ -475,14 +505,24 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {/* Break Controls */}
                     {!isOnBreak ? (
-                      <button
-                        onClick={handleStartBreak}
-                        disabled={loading}
-                        className="py-3 px-4 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold rounded-xl flex items-center justify-center space-x-2 transition cursor-pointer text-xs"
-                      >
-                        <Coffee className="w-4 h-4 text-amber-600" />
-                        <span>Start Unpaid Break</span>
-                      </button>
+                      <div className="flex items-center space-x-2">
+                        <button
+                          onClick={() => handleStartBreak('UNPAID_MEAL')}
+                          disabled={loading}
+                          className="flex-1 py-3 px-3 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold rounded-xl flex items-center justify-center space-x-1.5 transition cursor-pointer text-xs"
+                        >
+                          <Coffee className="w-4 h-4 text-amber-600" />
+                          <span>Unpaid Meal (30m)</span>
+                        </button>
+                        <button
+                          onClick={() => handleStartBreak('PAID_REST')}
+                          disabled={loading}
+                          className="flex-1 py-3 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 font-bold rounded-xl flex items-center justify-center space-x-1.5 transition cursor-pointer text-xs"
+                        >
+                          <Coffee className="w-4 h-4 text-indigo-600" />
+                          <span>Paid Rest (15m)</span>
+                        </button>
+                      </div>
                     ) : (
                       <button
                         onClick={handleEndBreak}
@@ -606,6 +646,69 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                     ))}
                   </tbody>
                 </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Tab 2b: Assigned Shifts */}
+        {activeTab === 'schedule' && (
+          <div className="p-6 space-y-4 max-h-[460px] overflow-y-auto">
+            <div className="flex items-center justify-between">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
+                Assigned Shifts &amp; Work Schedule ({scheduledShifts.length})
+              </h3>
+              <span className="text-[11px] text-indigo-600 font-semibold">
+                Ontario ESA Regulated Schedule
+              </span>
+            </div>
+
+            {scheduledShifts.length === 0 ? (
+              <div className="text-center py-10 bg-slate-50 rounded-2xl border border-slate-200">
+                <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-xs font-bold text-slate-700">No Upcoming Shifts Scheduled</p>
+                <p className="text-[11px] text-slate-400 mt-1">
+                  Your administrator has not assigned any upcoming shifts yet.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3 font-mono">
+                {scheduledShifts.map((shift) => (
+                  <div
+                    key={shift.id}
+                    className="p-4 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-3 shadow-2xs"
+                  >
+                    <div className="space-y-1">
+                      <div className="flex items-center space-x-2">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold font-sans uppercase bg-indigo-100 text-indigo-800">
+                          {shift.status}
+                        </span>
+                        <span className="text-xs font-bold text-slate-900 font-sans">
+                          {new Date(shift.shiftDate).toLocaleDateString('en-CA', {
+                            weekday: 'short',
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric',
+                          })}
+                        </span>
+                      </div>
+                      <p className="text-xs text-slate-700">
+                        <strong>{shift.startTime} - {shift.endTime}</strong> • {shift.totalScheduledHours} hrs scheduled
+                      </p>
+                      <p className="text-[11px] text-slate-500 font-sans">
+                        Station: {shift.roleOrStation || 'Standard Bench'} • {shift.breakMinutes}m {shift.breakType === 'UNPAID_MEAL' ? 'Meal' : 'Rest'}
+                      </p>
+                      {shift.notes && (
+                        <p className="text-[11px] text-indigo-600 font-sans italic">Note: {shift.notes}</p>
+                      )}
+                    </div>
+
+                    <div className="text-right">
+                      <span className="text-[10px] uppercase font-bold text-slate-400 font-sans">Hours</span>
+                      <p className="text-base font-black text-slate-900">{shift.totalScheduledHours}h</p>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>

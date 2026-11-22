@@ -27,6 +27,15 @@ model Setting {
   requireIntakeSignature Boolean @default(true)
   currencySymbol        String   @default("$")
   dateFormat            String   @default("YYYY-MM-DD")
+  // Ontario Employment Standards Settings
+  ontarioMinWageCents         Int      @default(1720) // basis cents: 1720 = $17.20/hr
+  overtimeThresholdWeeklyHours Float   @default(44.0) // Ontario ESA threshold: 44.0 hours
+  overtimeMultiplierPct       Int      @default(150)  // 150% (1.5x)
+  minRestBetweenShiftsHours   Float    @default(11.0) // Ontario ESA: 11 consecutive hours between shifts
+  maxWeeklyHoursBeforePermit  Float    @default(48.0) // Ontario ESA: max 48 hours without excess hours agreement
+  mandatoryMealBreakMinutes   Int      @default(30)   // 30 min meal break after 5 hours
+  vacationPayPctUnder5Years   Int      @default(400)  // 400 bps = 4.0% (2 weeks)
+  vacationPayPctOver5Years    Int      @default(600)  // 600 bps = 6.0% (3 weeks)
   updatedAt             DateTime @updatedAt
 }
 
@@ -51,6 +60,7 @@ model User {
   td1OntarioClaimCents  Int        @default(1274600) // $12,746 Ontario personal claim
   sin                   String?
   shifts                Shift[]
+  scheduledShifts       ScheduledShift[]
   wageRates             WageRate[]
   paystubs              Paystub[]
   sessions              Session[]
@@ -320,5 +330,32 @@ model Paystub {
 
   @@index([payrollPeriodId])
   @@index([userId])
+  @@index([status])
+}
+
+model ScheduledShift {
+  id                    String    @id @default(uuid())
+  userId                String
+  shiftDate             DateTime  // Midnight UTC of scheduled date
+  startTime             String    // e.g. "09:00"
+  endTime               String    // e.g. "17:00"
+  startDateTime         DateTime  // Exact start timestamp
+  endDateTime           DateTime  // Exact end timestamp
+  breakMinutes          Int       @default(30)
+  breakType             String    @default("UNPAID_MEAL") // UNPAID_MEAL | PAID_REST
+  scheduledHours        Float     @default(7.5)
+  status                String    @default("SCHEDULED") // SCHEDULED | CONFIRMED | COMPLETED | MISSED | CANCELLED
+  roleOrStation         String?   // e.g. "Lead Technician", "Bench #01", "Counter"
+  notes                 String?
+  createdById           String?
+  createdByName         String?
+  updatedById           String?
+  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([shiftDate])
+  @@index([startDateTime])
   @@index([status])
 }

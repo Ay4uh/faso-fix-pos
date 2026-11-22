@@ -29,6 +29,11 @@ class PosAudio {
     this.playScanBeep();
   }
 
+  // Notification Beep
+  playNotificationBeep() {
+    this.playScanBeep();
+  }
+
   // Barcode / Scanner Beep
   playScanBeep() {
     if (this.muted) return;

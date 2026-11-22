@@ -24,12 +24,16 @@ import {
   Wrench,
   Phone,
   DollarSign,
+  Calendar,
+  TrendingUp,
 } from 'lucide-react';
 import { fetchWithAuth } from '../utils/auth';
 import { posAudio } from '../utils/audio';
 import { User, AdminOverview, AuditLog, UserRole, UserStatus, Ticket } from '../types';
 import { AdminAttendanceTab } from './admin/AdminAttendanceTab';
 import { AdminPayrollTab } from './admin/AdminPayrollTab';
+import { AdminScheduleTab } from './admin/AdminScheduleTab';
+import { AdminSalesLaborTab } from './admin/AdminSalesLaborTab';
 import { saveRegisteredUsers, recordDeletedUser } from '../utils/userSync';
 
 interface AdminDashboardProps {
@@ -43,7 +47,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onLogout,
   onNavigateToTab,
 }) => {
-  const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'attendance' | 'payroll'>('overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'attendance' | 'payroll' | 'schedule' | 'sales-labor'>('overview');
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [tickets, setTickets] = useState<Ticket[]>([]);
@@ -302,7 +306,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'overview', label: 'Admin Overview', icon: Activity },
           { id: 'users', label: 'User & Staff Management', icon: Users, badge: overview?.users.total },
           { id: 'attendance', label: 'Time & Attendance', icon: Clock },
+          { id: 'schedule', label: 'Shift Calendar & Scheduling', icon: Calendar },
           { id: 'payroll', label: 'Payroll & Remuneration', icon: DollarSign },
+          { id: 'sales-labor', label: 'Sales & Labor ROI', icon: TrendingUp },
           { id: 'tickets', label: 'Work Orders & Tickets', icon: Wrench, badge: tickets.length },
           { id: 'roles', label: 'Roles & RBAC Permissions', icon: ShieldCheck },
           { id: 'audit', label: 'System Audit Logs', icon: Layers, badge: auditLogs.length },
@@ -1004,6 +1010,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
          ======================================================== */}
       {activeSection === 'payroll' && (
         <AdminPayrollTab />
+      )}
+
+      {/* ========================================================
+          SECTION 8: SHIFT CALENDAR & SCHEDULING (ONTARIO ESA)
+         ======================================================== */}
+      {activeSection === 'schedule' && (
+        <AdminScheduleTab users={users} currentUser={currentUser} />
+      )}
+
+      {/* ========================================================
+          SECTION 9: POS SALES ATTRIBUTION & LABOR ANALYTICS
+         ======================================================== */}
+      {activeSection === 'sales-labor' && (
+        <AdminSalesLaborTab />
       )}
 
       {/* ========================================================

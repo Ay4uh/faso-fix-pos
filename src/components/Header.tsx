@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Play, Square, Coffee, Zap, WifiOff } from 'lucide-react';
+import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Square, Coffee, Zap } from 'lucide-react';
 import { Ticket, User } from '../types';
 import { flushOfflineQueue } from '../utils/offlineSync';
 
@@ -36,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
   onOpenTimeClock,
   isClockedIn,
   isOnBreak,
-  timeClockElapsed,
+  timeClockElapsed: _timeClockElapsed,
   clockInTime,
   onQuickClockIn,
   onQuickClockOut,

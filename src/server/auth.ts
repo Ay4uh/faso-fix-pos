@@ -86,11 +86,18 @@ export function generateToken(): string {
 }
 
 /**
- * Create a persistent session for a user valid for 7 days.
+ * Strict 24-hour maximum session lifetime enforced across ALL user roles
+ * (Administrator, Manager, Technician, Regular Employee).
+ * Refreshes or reopening the browser never bypass or extend this 24-hour window.
+ */
+export const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours (86,400,000 ms)
+
+/**
+ * Create a persistent session for a user valid for a strict maximum of 24 hours.
  */
 export async function createSession(userId: string): Promise<string> {
   const user = await prisma.user.findUnique({ where: { id: userId } });
-  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+  const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_MS); // Strictly 24 hours
   const token = createSignedToken(
     userId,
     user?.username || '',
@@ -121,7 +128,7 @@ export async function destroySession(token: string): Promise<void> {
  */
 export async function authenticateSession(
   token: string | undefined,
-  clientHeaders?: { userId?: string; userName?: string; userRole?: string }
+  _clientHeaders?: { userId?: string; userName?: string; userRole?: string }
 ) {
   if (!token || revokedTokens.has(token)) return null;
 
@@ -237,35 +244,6 @@ export async function authenticateSession(
       return null;
     }
     return session.user;
-  }
-
-  // 3. Seamless cold-container fallback for active POS client with session token
-  if (clientHeaders?.userId || clientHeaders?.userName) {
-    const fallbackUser = await prisma.user.findFirst({
-      where: {
-        OR: [
-          ...(clientHeaders.userId ? [{ id: clientHeaders.userId }] : []),
-          ...(clientHeaders.userName ? [{ username: clientHeaders.userName }] : []),
-        ],
-      },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        name: true,
-        role: true,
-        status: true,
-        phone: true,
-        bio: true,
-        bench: true,
-        preferences: true,
-        lastLoginAt: true,
-        createdAt: true,
-      },
-    });
-    if (fallbackUser && fallbackUser.status === 'ACTIVE') {
-      return fallbackUser;
-    }
   }
 
   return null;

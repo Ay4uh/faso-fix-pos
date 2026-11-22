@@ -21,14 +21,19 @@ import { useBarcodeScanner } from './hooks/useBarcodeScanner';
 import { Ticket, Customer, DashboardStats, User } from './types';
 import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
-import { fetchWithAuth, removeToken } from './utils/auth';
+import { fetchWithAuth, getToken, removeToken } from './utils/auth';
 import { syncUsersWithServer } from './utils/userSync';
 
 const getInitialUser = (): User | null => {
   try {
     const raw = localStorage.getItem('apexfix_cached_user');
     const token = localStorage.getItem('apexfix_session_token');
+    const expiry = localStorage.getItem('apexfix_session_expiry');
     if (raw && token) {
+      if (expiry && Date.now() >= parseInt(expiry, 10)) {
+        removeToken();
+        return null;
+      }
       return JSON.parse(raw);
     }
   } catch {}
@@ -94,11 +99,37 @@ export function App() {
   const [printTicket, setPrintTicket] = useState<Ticket | null>(null);
   const [smsTicket, setSmsTicket] = useState<Ticket | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [sessionExpiredNotice, setSessionExpiredNotice] = useState<string | null>(null);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
   };
+
+  useEffect(() => {
+    const handleExpired = (e: any) => {
+      const reason = e?.detail?.reason || 'Your 24-hour session has expired for security. Please sign in again.';
+      setCurrentUser(null);
+      setSessionExpiredNotice(reason);
+      removeToken();
+    };
+
+    window.addEventListener('session-expired', handleExpired);
+
+    // Periodic check enforcing the strict 24-hour maximum session lifetime
+    const timer = setInterval(() => {
+      const expiry = localStorage.getItem('apexfix_session_expiry');
+      const token = localStorage.getItem('apexfix_session_token');
+      if (token && expiry && Date.now() >= parseInt(expiry, 10)) {
+        handleExpired({ detail: { reason: 'Your 24-hour session has expired for security. Please log in again.' } });
+      }
+    }, 30_000);
+
+    return () => {
+      window.removeEventListener('session-expired', handleExpired);
+      clearInterval(timer);
+    };
+  }, []);
 
   useBarcodeScanner({
     enabled: !!currentUser,
@@ -675,7 +706,9 @@ export function App() {
   if (!currentUser) {
     return (
       <LoginPage
+        sessionExpiredNotice={sessionExpiredNotice}
         onLoginSuccess={(user, targetView) => {
+          setSessionExpiredNotice(null);
           setCurrentUser(user);
           try {
             localStorage.setItem('apexfix_cached_user', JSON.stringify(user));

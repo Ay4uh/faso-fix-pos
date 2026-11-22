@@ -769,6 +769,273 @@ export async function getReport(days: number) {
   };
 }
 
+/**
+ * Integrated POS Sales Attribution & Employee Labor Productivity Analytics
+ */
+export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?: string) {
+  const now = new Date();
+  const start = startDateStr ? new Date(startDateStr) : new Date(now.getTime() - 30 * 86_400_000);
+  const end = endDateStr ? new Date(endDateStr) : now;
+
+  const [tickets, payments, shifts, users] = await Promise.all([
+    prisma.ticket.findMany({
+      where: {
+        createdAt: { gte: start, lte: end },
+        deletedAt: null,
+      },
+      include: ticketInclude,
+    }),
+    prisma.payment.findMany({
+      where: {
+        createdAt: { gte: start, lte: end },
+        ticket: { deletedAt: null },
+      },
+      include: {
+        ticket: {
+          select: {
+            id: true,
+            ticketNumber: true,
+            technician: true,
+          },
+        },
+      },
+    }),
+    prisma.shift.findMany({
+      where: {
+        clockIn: { gte: start, lte: end },
+        status: 'COMPLETED',
+      },
+      include: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            username: true,
+            hourlyRateCents: true,
+            overtimeRateCents: true,
+          },
+        },
+      },
+    }),
+    prisma.user.findMany({
+      select: {
+        id: true,
+        name: true,
+        username: true,
+        hourlyRateCents: true,
+        bench: true,
+      },
+    }),
+  ]);
+
+  // 1. Payment Breakdown by Method
+  const byMethod: Record<string, { count: number; totalCents: number }> = {
+    CASH: { count: 0, totalCents: 0 },
+    CARD: { count: 0, totalCents: 0 },
+    DEBIT: { count: 0, totalCents: 0 },
+    E_TRANSFER: { count: 0, totalCents: 0 },
+    OTHER: { count: 0, totalCents: 0 },
+  };
+
+  let totalRevenueCents = 0;
+  let totalDiscountsCents = 0;
+  let totalRefundsCents = 0;
+
+  for (const p of payments) {
+    const m = (p.method || 'OTHER').toUpperCase();
+    if (!byMethod[m]) byMethod[m] = { count: 0, totalCents: 0 };
+    if (p.amountCents >= 0) {
+      byMethod[m].count++;
+      byMethod[m].totalCents += p.amountCents;
+      totalRevenueCents += p.amountCents;
+    } else {
+      totalRefundsCents += Math.abs(p.amountCents);
+    }
+  }
+
+  for (const t of tickets) {
+    if (t.discountCents > 0) totalDiscountsCents += t.discountCents;
+  }
+
+  const transactionCount = payments.filter((p) => p.amountCents > 0).length;
+  const avgTransactionCents = transactionCount > 0 ? Math.round(totalRevenueCents / transactionCount) : 0;
+
+  // 2. Sales Attribution by Employee
+  const employeeMap = new Map<string, {
+    name: string;
+    ticketsCreated: number;
+    ticketsCompleted: number;
+    laborBilledCents: number;
+    partsBilledCents: number;
+    totalRevenueCents: number;
+    actualHoursWorked: number;
+    laborCostCents: number;
+  }>();
+
+  for (const u of users) {
+    employeeMap.set(u.name.toLowerCase(), {
+      name: u.name,
+      ticketsCreated: 0,
+      ticketsCompleted: 0,
+      laborBilledCents: 0,
+      partsBilledCents: 0,
+      totalRevenueCents: 0,
+      actualHoursWorked: 0,
+      laborCostCents: 0,
+    });
+  }
+
+  for (const t of tickets) {
+    const techName = (t.technician || 'Unassigned').toLowerCase();
+    if (!employeeMap.has(techName)) {
+      employeeMap.set(techName, {
+        name: t.technician || 'Unassigned',
+        ticketsCreated: 0,
+        ticketsCompleted: 0,
+        laborBilledCents: 0,
+        partsBilledCents: 0,
+        totalRevenueCents: 0,
+        actualHoursWorked: 0,
+        laborCostCents: 0,
+      });
+    }
+    const stat = employeeMap.get(techName)!;
+    stat.ticketsCreated++;
+    if (t.status === 'COMPLETED') stat.ticketsCompleted++;
+    stat.laborBilledCents += t.laborCents;
+
+    const partsTotal = t.items.reduce((sum, item) => sum + item.quantity * item.unitPriceCents, 0);
+    stat.partsBilledCents += partsTotal;
+  }
+
+  for (const p of payments) {
+    if (p.amountCents <= 0) continue;
+    const techName = (p.ticket?.technician || 'Unassigned').toLowerCase();
+    const stat = employeeMap.get(techName);
+    if (stat) {
+      stat.totalRevenueCents += p.amountCents;
+    }
+  }
+
+  // Factor in actual hours worked and labor cost
+  let totalLaborCostCents = 0;
+  let totalWorkedHours = 0;
+
+  for (const s of shifts) {
+    const techName = s.user.name.toLowerCase();
+    const stat = employeeMap.get(techName);
+    const regularHours = s.regularMinutes / 60;
+    const overtimeHours = s.overtimeMinutes / 60;
+    const shiftHours = (s.totalMinutes) / 60;
+    const otRate = s.user.overtimeRateCents || Math.round(s.user.hourlyRateCents * 1.5);
+    const shiftWageCents = Math.round(regularHours * s.user.hourlyRateCents + overtimeHours * otRate);
+
+    totalLaborCostCents += shiftWageCents;
+    totalWorkedHours += shiftHours;
+
+    if (stat) {
+      stat.actualHoursWorked += shiftHours;
+      stat.laborCostCents += shiftWageCents;
+    }
+  }
+
+  const salesByEmployee = Array.from(employeeMap.values())
+    .filter((e) => e.ticketsCreated > 0 || e.actualHoursWorked > 0 || e.totalRevenueCents > 0)
+    .map((e) => {
+      const revenuePerHour = e.actualHoursWorked > 0 ? Math.round(e.totalRevenueCents / e.actualHoursWorked) : 0;
+      const laborRatioPct = e.totalRevenueCents > 0 ? Number(((e.laborCostCents / e.totalRevenueCents) * 100).toFixed(1)) : 0;
+      return {
+        ...e,
+        actualHoursWorked: Number(e.actualHoursWorked.toFixed(2)),
+        revenuePerHourCents: revenuePerHour,
+        laborRatioPct,
+      };
+    })
+    .sort((a, b) => b.totalRevenueCents - a.totalRevenueCents);
+
+  // 3. Sales By Shift (Correlating exact clock-in window with POS payments)
+  const salesByShift = shifts.slice(0, 30).map((s) => {
+    const shiftStart = s.clockIn;
+    const shiftEnd = s.clockOut || new Date(s.clockIn.getTime() + s.totalMinutes * 60000);
+
+    const shiftPayments = payments.filter(
+      (p) => p.createdAt >= shiftStart && p.createdAt <= shiftEnd && p.amountCents > 0
+    );
+    const shiftRevenueCents = shiftPayments.reduce((sum, p) => sum + p.amountCents, 0);
+
+    const regularHours = s.regularMinutes / 60;
+    const overtimeHours = s.overtimeMinutes / 60;
+    const otRate = s.user.overtimeRateCents || Math.round(s.user.hourlyRateCents * 1.5);
+    const shiftLaborCostCents = Math.round(regularHours * s.user.hourlyRateCents + overtimeHours * otRate);
+
+    const laborCostPct = shiftRevenueCents > 0 ? Number(((shiftLaborCostCents / shiftRevenueCents) * 100).toFixed(1)) : 0;
+
+    return {
+      shiftId: s.id,
+      employeeName: s.user.name,
+      clockIn: s.clockIn,
+      clockOut: s.clockOut,
+      workedHours: Number((s.totalMinutes / 60).toFixed(2)),
+      laborCostCents: shiftLaborCostCents,
+      revenueGeneratedCents: shiftRevenueCents,
+      transactionsCount: shiftPayments.length,
+      laborCostPct,
+    };
+  });
+
+  const overallLaborCostPct = totalRevenueCents > 0 ? Number(((totalLaborCostCents / totalRevenueCents) * 100).toFixed(1)) : 0;
+  const overallRevenuePerHourCents = totalWorkedHours > 0 ? Math.round(totalRevenueCents / totalWorkedHours) : 0;
+
+  const summary = {
+    totalRevenueCents,
+    laborBilledCents: salesByEmployee.reduce((acc, e) => acc + (e.laborBilledCents || 0), 0),
+    partsBilledCents: salesByEmployee.reduce((acc, e) => acc + (e.partsBilledCents || 0), 0),
+    taxCollectedCents: 0,
+    totalLaborCostCents,
+    laborCostPct: overallLaborCostPct,
+    totalHoursWorked: Number(totalWorkedHours.toFixed(2)),
+    revenuePerHourCents: overallRevenuePerHourCents,
+    totalTicketsCreated: tickets.length,
+    totalTicketsCompleted: tickets.filter((t) => t.status === 'COMPLETED').length,
+    avgTicketValueCents: avgTransactionCents,
+  };
+
+  const salesBreakdown = {
+    byPaymentMethod: {
+      cashCents: byMethod.CASH || 0,
+      cardCents: byMethod.CARD || 0,
+      debitCents: byMethod.DEBIT || 0,
+      eTransferCents: byMethod.E_TRANSFER || 0,
+      otherCents: byMethod.OTHER || 0,
+    },
+    totalDiscountsCents,
+    totalRefundsCents,
+    totalVoidedTransactions: 0,
+  };
+
+  return {
+    period: { startDate: start.toISOString(), endDate: end.toISOString() },
+    startDate: start,
+    endDate: end,
+    summary,
+    totalRevenueCents,
+    totalDiscountsCents,
+    totalRefundsCents,
+    totalTransactions: transactionCount,
+    avgTransactionCents,
+    totalLaborCostCents,
+    totalWorkedHours: Number(totalWorkedHours.toFixed(2)),
+    overallLaborCostPct,
+    overallRevenuePerHourCents,
+    byMethod,
+    salesBreakdown,
+    salesByEmployee,
+    byEmployee: salesByEmployee,
+    salesByShift,
+    byShift: salesByShift,
+  };
+}
+
 export async function exportTicketsCsv() {
   const tickets = await prisma.ticket.findMany({ where: { deletedAt: null }, include: ticketInclude, orderBy: { ticketNumber: 'asc' } });
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
@@ -910,9 +1177,12 @@ export async function loginUser(input: unknown, ipAddress?: string) {
   });
 
   const { passwordHash: _, ...safeUser } = user;
+  const expiresAtMs = Date.now() + 24 * 60 * 60 * 1000;
   return { 
     token, 
     user: safeUser, 
+    expiresAt: new Date(expiresAtMs).toISOString(),
+    expiresAtMs,
     redirectTo: (user.role === 'ADMIN' && adminMode) ? 'admin' : 'repairs' 
   };
 }

@@ -1,4 +1,4 @@
-import { test, describe, before, after } from 'node:test';
+import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { EscPosBuilder, buildTicketEscPos } from '../src/utils/escpos';
 import { buildDeviceStickerHtml } from '../src/utils/receipt';
@@ -7,12 +7,15 @@ import { Ticket } from '../src/types';
 const mockTicket: Ticket = {
   id: 'tkt-test-kiosk-99',
   ticketNumber: 42,
+  customerId: 'cust-99',
+  deviceId: 'dev-99',
   customer: {
     id: 'cust-99',
     fullName: 'Jane Customer',
     phone: '4165559988',
     phoneDigits: '4165559988',
     createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   device: {
     id: 'dev-99',
@@ -20,10 +23,13 @@ const mockTicket: Ticket = {
     passcode: '8842',
     pattern: '1-2-5-8',
     serialNumber: 'F2LL8934',
+    customerId: 'cust-99',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   },
   faultDescription: 'Screen cracked and battery swelling',
   status: 'CHECKED_IN',
-  priority: 'MEDIUM',
+  priority: 'STANDARD',
   laborCents: 8500,
   discountCents: 0,
   taxRateBps: 1300,
@@ -37,6 +43,7 @@ const mockTicket: Ticket = {
       description: 'OLED Display Assembly',
       quantity: 1,
       unitPriceCents: 18000,
+      unitCostCents: 10000,
       createdAt: new Date().toISOString(),
     },
   ],

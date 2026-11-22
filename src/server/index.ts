@@ -31,6 +31,7 @@ import {
   deletePart,
   getDashboard,
   getReport,
+  getSalesLaborAnalytics,
   exportTicketsCsv,
   loginUser,
   logoutUser,
@@ -49,6 +50,7 @@ import { authenticateSession, ensureAdminProvisioning, recordAudit, verifySigned
 import { configureSqlite, createBackup, listBackups, resolveBackup, startBackupSchedule } from './backup';
 import { ensureDatabaseSchema, ensureInitialInventory } from './initDb';
 import * as payrollService from './payrollService';
+import * as scheduleService from './scheduleService';
 import { prisma } from './prisma';
 import { buildReceiptHtml, buildBenchSlipHtml, buildLetterInvoiceHtml } from '../utils/receipt';
 
@@ -70,6 +72,7 @@ declare global {
         createdAt: Date;
       };
       token?: string;
+      sessionExpired?: boolean;
     }
   }
 }
@@ -102,14 +105,11 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
 
     if (token) {
       req.token = token;
-      const clientHeaders = {
-        userId: req.headers['x-user-id'] as string | undefined,
-        userName: req.headers['x-user-name'] as string | undefined,
-        userRole: req.headers['x-user-role'] as string | undefined,
-      };
-      const user = await authenticateSession(token, clientHeaders);
+      const user = await authenticateSession(token);
       if (user) {
         req.user = user;
+      } else {
+        req.sessionExpired = true;
       }
     }
   } catch (err) {
@@ -126,14 +126,26 @@ const wrap = (fn: (req: Request, res: Response, next: NextFunction) => Promise<a
 
 const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   if (!req.user) {
-    return res.status(401).json({ success: false, error: 'Authentication required. Please log in.' });
+    return res.status(401).json({
+      success: false,
+      code: req.sessionExpired ? 'SESSION_EXPIRED' : 'AUTH_REQUIRED',
+      error: req.sessionExpired
+        ? 'Your session has expired after 24 hours. Please log in again.'
+        : 'Authentication required. Please log in.',
+    });
   }
   next();
 };
 
 const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
   if (!req.user) {
-    return res.status(401).json({ success: false, error: 'Authentication required. Please log in.' });
+    return res.status(401).json({
+      success: false,
+      code: req.sessionExpired ? 'SESSION_EXPIRED' : 'AUTH_REQUIRED',
+      error: req.sessionExpired
+        ? 'Your session has expired after 24 hours. Please log in again.'
+        : 'Authentication required. Please log in.',
+    });
   }
   if (req.user.role !== 'ADMIN') {
     return res.status(403).json({ success: false, error: 'Access forbidden: Administrator privileges required.' });
@@ -291,7 +303,7 @@ app.get('/api/admin/overview', requireAdmin, wrap(async (_req, res) => {
   res.json({ success: true, data: overview });
 }));
 
-app.get('/api/users', requireAuth, wrap(async (req, res) => {
+app.get('/api/users', requireAuth, wrap(async (_req, res) => {
   const users = await listUsers({});
   res.json({ success: true, count: users.length, data: users, users });
 }));
@@ -958,6 +970,65 @@ app.get('/api/admin/payroll/paystubs/:id/html', requireAdmin, wrap(async (req, r
   const html = await payrollService.buildPaystubHtml(getParam(req, 'id'), true);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
+}));
+
+// ---------------------------------------------------------------------------
+// Employee Shift Scheduling & Compliance Endpoints
+// ---------------------------------------------------------------------------
+
+app.get('/api/schedules', requireAuth, wrap(async (req, res) => {
+  const isAdmin = req.user?.role === 'ADMIN' || req.user?.role === 'MANAGER';
+  const userId = isAdmin ? (req.query.userId as string | undefined) : req.user!.id;
+  const shifts = await scheduleService.listScheduledShifts({
+    userId,
+    startDate: req.query.startDate as string | undefined,
+    endDate: req.query.endDate as string | undefined,
+    status: req.query.status as any,
+  });
+  res.json({ success: true, count: shifts.length, data: shifts });
+}));
+
+app.post('/api/schedules', requireAdmin, wrap(async (req, res) => {
+  const result = await scheduleService.createScheduledShift(req.body, {
+    id: req.user!.id,
+    name: req.user!.name,
+  });
+  res.status(201).json({ success: true, ...result });
+}));
+
+app.get('/api/schedules/compare', requireAdmin, wrap(async (req, res) => {
+  const startDate = (req.query.startDate as string) || new Date(Date.now() - 7 * 86400000).toISOString();
+  const endDate = (req.query.endDate as string) || new Date().toISOString();
+  const comparison = await scheduleService.compareScheduleVsActual(startDate, endDate);
+  res.json({ success: true, data: comparison });
+}));
+
+app.put('/api/schedules/:id', requireAdmin, wrap(async (req, res) => {
+  const result = await scheduleService.updateScheduledShift(
+    getParam(req, 'id'),
+    req.body,
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json({ success: true, ...result });
+}));
+
+app.delete('/api/schedules/:id', requireAdmin, wrap(async (req, res) => {
+  const result = await scheduleService.deleteScheduledShift(
+    getParam(req, 'id'),
+    { id: req.user!.id, name: req.user!.name }
+  );
+  res.json(result);
+}));
+
+// ---------------------------------------------------------------------------
+// POS Sales Attribution & Labor Productivity Analytics
+// ---------------------------------------------------------------------------
+
+app.get('/api/reports/sales-labor', requireAdmin, wrap(async (req, res) => {
+  const startDate = (req.query.startDate as string) || new Date(Date.now() - 30 * 86400000).toISOString();
+  const endDate = (req.query.endDate as string) || new Date().toISOString();
+  const analytics = await getSalesLaborAnalytics(startDate, endDate);
+  res.json({ success: true, data: analytics });
 }));
 
 // ---------------------------------------------------------------------------

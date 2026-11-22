@@ -12,7 +12,6 @@ import {
   ShoppingCart,
   Download,
   Printer,
-  FileSpreadsheet,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
