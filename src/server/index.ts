@@ -1010,7 +1010,7 @@ export { app };
 export default app;
 
 if (!process.env.VERCEL) {
-  app.listen(PORT, async () => {
+  app.listen(Number(PORT), '0.0.0.0', async () => {
     console.log(`[Faso Fix API] Running on http://localhost:${PORT}`);
     try {
       await configureSqlite();
