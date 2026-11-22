@@ -4837,6 +4837,8 @@ if (fs.existsSync(distPath)) {
 	app.use((req, res, next) => {
 		if (req.path.startsWith("/api/")) return next();
 		if (req.method !== "GET") return next();
+		if (req.path.startsWith("/assets/") || req.path.includes(".")) return res.status(404).send("Not Found");
+		res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
 		res.sendFile(path.join(distPath, "index.html"));
 	});
 }
