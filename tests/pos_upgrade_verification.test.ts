@@ -212,7 +212,7 @@ describe('Faso Fix POS Complete Upgrade Verification Suite', () => {
       },
       regularHours: 80,
       overtimeHours: 0,
-      periodType: 'BIWEEKLY',
+      periodType: 'BI_WEEKLY',
       daysInPeriod: 14,
     });
 

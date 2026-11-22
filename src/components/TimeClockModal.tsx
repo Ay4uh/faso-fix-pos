@@ -1,18 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import {
-  Clock,
-  Play,
-  Square,
+  LogIn,
+  LogOut,
   Coffee,
+  Play,
   CheckCircle2,
-  DollarSign,
   AlertCircle,
   FileText,
   ChevronRight,
   X,
   History,
-  Timer,
   Calendar,
+  DollarSign,
+  User,
+  ArrowLeft,
+  UtensilsCrossed,
 } from 'lucide-react';
 import { fetchWithAuth } from '../utils/auth';
 import { PaystubModal } from './PaystubModal';
@@ -41,6 +43,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [breakMenuOpen, setBreakMenuOpen] = useState(false);
 
   // Live real-time clock state (Toronto/Eastern Time)
   const [currentTime, setCurrentTime] = useState(new Date());
@@ -59,6 +62,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       loadPaystubs();
       setErrorMsg(null);
       setSuccessMsg(null);
+      setBreakMenuOpen(false);
     }
   }, [isOpen]);
 
@@ -105,7 +109,6 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
             }
           } catch {}
         } else if (statusData?.activeShift) {
-          // Cache server active shift locally
           try {
             localStorage.setItem(getActiveShiftKey(), JSON.stringify(statusData.activeShift));
           } catch {}
@@ -143,6 +146,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   };
 
   const handleClockIn = async () => {
+    if (isClockedIn) return;
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -154,7 +158,6 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       status: 'ACTIVE',
       breakMinutes: 0,
     };
-    // Optimistic instant visual update
     setClockStatus((prev: any) => ({
       ...prev,
       isClockedIn: true,
@@ -178,7 +181,6 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       const json = await res.json();
 
       if (!res.ok) {
-        // If already clocked in, gracefully recover and sync active shift
         if (res.status === 409) {
           const recoveredShift = json.activeShift || tempShift;
           localStorage.setItem(getActiveShiftKey(), JSON.stringify(recoveredShift));
@@ -207,6 +209,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   };
 
   const handleClockOut = async () => {
+    if (!isClockedIn) return;
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -218,7 +221,6 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
 
     const shiftData = activeShift || localShift || undefined;
 
-    // Optimistic instant visual update
     setClockStatus((prev: any) => ({
       ...prev,
       isClockedIn: false,
@@ -254,8 +256,8 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     setLoading(true);
     setErrorMsg(null);
     setSuccessMsg(null);
+    setBreakMenuOpen(false);
 
-    // Optimistic instant visual update
     setClockStatus((prev: any) => ({
       ...prev,
       isOnBreak: true,
@@ -293,7 +295,6 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    // Optimistic instant visual update
     setClockStatus((prev: any) => ({
       ...prev,
       isOnBreak: false,
@@ -307,12 +308,13 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
         localStorage.setItem(getActiveShiftKey(), JSON.stringify(shift));
       }
     } catch {}
-    setSuccessMsg('Welcome back! Break ended and shift resumed.');
+    setSuccessMsg('Break ended! Shift resumed.');
     onStatusChange?.();
 
     try {
       const res = await fetchWithAuth('/api/timeclock/break-end', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to end break');
@@ -329,14 +331,12 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   const isOnBreak = Boolean(clockStatus?.isOnBreak ?? clockStatus?.onBreak);
   const activeShift = clockStatus?.activeShift;
 
-  const fmtCurrency = (cents: number) => `$${((cents || 0) / 100).toFixed(2)}`;
+  const fmtCurrency = (cents: number) => `$${(cents / 100).toFixed(2)}`;
 
-  // Calculate live ticking elapsed time from active shift
   let elapsedFormatted = '00:00:00';
   if (isClockedIn && activeShift?.clockIn) {
     const startMs = new Date(activeShift.clockIn).getTime();
-    const nowMs = currentTime.getTime();
-    const diffSec = Math.max(0, Math.floor((nowMs - startMs) / 1000));
+    const diffSec = Math.max(0, Math.floor((currentTime.getTime() - startMs) / 1000));
     const hours = Math.floor(diffSec / 3600);
     const mins = Math.floor((diffSec % 3600) / 60);
     const secs = diffSec % 60;
@@ -344,264 +344,344 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
     elapsedFormatted = `${pad(hours)}:${pad(mins)}:${pad(secs)}`;
   }
 
+  const hoursThisPeriod = Number(clockStatus?.weeklyHours ?? clockStatus?.weekHours ?? 0).toFixed(2);
+  const firstName = currentUser?.name ? currentUser.name.split(' ')[0] : 'Staff';
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/60 backdrop-blur-xs overflow-y-auto">
-      <div className="relative w-full max-w-2xl bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-6">
-        {/* Header Bar */}
-        <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-slate-900 to-indigo-950 text-white">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/75 backdrop-blur-xs overflow-y-auto">
+      {/* Outer Card with Sleek Hardware/Terminal Frame */}
+      <div className="relative w-full max-w-3xl bg-[#0f172a] text-slate-100 rounded-3xl shadow-2xl border border-slate-700/80 overflow-hidden my-4">
+        
+        {/* Top Header Bar (Matching TimeTrakGO Reference) */}
+        <div className="flex items-center justify-between px-6 py-4 bg-[#1e293b] border-b border-slate-700/70">
+          {/* Left: Brand & Title */}
           <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-xl bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-300">
-              <Clock className="w-5 h-5 animate-pulse" />
+            <div className="w-9 h-9 rounded-xl bg-indigo-600 text-white flex items-center justify-center font-black text-sm shadow-inner">
+              FF
             </div>
             <div>
-              <h2 className="text-base font-bold text-white tracking-tight">
-                Staff Time Clock &amp; Paystubs
+              <h2 className="text-sm font-black tracking-wide text-white uppercase font-sans">
+                Faso Fix <span className="text-indigo-400 font-semibold lowercase">time clock</span>
               </h2>
-              <p className="text-xs text-indigo-200">
-                {currentUser?.name} • ID #{clockStatus?.employeeNumber || 'FF-001'}
-              </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 text-slate-300 hover:text-white hover:bg-white/10 rounded-lg transition cursor-pointer"
-          >
-            <X className="w-5 h-5" />
-          </button>
+
+          {/* Center: Employee ID Badge Pill */}
+          <div className="hidden sm:flex items-center space-x-2 bg-white text-slate-900 px-3.5 py-1.5 rounded-full shadow-xs border border-slate-200">
+            <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">
+              <User className="w-3.5 h-3.5" />
+            </div>
+            <span className="text-xs font-bold font-sans">
+              {currentUser?.name || 'Employee'}
+            </span>
+          </div>
+
+          {/* Right: Clean Time Display & Close */}
+          <div className="flex items-center space-x-4">
+            <div className="text-right">
+              <div className="text-base sm:text-lg font-mono font-bold text-white tracking-tight">
+                {currentTime.toLocaleTimeString('en-CA', { hour12: true })}
+              </div>
+              <div className="text-[10px] text-slate-400 font-medium">
+                {currentTime.toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
+              </div>
+            </div>
+
+            <button
+              onClick={onClose}
+              className="p-1.5 text-slate-400 hover:text-white hover:bg-slate-700/50 rounded-lg transition cursor-pointer"
+              title="Close Time Clock"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
-        {/* Tab Switcher */}
-        <div className="flex border-b border-slate-200 bg-slate-50 px-6 pt-2">
-          <button
-            onClick={() => setActiveTab('clock')}
-            className={`flex items-center space-x-2 py-3 px-4 text-xs font-bold border-b-2 transition cursor-pointer ${
-              activeTab === 'clock'
-                ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-lg'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <Timer className="w-4 h-4" />
-            <span>Time Clock</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('history')}
-            className={`flex items-center space-x-2 py-3 px-4 text-xs font-bold border-b-2 transition cursor-pointer ${
-              activeTab === 'history'
-                ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-lg'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <History className="w-4 h-4" />
-            <span>Attendance History</span>
-          </button>
-          <button
-            onClick={() => setActiveTab('schedule')}
-            className={`flex items-center space-x-2 py-3 px-4 text-xs font-bold border-b-2 transition cursor-pointer ${
-              activeTab === 'schedule'
-                ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-lg'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <Calendar className="w-4 h-4" />
-            <span>Assigned Shifts</span>
-            {scheduledShifts.length > 0 && (
-              <span className="ml-1 px-1.5 py-0.5 rounded-full text-[10px] bg-indigo-100 text-indigo-700 font-mono">
-                {scheduledShifts.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => setActiveTab('paystubs')}
-            className={`flex items-center space-x-2 py-3 px-4 text-xs font-bold border-b-2 transition cursor-pointer ${
-              activeTab === 'paystubs'
-                ? 'border-indigo-600 text-indigo-700 bg-white rounded-t-lg'
-                : 'border-transparent text-slate-500 hover:text-slate-900'
-            }`}
-          >
-            <DollarSign className="w-4 h-4" />
-            <span>My Paystubs</span>
-          </button>
-        </div>
-
-        {/* Notification Alerts */}
+        {/* Alerts / Error & Success banners */}
         {errorMsg && (
-          <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center space-x-2 text-xs text-red-700">
-            <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+          <div className="mx-6 mt-4 p-3 bg-red-950/80 border border-red-700/80 rounded-xl flex items-center space-x-2 text-xs text-red-200">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
         {successMsg && (
-          <div className="mx-6 mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-2 text-xs text-emerald-800">
-            <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <div className="mx-6 mt-4 p-3 bg-emerald-950/80 border border-emerald-700/80 rounded-xl flex items-center space-x-2 text-xs text-emerald-200">
+            <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{successMsg}</span>
           </div>
         )}
 
-        {/* Tab 1: Live Time Clock */}
+        {/* ========================================================
+            VIEW 1: CLEAN 3-CARD PUNCH TERMINAL (Reference Image)
+           ======================================================== */}
         {activeTab === 'clock' && (
-          <div className="p-6 space-y-6">
-            {/* Digital Clock Display */}
-            <div className="text-center py-6 px-4 bg-gradient-to-b from-slate-50 to-indigo-50/40 rounded-2xl border border-indigo-100">
-              <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-600">
-                Official Business Time (America/Toronto)
-              </span>
-              <div className="text-4xl sm:text-5xl font-mono font-black text-slate-900 tracking-tight my-2">
-                {currentTime.toLocaleTimeString('en-CA', { hour12: true })}
-              </div>
-              <p className="text-xs text-slate-600 font-medium">
-                {currentTime.toLocaleDateString('en-CA', {
-                  weekday: 'long',
-                  year: 'numeric',
-                  month: 'long',
-                  day: 'numeric',
-                })}
+          <div className="p-6 sm:p-8 space-y-6">
+            {/* Greeting & Shift Status Line */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-slate-800">
+              <p className="text-sm text-slate-300 font-medium">
+                Good day <strong className="text-white font-bold">{firstName}</strong>, please select a function:
               </p>
 
               {/* Status Badge */}
-              <div className="mt-4 flex items-center justify-center space-x-2">
+              <div className="flex items-center space-x-2">
                 <span
-                  className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-xs font-bold ${
+                  className={`inline-flex items-center space-x-2 px-3 py-1 rounded-full text-xs font-bold ${
                     isOnBreak
-                      ? 'bg-amber-100 text-amber-800 border border-amber-300'
+                      ? 'bg-amber-950/70 text-amber-300 border border-amber-600/60'
                       : isClockedIn
-                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                      : 'bg-slate-200 text-slate-700'
+                      ? 'bg-emerald-950/70 text-emerald-300 border border-emerald-600/60'
+                      : 'bg-slate-800 text-slate-400 border border-slate-700'
                   }`}
                 >
                   <span
                     className={`w-2 h-2 rounded-full ${
                       isOnBreak
-                        ? 'bg-amber-500 animate-ping'
+                        ? 'bg-amber-400 animate-ping'
                         : isClockedIn
-                        ? 'bg-emerald-500 animate-pulse'
-                        : 'bg-slate-400'
+                        ? 'bg-emerald-400 animate-pulse'
+                        : 'bg-slate-500'
                     }`}
                   />
                   <span>
-                    {isOnBreak ? 'On Unpaid Break' : isClockedIn ? `Clocked In • ${elapsedFormatted}` : 'Currently Clocked Out'}
+                    {isOnBreak
+                      ? `On Break • ${elapsedFormatted}`
+                      : isClockedIn
+                      ? `Clocked In • ${elapsedFormatted}`
+                      : 'Currently Clocked Out'}
                   </span>
                 </span>
               </div>
             </div>
 
-            {/* Shift Actions */}
-            <div className="space-y-4">
-              {!isClockedIn ? (
-                <div>
+            {/* THREE LARGE ACTION CARDS (TimeTrakGO Design) */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              
+              {/* CARD 1: CLOCK IN */}
+              <button
+                type="button"
+                onClick={handleClockIn}
+                disabled={isClockedIn || loading}
+                className={`relative flex flex-col items-center justify-center p-6 rounded-2xl border transition-all duration-200 cursor-pointer ${
+                  !isClockedIn
+                    ? 'bg-[#1e293b] hover:bg-[#334155] border-slate-700 hover:border-emerald-500/60 shadow-lg hover:shadow-emerald-500/10 active:scale-[0.98]'
+                    : 'bg-[#0f172a]/60 border-slate-800 text-slate-500 cursor-not-allowed opacity-40'
+                }`}
+              >
+                <div className="w-16 h-16 rounded-2xl bg-[#0f172a] border border-slate-700 flex items-center justify-center mb-3">
+                  <LogIn className={`w-8 h-8 ${!isClockedIn ? 'text-emerald-400' : 'text-slate-600'}`} />
+                </div>
+                <span className="text-base font-bold text-white tracking-wide">Clock In</span>
+                <span className="text-[11px] text-slate-400 mt-1">Start Scheduled Shift</span>
+                
+                {/* Bottom Green Accent Strip */}
+                <div
+                  className={`absolute bottom-0 left-0 right-0 h-1.5 rounded-b-2xl transition ${
+                    !isClockedIn ? 'bg-emerald-500' : 'bg-transparent'
+                  }`}
+                />
+              </button>
+
+              {/* CARD 2: TAKE BREAK / END BREAK */}
+              {!isOnBreak ? (
+                <div className="relative">
                   <button
-                    onClick={handleClockIn}
-                    disabled={loading}
-                    className="w-full py-4 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white font-bold rounded-2xl shadow-lg shadow-emerald-600/30 flex items-center justify-center space-x-2 transition cursor-pointer text-base disabled:opacity-50"
+                    type="button"
+                    onClick={() => {
+                      if (!isClockedIn) return;
+                      setBreakMenuOpen(!breakMenuOpen);
+                    }}
+                    disabled={!isClockedIn || loading}
+                    className={`w-full h-full relative flex flex-col items-center justify-center p-6 rounded-2xl border transition-all duration-200 cursor-pointer ${
+                      isClockedIn
+                        ? 'bg-[#1e293b] hover:bg-[#334155] border-slate-700 hover:border-amber-500/60 shadow-lg hover:shadow-amber-500/10 active:scale-[0.98]'
+                        : 'bg-[#0f172a]/60 border-slate-800 text-slate-500 cursor-not-allowed opacity-40'
+                    }`}
                   >
-                    <Play className="w-5 h-5 fill-current" />
-                    <span>Clock In (Start Shift)</span>
+                    <div className="w-16 h-16 rounded-2xl bg-[#0f172a] border border-slate-700 flex items-center justify-center mb-3">
+                      <Coffee className={`w-8 h-8 ${isClockedIn ? 'text-amber-400' : 'text-slate-600'}`} />
+                    </div>
+                    <span className="text-base font-bold text-white tracking-wide">Take Break</span>
+                    <span className="text-[11px] text-slate-400 mt-1">Meal (Unpaid) or Rest (Paid)</span>
+
+                    {/* Bottom Amber Accent Strip */}
+                    <div
+                      className={`absolute bottom-0 left-0 right-0 h-1.5 rounded-b-2xl transition ${
+                        isClockedIn ? 'bg-amber-500' : 'bg-transparent'
+                      }`}
+                    />
                   </button>
-                  <p className="text-center text-[11px] text-slate-400 mt-2">
-                    Hourly rate: {fmtCurrency(clockStatus?.hourlyRateCents || 2200)}/hr • Overtime calculated &gt;44h/wk
-                  </p>
+
+                  {/* Dropdown Options for Meal vs Rest */}
+                  {breakMenuOpen && (
+                    <div className="absolute top-full left-0 right-0 mt-2 z-20 bg-[#1e293b] border border-slate-700 rounded-xl shadow-xl overflow-hidden p-1 space-y-1">
+                      <button
+                        onClick={() => handleStartBreak('UNPAID_MEAL')}
+                        className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-700 rounded-lg text-amber-300 flex items-center space-x-2 transition cursor-pointer"
+                      >
+                        <UtensilsCrossed className="w-4 h-4 text-amber-400" />
+                        <div>
+                          <span>Unpaid Meal Break</span>
+                          <span className="block text-[10px] text-slate-400 font-normal">Standard 30 minutes</span>
+                        </div>
+                      </button>
+                      <button
+                        onClick={() => handleStartBreak('PAID_REST')}
+                        className="w-full text-left px-3 py-2 text-xs font-semibold hover:bg-slate-700 rounded-lg text-indigo-300 flex items-center space-x-2 transition cursor-pointer"
+                      >
+                        <Coffee className="w-4 h-4 text-indigo-400" />
+                        <div>
+                          <span>Paid Rest Break</span>
+                          <span className="block text-[10px] text-slate-400 font-normal">15 minutes paid rest</span>
+                        </div>
+                      </button>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="space-y-3">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    {/* Break Controls */}
-                    {!isOnBreak ? (
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => handleStartBreak('UNPAID_MEAL')}
-                          disabled={loading}
-                          className="flex-1 py-3 px-3 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-300 font-bold rounded-xl flex items-center justify-center space-x-1.5 transition cursor-pointer text-xs"
-                        >
-                          <Coffee className="w-4 h-4 text-amber-600" />
-                          <span>Unpaid Meal (30m)</span>
-                        </button>
-                        <button
-                          onClick={() => handleStartBreak('PAID_REST')}
-                          disabled={loading}
-                          className="flex-1 py-3 px-3 bg-indigo-50 hover:bg-indigo-100 text-indigo-800 border border-indigo-300 font-bold rounded-xl flex items-center justify-center space-x-1.5 transition cursor-pointer text-xs"
-                        >
-                          <Coffee className="w-4 h-4 text-indigo-600" />
-                          <span>Paid Rest (15m)</span>
-                        </button>
-                      </div>
-                    ) : (
-                      <button
-                        onClick={handleEndBreak}
-                        disabled={loading}
-                        className="py-3 px-4 bg-amber-600 hover:bg-amber-700 text-white font-bold rounded-xl shadow-xs flex items-center justify-center space-x-2 transition cursor-pointer text-xs"
-                      >
-                        <Play className="w-4 h-4 fill-current" />
-                        <span>Resume Shift (End Break)</span>
-                      </button>
-                    )}
-
-                    {/* Clock Out Control */}
-                    <button
-                      onClick={handleClockOut}
-                      disabled={loading}
-                      className="py-3 px-4 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold rounded-xl shadow-xs flex items-center justify-center space-x-2 transition cursor-pointer text-xs disabled:opacity-40"
-                    >
-                      <Square className="w-4 h-4 fill-current" />
-                      <span>Clock Out (End Shift)</span>
-                    </button>
+                <button
+                  type="button"
+                  onClick={handleEndBreak}
+                  disabled={loading}
+                  className="relative flex flex-col items-center justify-center p-6 rounded-2xl bg-amber-600 hover:bg-amber-500 border border-amber-400 text-white shadow-xl shadow-amber-600/30 transition-all duration-200 cursor-pointer active:scale-[0.98]"
+                >
+                  <div className="w-16 h-16 rounded-2xl bg-amber-700/60 border border-amber-300/40 flex items-center justify-center mb-3">
+                    <Play className="w-8 h-8 fill-current text-white animate-pulse" />
                   </div>
+                  <span className="text-base font-bold text-white tracking-wide">End Break</span>
+                  <span className="text-[11px] text-amber-100 mt-1">Resume active shift</span>
 
-                  {/* Optional Shift Notes */}
-                  <div>
-                    <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                      Optional Shift Notes / Tasks Completed
-                    </label>
-                    <input
-                      type="text"
-                      value={notes}
-                      onChange={(e) => setNotes(e.target.value)}
-                      placeholder="e.g. Worked on screen replacements at Bench #01"
-                      className="w-full text-xs px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                    />
-                  </div>
+                  {/* Bottom Yellow Accent Strip */}
+                  <div className="absolute bottom-0 left-0 right-0 h-1.5 rounded-b-2xl bg-yellow-300" />
+                </button>
+              )}
+
+              {/* CARD 3: CLOCK OUT */}
+              <button
+                type="button"
+                onClick={handleClockOut}
+                disabled={!isClockedIn || loading}
+                className={`relative flex flex-col items-center justify-center p-6 rounded-2xl border transition-all duration-200 cursor-pointer ${
+                  isClockedIn
+                    ? 'bg-[#1e293b] hover:bg-[#334155] border-slate-700 hover:border-rose-500/60 shadow-lg hover:shadow-rose-500/10 active:scale-[0.98]'
+                    : 'bg-[#0f172a]/60 border-slate-800 text-slate-500 cursor-not-allowed opacity-40'
+                }`}
+              >
+                <div className="w-16 h-16 rounded-2xl bg-[#0f172a] border border-slate-700 flex items-center justify-center mb-3">
+                  <LogOut className={`w-8 h-8 ${isClockedIn ? 'text-rose-400' : 'text-slate-600'}`} />
                 </div>
+                <span className="text-base font-bold text-white tracking-wide">Clock Out</span>
+                <span className="text-[11px] text-slate-400 mt-1">End Working Shift</span>
+
+                {/* Bottom Red Accent Strip */}
+                <div
+                  className={`absolute bottom-0 left-0 right-0 h-1.5 rounded-b-2xl transition ${
+                    isClockedIn ? 'bg-rose-500' : 'bg-transparent'
+                  }`}
+                />
+              </button>
+            </div>
+
+            {/* Optional Shift Notes & Last Action Status */}
+            <div className="bg-[#1e293b] p-3.5 rounded-xl border border-slate-800 space-y-2">
+              <div className="flex items-center justify-between text-xs text-slate-400">
+                <span>
+                  {activeShift?.clockIn
+                    ? `Started Shift at ${new Date(activeShift.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} on ${new Date(activeShift.clockIn).toLocaleDateString('en-CA')}`
+                    : 'Ready to punch clock'}
+                </span>
+                <span className="font-mono text-[11px] text-indigo-400">
+                  Rate: {fmtCurrency(clockStatus?.hourlyRateCents || 2200)}/hr
+                </span>
+              </div>
+
+              {isClockedIn && (
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={(e) => setNotes(e.target.value)}
+                  placeholder="Optional shift notes (e.g. Completed 4 screen repairs at Bench #01)..."
+                  className="w-full text-xs px-3 py-2 bg-[#0f172a] border border-slate-700 rounded-lg text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500"
+                />
               )}
             </div>
 
-            {/* Today's & Weekly Working Stats */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2">
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                <span className="text-[10px] uppercase font-bold text-slate-500">Today</span>
-                <p className="text-base font-black text-slate-900 font-mono">
-                  {clockStatus?.todayHours ? `${clockStatus.todayHours} hrs` : '0.0 hrs'}
+            {/* BOTTOM SUMMARY & SELF-SERVICE BAR (Matching Image 2 Reference) */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2 border-t border-slate-800">
+              {/* Big Bold Typography: Hours this period */}
+              <div>
+                <div className="flex items-baseline space-x-2">
+                  <span className="text-3xl font-black font-mono text-white tracking-tight">
+                    {hoursThisPeriod}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider">
+                    Hours this period
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Ontario ESA Compliant • Overtime calculated after 44.0 hrs/wk @ 1.5x
                 </p>
               </div>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                <span className="text-[10px] uppercase font-bold text-slate-500">This Week</span>
-                <p className="text-base font-black text-indigo-700 font-mono">
-                  {(clockStatus?.weeklyHours ?? clockStatus?.weekHours) ? `${clockStatus.weeklyHours ?? clockStatus.weekHours} hrs` : '0.0 hrs'}
-                </p>
-              </div>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                <span className="text-[10px] uppercase font-bold text-slate-500">Hourly Rate</span>
-                <p className="text-base font-black text-slate-900 font-mono">
-                  {fmtCurrency(clockStatus?.hourlyRateCents ?? clockStatus?.user?.hourlyRateCents ?? 2200)}
-                </p>
-              </div>
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                <span className="text-[10px] uppercase font-bold text-slate-500">OT Rule</span>
-                <p className="text-xs font-bold text-slate-700 font-mono mt-1">&gt;44h @ 1.5x</p>
+
+              {/* Self-Service Navigation Action Pills */}
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('history')}
+                  className="flex items-center space-x-1.5 px-3 py-2 bg-[#1e293b] hover:bg-[#334155] text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  <History className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>History</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('schedule')}
+                  className="flex items-center space-x-1.5 px-3 py-2 bg-[#1e293b] hover:bg-[#334155] text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+                >
+                  <Calendar className="w-3.5 h-3.5 text-indigo-400" />
+                  <span>Schedule</span>
+                  {scheduledShifts.length > 0 && (
+                    <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] bg-indigo-500/30 text-indigo-300 font-mono">
+                      {scheduledShifts.length}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('paystubs')}
+                  className="flex items-center space-x-1.5 px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-bold transition shadow-xs cursor-pointer"
+                >
+                  <DollarSign className="w-3.5 h-3.5" />
+                  <span>My Paystubs</span>
+                </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Tab 2: Attendance History */}
+        {/* ========================================================
+            VIEW 2: ATTENDANCE HISTORY
+           ======================================================== */}
         {activeTab === 'history' && (
-          <div className="p-6 space-y-4 max-h-[460px] overflow-y-auto">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Recent Logged Shifts ({shifts.length})
-            </h3>
-            {shifts.length === 0 ? (
-              <p className="text-xs text-slate-400 py-8 text-center">No shifts recorded yet.</p>
-            ) : (
-              <div className="border border-slate-200 rounded-xl overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-100 text-slate-600 uppercase text-[10px] font-bold">
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <button
+                onClick={() => setActiveTab('clock')}
+                className="flex items-center space-x-1.5 text-xs font-bold text-indigo-400 hover:text-indigo-300 cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to Time Clock</span>
+              </button>
+              <span className="text-xs text-slate-400">Recent Logged Shifts ({shifts.length})</span>
+            </div>
+
+            <div className="max-h-[380px] overflow-y-auto rounded-xl border border-slate-800">
+              {shifts.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 text-xs">No shifts recorded yet.</div>
+              ) : (
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-[#1e293b] text-slate-400 uppercase text-[10px] font-bold sticky top-0">
                     <tr>
                       <th className="py-2.5 px-3">Date</th>
                       <th className="py-2.5 px-3">Clock In</th>
@@ -611,32 +691,32 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                       <th className="py-2.5 px-3 text-center">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100 font-mono">
+                  <tbody className="divide-y divide-slate-800/80 font-mono text-slate-300">
                     {shifts.map((s) => (
-                      <tr key={s.id} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-sans font-medium text-slate-900">
+                      <tr key={s.id} className="hover:bg-slate-800/40 transition">
+                        <td className="py-2.5 px-3 font-sans font-medium text-white">
                           {new Date(s.clockIn).toLocaleDateString('en-CA')}
                         </td>
-                        <td className="py-2.5 px-3 text-slate-600">
+                        <td className="py-2.5 px-3 text-slate-400">
                           {new Date(s.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                         </td>
-                        <td className="py-2.5 px-3 text-slate-600">
+                        <td className="py-2.5 px-3 text-slate-400">
                           {s.clockOut
                             ? new Date(s.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
                             : 'Active'}
                         </td>
                         <td className="py-2.5 px-3 text-center text-slate-500">{s.breakMinutes || 0}m</td>
-                        <td className="py-2.5 px-3 text-right font-bold text-slate-900">
+                        <td className="py-2.5 px-3 text-right font-bold text-white">
                           {((s.totalMinutes || 0) / 60).toFixed(2)}h
                         </td>
                         <td className="py-2.5 px-3 text-center">
                           <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase font-sans ${
                               s.status === 'COMPLETED'
-                                ? 'bg-slate-100 text-slate-700'
+                                ? 'bg-slate-800 text-slate-300 border border-slate-700'
                                 : s.status === 'ACTIVE'
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-indigo-100 text-indigo-700'
+                                ? 'bg-emerald-950 text-emerald-300 border border-emerald-700'
+                                : 'bg-indigo-950 text-indigo-300 border border-indigo-700'
                             }`}
                           >
                             {s.status}
@@ -646,44 +726,44 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                     ))}
                   </tbody>
                 </table>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         )}
 
-        {/* Tab 2b: Assigned Shifts */}
+        {/* ========================================================
+            VIEW 3: ASSIGNED SHIFTS SCHEDULE
+           ======================================================== */}
         {activeTab === 'schedule' && (
-          <div className="p-6 space-y-4 max-h-[460px] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Assigned Shifts &amp; Work Schedule ({scheduledShifts.length})
-              </h3>
-              <span className="text-[11px] text-indigo-600 font-semibold">
-                Ontario ESA Regulated Schedule
-              </span>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <button
+                onClick={() => setActiveTab('clock')}
+                className="flex items-center space-x-1.5 text-xs font-bold text-indigo-400 hover:text-indigo-300 cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to Time Clock</span>
+              </button>
+              <span className="text-xs text-indigo-300 font-semibold">Ontario ESA Regulated Schedule</span>
             </div>
 
-            {scheduledShifts.length === 0 ? (
-              <div className="text-center py-10 bg-slate-50 rounded-2xl border border-slate-200">
-                <Calendar className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-xs font-bold text-slate-700">No Upcoming Shifts Scheduled</p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Your administrator has not assigned any upcoming shifts yet.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3 font-mono">
-                {scheduledShifts.map((shift) => (
+            <div className="max-h-[380px] overflow-y-auto space-y-2.5">
+              {scheduledShifts.length === 0 ? (
+                <div className="text-center py-10 text-slate-500 text-xs">
+                  No upcoming shifts assigned by your manager.
+                </div>
+              ) : (
+                scheduledShifts.map((shift) => (
                   <div
                     key={shift.id}
-                    className="p-4 bg-white border border-slate-200 rounded-xl flex items-center justify-between gap-3 shadow-2xs"
+                    className="p-3.5 bg-[#1e293b] border border-slate-700/80 rounded-xl flex items-center justify-between gap-3 font-mono"
                   >
                     <div className="space-y-1">
                       <div className="flex items-center space-x-2">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-bold font-sans uppercase bg-indigo-100 text-indigo-800">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold font-sans uppercase bg-indigo-950 text-indigo-300 border border-indigo-800">
                           {shift.status}
                         </span>
-                        <span className="text-xs font-bold text-slate-900 font-sans">
+                        <span className="text-xs font-bold text-white font-sans">
                           {new Date(shift.shiftDate).toLocaleDateString('en-CA', {
                             weekday: 'short',
                             year: 'numeric',
@@ -692,66 +772,69 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                           })}
                         </span>
                       </div>
-                      <p className="text-xs text-slate-700">
-                        <strong>{shift.startTime} - {shift.endTime}</strong> • {shift.totalScheduledHours} hrs scheduled
+                      <p className="text-xs text-slate-300">
+                        <strong>{shift.startTime} - {shift.endTime}</strong> • {shift.scheduledHours} hrs scheduled
                       </p>
-                      <p className="text-[11px] text-slate-500 font-sans">
-                        Station: {shift.roleOrStation || 'Standard Bench'} • {shift.breakMinutes}m {shift.breakType === 'UNPAID_MEAL' ? 'Meal' : 'Rest'}
+                      <p className="text-[11px] text-slate-400 font-sans">
+                        Station: {shift.roleOrStation || 'Standard Bench'} • {shift.breakMinutes}m {shift.breakType === 'UNPAID_MEAL' ? 'Meal Break' : 'Rest Break'}
                       </p>
-                      {shift.notes && (
-                        <p className="text-[11px] text-indigo-600 font-sans italic">Note: {shift.notes}</p>
-                      )}
                     </div>
 
                     <div className="text-right">
-                      <span className="text-[10px] uppercase font-bold text-slate-400 font-sans">Hours</span>
-                      <p className="text-base font-black text-slate-900">{shift.totalScheduledHours}h</p>
+                      <span className="text-[10px] uppercase font-bold text-slate-400 font-sans">Scheduled</span>
+                      <p className="text-base font-black text-white">{shift.scheduledHours}h</p>
                     </div>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              )}
+            </div>
           </div>
         )}
 
-        {/* Tab 3: My Paystubs */}
+        {/* ========================================================
+            VIEW 4: OFFICIAL PAYSTUBS
+           ======================================================== */}
         {activeTab === 'paystubs' && (
-          <div className="p-6 space-y-4 max-h-[460px] overflow-y-auto">
-            <div className="flex items-center justify-between">
-              <h3 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-                Official Paystubs ({paystubs.length})
-              </h3>
-              <span className="text-[11px] text-slate-500">CRA 2026 Remuneration Statements</span>
+          <div className="p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <button
+                onClick={() => setActiveTab('clock')}
+                className="flex items-center space-x-1.5 text-xs font-bold text-indigo-400 hover:text-indigo-300 cursor-pointer"
+              >
+                <ArrowLeft className="w-4 h-4" />
+                <span>Back to Time Clock</span>
+              </button>
+              <span className="text-xs text-slate-400">CRA 2026 Remuneration Statements</span>
             </div>
 
-            {paystubs.length === 0 ? (
-              <div className="text-center py-10 bg-slate-50 rounded-2xl border border-slate-200">
-                <FileText className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                <p className="text-xs font-bold text-slate-700">No Paystubs Issued Yet</p>
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Paystubs appear here automatically once your manager finalizes the payroll period.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {paystubs.map((p) => {
+            <div className="max-h-[380px] overflow-y-auto space-y-3">
+              {paystubs.length === 0 ? (
+                <div className="text-center py-10 bg-[#1e293b]/50 rounded-2xl border border-slate-800">
+                  <FileText className="w-8 h-8 text-slate-600 mx-auto mb-2" />
+                  <p className="text-xs font-bold text-slate-300">No Paystubs Issued Yet</p>
+                  <p className="text-[11px] text-slate-500 mt-1">
+                    Paystubs appear here automatically once your manager finalizes the payroll period.
+                  </p>
+                </div>
+              ) : (
+                paystubs.map((p) => {
                   const period = p.payrollPeriod || {};
                   return (
                     <div
                       key={p.id}
-                      className="p-4 bg-white border border-slate-200 rounded-xl hover:border-indigo-400 hover:shadow-xs transition flex flex-col sm:flex-row sm:items-center justify-between gap-3"
+                      className="p-4 bg-[#1e293b] border border-slate-700 rounded-xl hover:border-indigo-500/60 transition flex flex-col sm:flex-row sm:items-center justify-between gap-3"
                     >
                       <div className="space-y-1">
                         <div className="flex items-center space-x-2">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-indigo-100 text-indigo-800">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold uppercase bg-indigo-950 text-indigo-300 border border-indigo-800">
                             Period #{period.periodNumber || 1}
                           </span>
-                          <span className="text-xs font-bold text-slate-800">
+                          <span className="text-xs font-bold text-white">
                             {period.startDate ? new Date(period.startDate).toLocaleDateString('en-CA') : ''} —{' '}
                             {period.endDate ? new Date(period.endDate).toLocaleDateString('en-CA') : ''}
                           </span>
                         </div>
-                        <p className="text-[11px] text-slate-500 font-mono">
+                        <p className="text-[11px] text-slate-400 font-mono">
                           Regular: {p.regularHours}h • OT: {p.overtimeHours}h • Gross: {fmtCurrency(p.grossPayCents)} • Deductions: -{fmtCurrency(p.totalDeductionsCents)}
                         </p>
                       </div>
@@ -759,13 +842,13 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                       <div className="flex items-center space-x-4">
                         <div className="text-right">
                           <span className="text-[10px] uppercase font-bold text-slate-400">Net Take-Home</span>
-                          <p className="text-base font-black text-emerald-700 font-mono">
+                          <p className="text-base font-black text-emerald-400 font-mono">
                             {fmtCurrency(p.netPayCents)}
                           </p>
                         </div>
                         <button
                           onClick={() => setSelectedPaystub(p)}
-                          className="inline-flex items-center space-x-1 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg text-xs transition cursor-pointer"
+                          className="inline-flex items-center space-x-1 px-3 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-bold rounded-lg text-xs transition cursor-pointer"
                         >
                           <span>View Paystub</span>
                           <ChevronRight className="w-3.5 h-3.5" />
@@ -773,18 +856,18 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                       </div>
                     </div>
                   );
-                })}
-              </div>
-            )}
+                })
+              )}
+            </div>
           </div>
         )}
 
         {/* Footer */}
-        <div className="px-6 py-3 bg-slate-50 border-t border-slate-200 flex items-center justify-between text-[11px] text-slate-500">
-          <span>Ontario Employment Standards Act (ESA) Compliant</span>
+        <div className="px-6 py-3 bg-[#1e293b]/70 border-t border-slate-800 flex items-center justify-between text-[11px] text-slate-400">
+          <span>Ontario Employment Standards Act (ESA) Compliant System</span>
           <button
             onClick={onClose}
-            className="px-3 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-lg font-bold transition cursor-pointer"
+            className="px-3.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg font-semibold transition cursor-pointer"
           >
             Close
           </button>
