@@ -8,6 +8,12 @@ const INTERVAL_HOURS = Number(process.env.BACKUP_INTERVAL_HOURS || 6);
 
 /** Enable SQLite crash-safety & concurrency settings. */
 export async function configureSqlite() {
+  const isPostgres = !!(
+    process.env.DATABASE_URL &&
+    (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))
+  );
+  if (isPostgres) return;
+
   // PRAGMAs that return rows must use queryRaw
   await prisma.$queryRawUnsafe('PRAGMA journal_mode = WAL;');
   await prisma.$queryRawUnsafe('PRAGMA busy_timeout = 5000;');
@@ -22,6 +28,18 @@ export interface BackupInfo {
 
 /** Consistent online snapshot using SQLite VACUUM INTO (safe while app is running). */
 export async function createBackup(reason = 'manual'): Promise<BackupInfo> {
+  const isPostgres = !!(
+    process.env.DATABASE_URL &&
+    (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))
+  );
+  if (isPostgres) {
+    return {
+      file: 'cloud-postgresql-managed',
+      sizeBytes: 0,
+      createdAt: new Date().toISOString(),
+    };
+  }
+
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const file = `apexfix-${stamp}-${reason.replace(/[^a-z0-9]/gi, '')}.db`;
@@ -33,6 +51,20 @@ export async function createBackup(reason = 'manual'): Promise<BackupInfo> {
 }
 
 export function listBackups(): BackupInfo[] {
+  const isPostgres = !!(
+    process.env.DATABASE_URL &&
+    (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))
+  );
+  if (isPostgres) {
+    return [
+      {
+        file: 'Supabase Automated Daily Backups (Active)',
+        sizeBytes: 0,
+        createdAt: new Date().toISOString(),
+      },
+    ];
+  }
+
   if (!fs.existsSync(BACKUP_DIR)) return [];
   return fs
     .readdirSync(BACKUP_DIR)

@@ -267,6 +267,12 @@ CREATE INDEX IF NOT EXISTS "Paystub_userId_idx" ON "Paystub"("userId");
 `;
 
 export async function ensureDatabaseSchema() {
+  const isPostgres = !!(
+    process.env.DATABASE_URL &&
+    (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))
+  );
+  if (isPostgres) return;
+
   const statements = SCHEMA_SQL.split(';')
     .map((s) => s.trim())
     .filter((s) => s.length > 0);

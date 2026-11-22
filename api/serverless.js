@@ -1752,12 +1752,18 @@ var KEEP = Number(process.env.BACKUP_KEEP || 30);
 var INTERVAL_HOURS = Number(process.env.BACKUP_INTERVAL_HOURS || 6);
 /** Enable SQLite crash-safety & concurrency settings. */
 async function configureSqlite() {
+	if (!!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")))) return;
 	await prisma.$queryRawUnsafe("PRAGMA journal_mode = WAL;");
 	await prisma.$queryRawUnsafe("PRAGMA busy_timeout = 5000;");
 	await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON;");
 }
 /** Consistent online snapshot using SQLite VACUUM INTO (safe while app is running). */
 async function createBackup(reason = "manual") {
+	if (!!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")))) return {
+		file: "cloud-postgresql-managed",
+		sizeBytes: 0,
+		createdAt: (/* @__PURE__ */ new Date()).toISOString()
+	};
 	fs.mkdirSync(BACKUP_DIR, { recursive: true });
 	const file = `apexfix-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${reason.replace(/[^a-z0-9]/gi, "")}.db`;
 	const full = path.join(BACKUP_DIR, file);
@@ -1771,6 +1777,11 @@ async function createBackup(reason = "manual") {
 	};
 }
 function listBackups() {
+	if (!!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")))) return [{
+		file: "Supabase Automated Daily Backups (Active)",
+		sizeBytes: 0,
+		createdAt: (/* @__PURE__ */ new Date()).toISOString()
+	}];
 	if (!fs.existsSync(BACKUP_DIR)) return [];
 	return fs.readdirSync(BACKUP_DIR).filter((f) => /^apexfix-.*\.db$/.test(f)).map((f) => {
 		const st = fs.statSync(path.join(BACKUP_DIR, f));
@@ -2067,6 +2078,7 @@ CREATE INDEX IF NOT EXISTS "Paystub_payrollPeriodId_idx" ON "Paystub"("payrollPe
 CREATE INDEX IF NOT EXISTS "Paystub_userId_idx" ON "Paystub"("userId");
 `;
 async function ensureDatabaseSchema() {
+	if (!!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")))) return;
 	const statements = SCHEMA_SQL.split(";").map((s) => s.trim()).filter((s) => s.length > 0);
 	for (const sql of statements) try {
 		await prisma.$executeRawUnsafe(sql);
@@ -4830,8 +4842,9 @@ app.get("/api/admin/payroll/paystubs/:id/html", requireAdmin, wrap(async (req, r
 var distPath = path.resolve(process.cwd(), "dist");
 if (fs.existsSync(distPath)) {
 	app.use(express.static(distPath));
-	app.get("*", (req, res, next) => {
+	app.use((req, res, next) => {
 		if (req.path.startsWith("/api/")) return next();
+		if (req.method !== "GET") return next();
 		res.sendFile(path.join(distPath, "index.html"));
 	});
 }

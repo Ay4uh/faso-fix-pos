@@ -973,8 +973,9 @@ app.get('/api/admin/payroll/paystubs/:id/html', requireAdmin, wrap(async (req, r
 const distPath = path.resolve(process.cwd(), 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
-  app.get('*', (req: Request, res: Response, next: NextFunction) => {
+  app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith('/api/')) return next();
+    if (req.method !== 'GET') return next();
     res.sendFile(path.join(distPath, 'index.html'));
   });
 }
