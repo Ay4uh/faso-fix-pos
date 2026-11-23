@@ -1550,7 +1550,7 @@ export async function buildPaystubHtml(paystubId: string, isAdmin = false, curre
     <div class="company">
       <h1>${escHtml(settings.shopName || 'Faso Fix POS')}</h1>
       <p>${escHtml(settings.address || 'Ontario, Canada')}</p>
-      <p>Tel: ${escHtml(settings.phone || '647-740-0566')} • Email: ${escHtml(settings.email || 'support@fasofix.ca')}</p>
+      <p>Tel: ${escHtml(settings.phone || '647-740-0566')}${settings.email ? ` • Email: ${escHtml(settings.email)}` : ''}</p>
     </div>
     <div class="title">
       <h2>EMPLOYEE EARNINGS STATEMENT</h2>

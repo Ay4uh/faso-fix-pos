@@ -14,7 +14,7 @@ export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) 
     shopName: 'Faso Fix POS',
     address: 'Ontario, Canada',
     phone: '',
-    email: 'support@fasofix.ca',
+    email: '',
   });
 
   useEffect(() => {
@@ -134,7 +134,7 @@ export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) 
               <p className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">Employee Information</p>
               <p className="text-sm font-bold text-slate-900">{user.name || 'Technician'}</p>
               <p className="text-slate-600 font-mono">ID: {user.employeeNumber || 'FF-001'}</p>
-              <p className="text-slate-600">Email: {user.email || 'employee@fasofix.ca'}</p>
+              <p className="text-slate-600">Email: {user.email || '—'}</p>
               <p className="text-slate-600">Role: {user.role || 'TECHNICIAN'}</p>
             </div>
             <div className="space-y-1 sm:text-right">

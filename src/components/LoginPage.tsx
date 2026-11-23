@@ -266,7 +266,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
                       autoCorrect="off"
                       value={usernameOrEmail}
                       onChange={(e) => setUsernameOrEmail(e.target.value)}
-                      placeholder={isAdminMode ? 'admin or admin@fasofix.ca' : 'Username or Email (e.g. ayush or email@gmail.com)'}
+                      placeholder={isAdminMode ? 'admin or you@gmail.com' : 'Username or Email (e.g. alex, @gmail.com, @icloud.com)'}
                       className="w-full pl-10 pr-3.5 py-3 sm:py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
                     />
                   </div>

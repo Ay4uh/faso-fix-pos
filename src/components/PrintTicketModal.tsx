@@ -42,7 +42,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
     shopName: 'Faso Fix POS',
     address: 'Ontario, Canada',
     phone: '',
-    email: 'service@fasofix.ca',
+    email: '',
     taxLabel: 'HST',
     currencySymbol: '$',
     warrantyDays: 90,

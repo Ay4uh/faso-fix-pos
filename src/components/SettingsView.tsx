@@ -75,7 +75,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // User Profile & Account State
   const [fullName, setFullName] = useState(currentUser?.name || 'Alex Mercer');
-  const [userEmail, setUserEmail] = useState(currentUser?.email || 'alex@fasofix.ca');
+  const [userEmail, setUserEmail] = useState(currentUser?.email || '');
   const [userPhone, setUserPhone] = useState(currentUser?.phone || '(647) 740-0566');
   const [userBench, setUserBench] = useState(currentUser?.bench || 'Bench #04');
   const [userBio, setUserBio] = useState(currentUser?.bio || 'Hardware & microsoldering specialist');
@@ -189,7 +189,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
         setShopName(data.shopName || 'Faso Fix Repair Center');
         setPhone(data.phone || '(647) 740-0566');
-        setEmail(data.email || 'service@fasofix.ca');
+        setEmail(data.email || '');
         setAddress(data.address || '123 Tech Boulevard, Suite 400');
         setReceiptFooter(data.receiptFooter || 'Thank you for your business!');
         setTaxLabel(data.taxLabel || 'HST');
@@ -656,9 +656,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       required
                       value={userEmail}
                       onChange={(e) => setUserEmail(e.target.value)}
-                      placeholder="alex@fasofix.ca"
+                      placeholder="name@gmail.com or name@icloud.com"
                       className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 transition"
                     />
+                    <span className="text-[10px] text-slate-400">Any email domain works (@gmail.com, @icloud.com, @outlook.com, etc.).</span>
                   </div>
 
                   <div className="space-y-1">
@@ -1390,7 +1391,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="service@fasofix.ca"
+                        placeholder="shop@gmail.com or your business email"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white"
                       />
                     </div>

@@ -1392,10 +1392,10 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. tech@gmail.com (any email domain)"
+                placeholder="e.g. name@gmail.com or name@icloud.com"
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               />
-              <p className="text-[10px] text-slate-400">Can be personal or shop email (@gmail.com, etc.). User can sign in using username OR email.</p>
+              <p className="text-[10px] text-slate-400">Use any email provider (@gmail.com, @icloud.com, @outlook.com, etc.). Staff can sign in with username OR email.</p>
             </div>
 
             <div className="space-y-1">
@@ -1617,8 +1617,10 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                placeholder="e.g. name@gmail.com or name@icloud.com"
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white"
               />
+              <p className="text-[10px] text-slate-400">Any email domain works (@gmail.com, @icloud.com, etc.).</p>
             </div>
 
             <div className="space-y-1">

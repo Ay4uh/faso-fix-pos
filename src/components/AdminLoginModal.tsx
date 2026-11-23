@@ -195,7 +195,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                   autoFocus
                   value={usernameOrEmail}
                   onChange={(e) => setUsernameOrEmail(e.target.value)}
-                  placeholder="e.g. admin or admin@fasofix.ca"
+                  placeholder="e.g. admin or you@gmail.com"
                   className="w-full px-3.5 py-2.5 text-xs bg-slate-50/80 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition"
                   required
                 />
