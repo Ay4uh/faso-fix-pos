@@ -53,10 +53,14 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const searchBoxRef = useRef<HTMLDivElement>(null);
+  const customerSearchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Reset form fields and apply optional customer prefill when modal opens
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen) {
+      if (customerSearchTimerRef.current) clearTimeout(customerSearchTimerRef.current);
+      return;
+    }
     setErrorMsg(null);
     setCustomerSuggestions([]);
     setDeviceName('');
@@ -85,12 +89,15 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
       }
     };
     window.addEventListener('click', handleClick);
-    return () => window.removeEventListener('click', handleClick);
+    return () => {
+      window.removeEventListener('click', handleClick);
+      if (customerSearchTimerRef.current) clearTimeout(customerSearchTimerRef.current);
+    };
   }, []);
 
   if (!isOpen) return null;
 
-  // Customer search by phone or name
+  // Customer search by phone or name (immediate local match + debounced server search across all 129+ clients)
   const handlePhoneOrNameSearch = (val: string, field: 'phone' | 'name') => {
     if (field === 'phone') {
       setPhoneNumber(val);
@@ -98,6 +105,10 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
     } else {
       setFullName(val);
       setSelectedCustomerId(null);
+    }
+
+    if (customerSearchTimerRef.current) {
+      clearTimeout(customerSearchTimerRef.current);
     }
 
     const query = val.trim().toLowerCase();
@@ -110,6 +121,17 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
         return matchName || matchPhone;
       });
       setCustomerSuggestions(matches.slice(0, 5));
+
+      customerSearchTimerRef.current = setTimeout(() => {
+        fetchWithAuth(`/api/customers?search=${encodeURIComponent(val.trim())}&page=1&pageSize=5`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((json) => {
+            if (Array.isArray(json?.data)) {
+              setCustomerSuggestions(json.data.slice(0, 5));
+            }
+          })
+          .catch(() => {});
+      }, 200);
     } else {
       setCustomerSuggestions([]);
     }

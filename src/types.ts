@@ -235,14 +235,21 @@ export interface AdminOverview {
 }
 
 export interface DashboardData {
+  totalTickets?: number;
   open: number;
+  checkedIn?: number;
   pending: number;
+  diagnosing?: number;
   inProgress: number;
+  waitingOnApproval?: number;
   waitingOnParts: number;
+  readyForPickup?: number;
   completed: number;
   overdue: number;
   dueToday: number;
   openValueCents: number;
+  totalValueCents?: number;
+  avgTicketValueCents?: number;
   awaitingPickupCount: number;
   awaitingPickupCents: number;
   collectedTodayCents: number;

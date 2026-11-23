@@ -3,7 +3,7 @@ import {
   LayoutDashboard,
   Users,
   Plus,
-  Package,
+  BarChart3,
   Menu,
 } from 'lucide-react';
 import { DashboardStats } from '../types';
@@ -70,16 +70,16 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
           <span className="text-[10px] font-bold text-indigo-700 mt-1">New</span>
         </button>
 
-        {/* Inventory */}
+        {/* Analytics */}
         <button
           type="button"
-          onClick={() => setCurrentTab('inventory')}
+          onClick={() => setCurrentTab('analytics')}
           className={`flex flex-col items-center justify-center flex-1 h-full py-1 min-w-[50px] transition cursor-pointer ${
-            currentTab === 'inventory' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-800'
+            currentTab === 'analytics' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Package className="w-5 h-5" />
-          <span className="text-[10px] mt-0.5">Parts</span>
+          <BarChart3 className="w-5 h-5" />
+          <span className="text-[10px] mt-0.5">Analytics</span>
         </button>
 
         {/* More Menu (Opens Drawer) */}

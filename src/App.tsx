@@ -123,17 +123,29 @@ export function App() {
 
   useBarcodeScanner({
     enabled: !!currentUser,
-    onScanTicket: (ticketNum) => {
-      const num = parseInt(ticketNum, 10);
-      const found = tickets.find((t) => t.ticketNumber === num || t.id === ticketNum);
+    onScanTicket: async (ticketNum) => {
+      const num = parseInt(ticketNum.replace(/\D/g, ''), 10);
+      const found = tickets.find((t) => (!isNaN(num) && t.ticketNumber === num) || t.id === ticketNum);
       if (found) {
         handleSelectTicket(found);
         showToast(`📦 Scanned Work Order #${found.ticketNumber}`);
-      } else {
-        setSearchQuery(ticketNum);
-        setCurrentTab('repairs');
-        showToast(`🔍 Searching scanned Work Order: ${ticketNum}`);
+        return;
       }
+      try {
+        const res = await fetchWithAuth(`/api/tickets/${encodeURIComponent(ticketNum)}`);
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data) {
+            selectedTicketIdRef.current = json.data.id;
+            setSelectedTicket(json.data);
+            showToast(`📦 Scanned Work Order #${json.data.ticketNumber}`);
+            return;
+          }
+        }
+      } catch {}
+      setSearchQuery(ticketNum);
+      setCurrentTab('repairs');
+      showToast(`🔍 Searching scanned Work Order: ${ticketNum}`);
     },
     onScanItem: (sku) => {
       setSearchQuery(sku);
@@ -520,7 +532,13 @@ export function App() {
           if (matched && selectedTicketIdRef.current === currentId) {
             setSelectedTicket((curr) => {
               if (!curr || curr.id !== currentId) return null;
-              return JSON.stringify(matched) !== JSON.stringify(curr) ? matched : curr;
+              const merged = {
+                ...curr,
+                ...matched,
+                events: matched.events ?? curr.events,
+                otherTickets: matched.otherTickets ?? curr.otherTickets,
+              };
+              return JSON.stringify(merged) !== JSON.stringify(curr) ? merged : curr;
             });
           }
         }
@@ -551,6 +569,9 @@ export function App() {
     }
   };
 
+  const fetchDataRef = useRef(fetchData);
+  fetchDataRef.current = fetchData;
+
   useEffect(() => {
     if (!currentUser) {
       setIsLoading(false);
@@ -558,7 +579,7 @@ export function App() {
     }
     fetchData();
     const interval = setInterval(() => {
-      fetchData(true);
+      fetchDataRef.current(true);
     }, 6000);
     return () => clearInterval(interval);
   }, [currentUser?.id, activeFilter, searchQuery, selectedBench, selectedTicket?.id, ticketsPage, customersPage, customersSearch]);
@@ -587,7 +608,7 @@ export function App() {
               } catch {}
               return next;
             });
-            fetchData(true);
+            fetchDataRef.current(true);
           } catch {}
         });
 
@@ -601,8 +622,17 @@ export function App() {
               } catch {}
               return next;
             });
-            setSelectedTicket((curr) => (curr && curr.id === updated.id ? updated : curr));
-            fetchData(true);
+            setSelectedTicket((curr) =>
+              curr && curr.id === updated.id
+                ? {
+                    ...curr,
+                    ...updated,
+                    events: updated.events ?? curr.events,
+                    otherTickets: updated.otherTickets ?? curr.otherTickets,
+                  }
+                : curr
+            );
+            fetchDataRef.current(true);
           } catch {}
         });
 
@@ -621,20 +651,20 @@ export function App() {
               return next;
             });
             setSelectedTicket((curr) => (curr && curr.id === id ? null : curr));
-            fetchData(true);
+            fetchDataRef.current(true);
           } catch {}
         });
 
         es.addEventListener('customer_updated', () => {
-          fetchData(true);
+          fetchDataRef.current(true);
         });
 
         es.addEventListener('inventory_updated', () => {
-          fetchData(true);
+          fetchDataRef.current(true);
         });
 
         es.addEventListener('settings_updated', () => {
-          fetchData(true);
+          fetchDataRef.current(true);
         });
 
         es.onerror = () => {
@@ -655,7 +685,7 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    const handleFocus = () => fetchData(true);
+    const handleFocus = () => fetchDataRef.current(true);
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
   }, []);
@@ -855,6 +885,7 @@ export function App() {
               <TicketTable
                 tickets={tickets}
                 totalTicketsCount={ticketsPagination?.total ?? tickets.length}
+                stats={stats}
                 activeFilter={activeFilter}
                 setActiveFilter={(f) => {
                   setTicketsPage(1);

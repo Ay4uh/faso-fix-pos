@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Customer, Ticket } from '../types';
+import { fetchWithAuth } from '../utils/auth';
 import {
   Search,
   User,
@@ -53,21 +54,56 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
     else setLocalSearch(val);
   };
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [activeCustomerDetail, setActiveCustomerDetail] = useState<Customer | null>(null);
+
+  const filteredCustomers = onSearchChange
+    ? customers
+    : customers.filter((c) => {
+        const qLower = search.toLowerCase();
+        const qDigits = search.replace(/\D/g, '');
+        return (
+          c.fullName.toLowerCase().includes(qLower) ||
+          c.phone.includes(search) ||
+          (qDigits.length >= 3 && (c.phoneDigits || '').includes(qDigits)) ||
+          (c.altPhone && c.altPhone.includes(search)) ||
+          (c.email && c.email.toLowerCase().includes(qLower))
+        );
+      });
 
   const activeCustomer =
-    customers.find((c) => c.id === selectedCustomerId) || (customers.length > 0 ? customers[0] : null);
+    customers.find((c) => c.id === selectedCustomerId) ||
+    filteredCustomers[0] ||
+    (customers.length > 0 ? customers[0] : null);
 
-  const filteredCustomers = customers.filter(
-    (c) =>
-      c.fullName.toLowerCase().includes(search.toLowerCase()) ||
-      c.phone.includes(search) ||
-      (c.altPhone && c.altPhone.includes(search)) ||
-      (c.email && c.email.toLowerCase().includes(search.toLowerCase()))
-  );
+  useEffect(() => {
+    let cancelled = false;
+    if (!activeCustomer?.id) {
+      setActiveCustomerDetail(null);
+      return;
+    }
+    setActiveCustomerDetail(null);
+    fetchWithAuth(`/api/customers/${activeCustomer.id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json) => {
+        if (!cancelled && json?.data) {
+          setActiveCustomerDetail(json.data);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [activeCustomer?.id]);
 
-  const customerTickets = activeCustomer
+  const customerTickets = activeCustomerDetail?.tickets
+    ? activeCustomerDetail.tickets
+    : activeCustomer
     ? tickets.filter((t) => t.customerId === activeCustomer.id)
     : [];
+
+  const totalRepairsCount = activeCustomerDetail?.tickets
+    ? activeCustomerDetail.tickets.length
+    : (activeCustomer?.ticketCount ?? customerTickets.length);
 
   const totalSpendDollars = activeCustomer
     ? activeCustomer.totalPaidCents !== undefined
@@ -150,7 +186,6 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                 SMS Notifications Active
               </span>
-              <span className="text-slate-400 font-mono text-[11px]">Bench #04</span>
             </div>
           </div>
 
@@ -254,7 +289,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 </span>
                 <div className="flex items-baseline gap-2 mt-1">
                   <span className="text-2xl font-black text-slate-900">
-                    {customerTickets.length}
+                    {totalRepairsCount}
                   </span>
                   <span className="text-xs text-slate-500">tickets logged</span>
                 </div>
@@ -276,7 +311,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                   <span className="text-2xl font-black text-slate-900 font-mono">
                     ${totalSpendDollars.toFixed(2)}
                   </span>
-                  <span className="text-xs text-slate-500">across {customerTickets.length} repairs</span>
+                  <span className="text-xs text-slate-500">across {totalRepairsCount} repairs</span>
                 </div>
                 <span className="font-mono text-xs text-slate-400 mt-1 flex items-center gap-1">
                   <CreditCard className="w-3.5 h-3.5" /> Recorded ledger transactions
@@ -300,7 +335,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                       Work Orders & Hardware History
                     </h2>
                     <span className="px-2 py-0.5 rounded-full bg-slate-100 font-mono text-[11px] text-slate-600 font-semibold">
-                      {customerTickets.length} Work Orders
+                      {totalRepairsCount} Work Orders
                     </span>
                   </div>
                   <button
@@ -431,7 +466,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                   </div>
                   <div className="flex justify-between py-1 border-b border-slate-50">
                     <span className="text-slate-400">Total Work Orders:</span>
-                    <span className="font-bold text-slate-900">{customerTickets.length}</span>
+                    <span className="font-bold text-slate-900">{totalRepairsCount}</span>
                   </div>
                   <div className="flex justify-between py-1">
                     <span className="text-slate-400">Total Spend:</span>

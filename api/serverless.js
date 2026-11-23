@@ -7,8 +7,9 @@ import { ZodError, z } from "zod";
 import { PrismaClient } from "@prisma/client";
 var explicitUrl = process.env.DATABASE_URL;
 var isExplicitSqlite = !!(explicitUrl && explicitUrl.startsWith("file:"));
-var activeDbUrl = isExplicitSqlite ? explicitUrl : explicitUrl || "postgresql://postgres.wlfrpafmlgadpupvublx:Fasofix%402026@aws-0-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require";
+var activeDbUrl = isExplicitSqlite ? explicitUrl : explicitUrl || "postgresql://postgres.wlfrpafmlgadpupvublx:Fasofix%402026@aws-0-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require&pgbouncer=true";
 process.env.DATABASE_URL = activeDbUrl;
+var isPostgres = !isExplicitSqlite;
 if (process.env.VERCEL && isExplicitSqlite) {
 	const tmpDb = "/tmp/dev.db";
 	if (!fs.existsSync(tmpDb)) {
@@ -26,7 +27,13 @@ if (process.env.VERCEL && isExplicitSqlite) {
 	}
 	process.env.DATABASE_URL = `file:${tmpDb}`;
 }
-var prisma = new PrismaClient({ datasources: { db: { url: process.env.DATABASE_URL } } });
+var prisma = new PrismaClient({
+	datasources: { db: { url: process.env.DATABASE_URL } },
+	transactionOptions: {
+		maxWait: 15e3,
+		timeout: 2e4
+	}
+});
 // src/server/money.ts
 function computeTotals(t) {
 	const itemsCents = t.items.reduce((sum, i) => sum + i.quantity * i.unitPriceCents, 0);
@@ -86,6 +93,7 @@ var NOTE_KINDS = [
 ];
 var trimmed = z.string().trim();
 var optionalText = trimmed.max(2e3).optional().nullable();
+var signatureText = trimmed.max(5e5).optional().nullable();
 var cents = z.number().int().min(0).max(1e8);
 var dateString = trimmed.refine((v) => !Number.isNaN(Date.parse(v)), "Must be a valid date");
 var createTicketSchema = z.object({
@@ -115,7 +123,7 @@ var createTicketSchema = z.object({
 	technician: optionalText,
 	bench: optionalText,
 	storageBin: optionalText,
-	signature: optionalText,
+	signature: signatureText,
 	depositCents: cents.optional(),
 	depositMethod: z.enum(PAYMENT_METHODS).optional()
 });
@@ -129,8 +137,12 @@ var updateTicketSchema = z.object({
 	technician: optionalText,
 	bench: optionalText,
 	storageBin: optionalText,
-	signature: optionalText,
-	diagnostics: z.record(z.string(), z.enum(["PASS", "FAIL"])),
+	signature: signatureText,
+	diagnostics: z.record(z.string(), z.enum([
+		"PASS",
+		"FAIL",
+		"PENDING"
+	])),
 	device: z.object({
 		name: trimmed.min(1).max(120),
 		serialNumber: optionalText,
@@ -324,56 +336,7 @@ async function destroySession(token) {
 */
 async function authenticateSession(token, _clientHeaders) {
 	if (!token || revokedTokens.has(token)) return null;
-	const verified = verifySignedToken(token);
-	if (verified) {
-		let user = await prisma.user.findFirst({
-			where: { OR: [{ id: verified.uid }, { username: verified.u }] },
-			select: {
-				id: true,
-				username: true,
-				email: true,
-				name: true,
-				role: true,
-				status: true,
-				phone: true,
-				bio: true,
-				bench: true,
-				preferences: true,
-				lastLoginAt: true,
-				createdAt: true
-			}
-		});
-		if (!user) {
-			await ensureAdminProvisioning();
-			user = await prisma.user.findFirst({
-				where: { OR: [{ id: verified.uid }, { username: verified.u }] },
-				select: {
-					id: true,
-					username: true,
-					email: true,
-					name: true,
-					role: true,
-					status: true,
-					phone: true,
-					bio: true,
-					bench: true,
-					preferences: true,
-					lastLoginAt: true,
-					createdAt: true
-				}
-			});
-		}
-		if (user) {
-			if (user.status !== "ACTIVE") return null;
-			const dbSession = await prisma.session.findUnique({ where: { token } });
-			if (!dbSession || dbSession.expiresAt.getTime() < Date.now()) {
-				if (dbSession) await prisma.session.delete({ where: { token } }).catch(() => {});
-				return null;
-			}
-			return user;
-		}
-		return null;
-	}
+	if (token.startsWith("s.") && !verifySignedToken(token)) return null;
 	const session = await prisma.session.findUnique({
 		where: { token },
 		include: { user: { select: {
@@ -494,6 +457,10 @@ var OPEN_STATUSES = [
 ];
 var money = (c) => `$${(c / 100).toFixed(2)}`;
 var emptyToNull = (v) => v === void 0 ? void 0 : v?.trim() ? v.trim() : null;
+var ciContains = (q) => isPostgres ? {
+	contains: q,
+	mode: "insensitive"
+} : { contains: q };
 /** "YYYY-MM-DD" is stored at local noon so it never shifts a day across time zones. */
 function parseDate(v) {
 	return /^\d{4}-\d{2}-\d{2}$/.test(v) ? /* @__PURE__ */ new Date(`${v}T12:00:00`) : new Date(v);
@@ -601,17 +568,19 @@ async function listTicketsPaginated(params) {
 	const view = params.view || "OPEN";
 	const where = { deletedAt: null };
 	if (view === "OPEN") where.status = { in: OPEN_STATUSES };
+	else if (view === "CHECKED_IN" || view === "PENDING") where.status = { in: ["CHECKED_IN", "PENDING"] };
+	else if (view === "DIAGNOSING" || view === "IN_PROGRESS") where.status = { in: ["DIAGNOSING", "IN_PROGRESS"] };
 	else if (view !== "ALL") where.status = view;
 	if (params.bench && params.bench !== "ALL") where.bench = params.bench;
 	const q = (params.search || "").trim();
 	if (q) {
-		const numeric = q.replace(/^(wo\s*)?#?/i, "");
+		const numeric = q.replace(/^(wo[\s\-_]*)?#?/i, "");
 		const digits = digitsOnly(q);
 		const or = [
-			{ customer: { fullName: { contains: q } } },
-			{ device: { name: { contains: q } } },
-			{ device: { serialNumber: { contains: q } } },
-			{ faultDescription: { contains: q } }
+			{ customer: { fullName: ciContains(q) } },
+			{ device: { name: ciContains(q) } },
+			{ device: { serialNumber: ciContains(q) } },
+			{ faultDescription: ciContains(q) }
 		];
 		if (/^\d+$/.test(numeric)) or.push({ ticketNumber: Number(numeric) });
 		if (digits.length >= 3) or.push({ customer: { phoneDigits: { contains: digits } } });
@@ -620,10 +589,11 @@ async function listTicketsPaginated(params) {
 	const page = Math.max(1, Math.floor(params.page || 1));
 	const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || 25)), 500);
 	const skip = (page - 1) * pageSize;
+	const orderBy = params.sort === "dueDate" ? [{ dueDate: "asc" }, { ticketNumber: "desc" }] : view === "COMPLETED" ? [{ completedAt: "desc" }, { ticketNumber: "desc" }] : [{ ticketNumber: "desc" }];
 	const [total, tickets] = await Promise.all([prisma.ticket.count({ where }), prisma.ticket.findMany({
 		where,
 		include: ticketInclude,
-		orderBy: view === "COMPLETED" ? { completedAt: "desc" } : [{ dueDate: "asc" }, { ticketNumber: "asc" }],
+		orderBy,
 		skip,
 		take: pageSize
 	})]);
@@ -646,17 +616,23 @@ async function createTicket(input) {
 	const phoneDigits = digitsOnly(data.customer.phone);
 	return getTicket(await prisma.$transaction(async (tx) => {
 		const settings = await getSettings(tx);
+		const bumped = await tx.setting.update({
+			where: { id: 1 },
+			data: { nextTicketNumber: { increment: 1 } }
+		});
 		const maxTicket = await tx.ticket.findFirst({
 			orderBy: { ticketNumber: "desc" },
 			select: { ticketNumber: true }
 		});
-		const nextFromSetting = settings.nextTicketNumber || 1;
+		let ticketNumber = bumped.nextTicketNumber - 1;
 		const nextFromMax = (maxTicket?.ticketNumber ?? 0) + 1;
-		const ticketNumber = Math.max(nextFromSetting, nextFromMax);
-		await tx.setting.update({
-			where: { id: 1 },
-			data: { nextTicketNumber: ticketNumber + 1 }
-		});
+		if (nextFromMax > ticketNumber) {
+			ticketNumber = nextFromMax;
+			await tx.setting.update({
+				where: { id: 1 },
+				data: { nextTicketNumber: ticketNumber + 1 }
+			});
+		}
 		let customer = await tx.customer.findUnique({ where: { phoneDigits } });
 		if (!customer) customer = await tx.customer.create({ data: {
 			fullName: data.customer.fullName,
@@ -729,7 +705,7 @@ async function createTicket(input) {
 		return ticket.id;
 	}, TX_OPTIONS));
 }
-async function updateTicket(id, input) {
+async function updateTicket(id, input, author) {
 	const data = updateTicketSchema.parse(input);
 	await prisma.$transaction(async (tx) => {
 		const t = await loadTicket(tx, id);
@@ -738,7 +714,7 @@ async function updateTicket(id, input) {
 		if (data.status && data.status !== t.status) {
 			update.status = data.status;
 			update.completedAt = data.status === "COMPLETED" ? /* @__PURE__ */ new Date() : null;
-			await logEvent(tx, id, "STATUS", `Status changed: ${STATUS_LABEL[t.status]} → ${STATUS_LABEL[data.status]}`);
+			await logEvent(tx, id, "STATUS", `Status changed: ${STATUS_LABEL[t.status]} → ${STATUS_LABEL[data.status]}`, author);
 		}
 		if (data.priority && data.priority !== t.priority) {
 			update.priority = data.priority;
@@ -776,7 +752,11 @@ async function updateTicket(id, input) {
 				else changes.push(`${key === "storageBin" ? "storage bin" : key} → ${v ?? "none"}`);
 			}
 		}
-		if (data.diagnostics) update.diagnostics = JSON.stringify(data.diagnostics);
+		if (data.diagnostics) {
+			const cleanDiag = {};
+			for (const [k, v] of Object.entries(data.diagnostics)) if (v === "PASS" || v === "FAIL") cleanDiag[k] = v;
+			update.diagnostics = JSON.stringify(cleanDiag);
+		}
 		if (data.device) {
 			const d = data.device;
 			const deviceUpdate = {};
@@ -799,11 +779,11 @@ async function updateTicket(id, input) {
 			where: { id },
 			data: update
 		});
-		if (changes.length) await logEvent(tx, id, "SYSTEM", `Updated: ${changes.join(", ")}`);
-	});
+		if (changes.length) await logEvent(tx, id, "SYSTEM", `Updated: ${changes.join(", ")}`, author);
+	}, TX_OPTIONS);
 	return getTicket(id);
 }
-async function deleteTicket(id) {
+async function deleteTicket(id, author) {
 	await prisma.$transaction(async (tx) => {
 		const t = await loadTicket(tx, id);
 		for (const item of t.items) if (item.partId) await tx.inventoryPart.update({
@@ -814,11 +794,11 @@ async function deleteTicket(id) {
 			where: { id },
 			data: { deletedAt: /* @__PURE__ */ new Date() }
 		});
-		await logEvent(tx, id, "SYSTEM", "Work order deleted by administrator");
-	});
+		await logEvent(tx, id, "SYSTEM", "Work order deleted by administrator", author);
+	}, TX_OPTIONS);
 	return { ok: true };
 }
-async function addItem(ticketId, input) {
+async function addItem(ticketId, input, author) {
 	const data = addItemSchema.parse(input);
 	await prisma.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
@@ -845,11 +825,11 @@ async function addItem(ticketId, input) {
 			unitPriceCents,
 			unitCostCents
 		} });
-		await logEvent(tx, ticketId, "ITEM", `Added ${data.quantity} × ${description} @ ${money(unitPriceCents)}`);
-	});
+		await logEvent(tx, ticketId, "ITEM", `Added ${data.quantity} × ${description} @ ${money(unitPriceCents)}`, author);
+	}, TX_OPTIONS);
 	return getTicket(ticketId);
 }
-async function removeItem(ticketId, itemId) {
+async function removeItem(ticketId, itemId, author) {
 	await prisma.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
 		const item = await tx.ticketItem.findFirst({ where: {
@@ -862,11 +842,11 @@ async function removeItem(ticketId, itemId) {
 			data: { stock: { increment: item.quantity } }
 		});
 		await tx.ticketItem.delete({ where: { id: itemId } });
-		await logEvent(tx, ticketId, "ITEM", `Removed ${item.quantity} × ${item.description}${item.partId ? " (returned to stock)" : ""}`);
-	});
+		await logEvent(tx, ticketId, "ITEM", `Removed ${item.quantity} × ${item.description}${item.partId ? " (returned to stock)" : ""}`, author);
+	}, TX_OPTIONS);
 	return getTicket(ticketId);
 }
-async function addPayment(ticketId, input) {
+async function addPayment(ticketId, input, author) {
 	const data = paymentSchema.parse(input);
 	await prisma.$transaction(async (tx) => {
 		const { balanceCents } = computeTotals(await loadTicket(tx, ticketId));
@@ -882,11 +862,11 @@ async function addPayment(ticketId, input) {
 			note: emptyToNull(data.note) ?? null
 		} });
 		const remaining = Math.max(0, balanceCents - data.amountCents);
-		await logEvent(tx, ticketId, "PAYMENT", `${isDeposit ? "Deposit" : "Payment"} of ${money(data.amountCents)} received (${data.method.replace("_", "-")})${remaining === 0 ? " — paid in full" : `, ${money(remaining)} still owing`}`);
-	});
+		await logEvent(tx, ticketId, "PAYMENT", `${isDeposit ? "Deposit" : "Payment"} of ${money(data.amountCents)} received (${data.method.replace("_", "-")})${remaining === 0 ? " — paid in full" : `, ${money(remaining)} still owing`}`, author);
+	}, TX_OPTIONS);
 	return getTicket(ticketId);
 }
-async function voidPayment(ticketId, paymentId) {
+async function voidPayment(ticketId, paymentId, author) {
 	await prisma.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
 		const p = await tx.payment.findFirst({ where: {
@@ -895,16 +875,16 @@ async function voidPayment(ticketId, paymentId) {
 		} });
 		if (!p) throw new HttpError(404, "Payment not found");
 		await tx.payment.delete({ where: { id: paymentId } });
-		await logEvent(tx, ticketId, "PAYMENT", `Voided payment of ${money(p.amountCents)} (${p.method})`);
-	});
+		await logEvent(tx, ticketId, "PAYMENT", `Voided payment of ${money(p.amountCents)} (${p.method})`, author);
+	}, TX_OPTIONS);
 	return getTicket(ticketId);
 }
-async function addNote(ticketId, input) {
+async function addNote(ticketId, input, author) {
 	const data = noteSchema.parse(input);
 	await prisma.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
-		await logEvent(tx, ticketId, data.kind, data.message);
-	});
+		await logEvent(tx, ticketId, data.kind, data.message, author);
+	}, TX_OPTIONS);
 	return getTicket(ticketId);
 }
 async function updateNote(ticketId, noteId, message) {
@@ -918,7 +898,7 @@ async function updateNote(ticketId, noteId, message) {
 			where: { id: noteId },
 			data: { message: message.trim() }
 		});
-	});
+	}, TX_OPTIONS);
 	return getTicket(ticketId);
 }
 async function deleteNote(ticketId, noteId) {
@@ -929,15 +909,15 @@ async function deleteNote(ticketId, noteId) {
 			ticketId
 		} })) throw new HttpError(404, "Note not found");
 		await tx.ticketEvent.delete({ where: { id: noteId } });
-	});
+	}, TX_OPTIONS);
 	return getTicket(ticketId);
 }
 async function listCustomersPaginated(params) {
 	const q = (params.search || "").trim();
 	const digits = digitsOnly(q);
 	const where = q ? { OR: [
-		{ fullName: { contains: q } },
-		{ email: { contains: q } },
+		{ fullName: ciContains(q) },
+		{ email: ciContains(q) },
 		...digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []
 	] } : {};
 	const page = Math.max(1, Math.floor(params.page || 1));
@@ -1030,9 +1010,9 @@ function listParts(search) {
 	const q = (search || "").trim();
 	return prisma.inventoryPart.findMany({
 		where: q ? { OR: [
-			{ name: { contains: q } },
-			{ sku: { contains: q } },
-			{ supplier: { contains: q } }
+			{ name: ciContains(q) },
+			{ sku: ciContains(q) },
+			{ supplier: ciContains(q) }
 		] } : {},
 		orderBy: [{ name: "asc" }]
 	});
@@ -1117,15 +1097,28 @@ async function getDashboard() {
 	const open = tickets.filter((t) => OPEN_STATUSES.includes(t.status));
 	const count = (s) => tickets.filter((t) => t.status === s).length;
 	const awaitingPickupTickets = tickets.filter((t) => t.status === "READY_FOR_PICKUP" || t.status === "COMPLETED" && computeTotals(t).balanceCents > 0);
+	const checkedIn = count("PENDING") + count("CHECKED_IN");
+	const diagnosing = count("IN_PROGRESS") + count("DIAGNOSING");
+	const waitingOnApproval = count("WAITING_ON_APPROVAL");
+	const readyForPickup = count("READY_FOR_PICKUP");
+	const totalValueCents = Math.max(0, tickets.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0));
+	const avgTicketValueCents = tickets.length > 0 ? Math.round(totalValueCents / tickets.length) : 0;
 	return {
+		totalTickets: tickets.length,
 		open: open.length,
-		pending: count("PENDING") + count("CHECKED_IN"),
-		inProgress: count("IN_PROGRESS") + count("DIAGNOSING"),
+		checkedIn,
+		pending: checkedIn,
+		diagnosing,
+		inProgress: diagnosing,
+		waitingOnApproval,
 		waitingOnParts: count("WAITING_ON_PARTS"),
+		readyForPickup,
 		completed: count("COMPLETED"),
 		overdue: open.filter((t) => t.dueDate < today).length,
 		dueToday: open.filter((t) => t.dueDate >= today && t.dueDate < tomorrow).length,
 		openValueCents: Math.max(0, open.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0)),
+		totalValueCents,
+		avgTicketValueCents,
 		awaitingPickupCount: awaitingPickupTickets.length,
 		awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
 		collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
@@ -1212,9 +1205,8 @@ async function getReport(days) {
 	for (const t of created) deviceCounts.set(t.device.name, (deviceCounts.get(t.device.name) || 0) + 1);
 	const turnaroundHours = completed.filter((t) => t.completedAt).map((t) => (t.completedAt.getTime() - t.createdAt.getTime()) / 36e5);
 	const onTime = completed.filter((t) => t.completedAt && t.completedAt.getTime() <= t.dueDate.getTime() + 432e5).length;
-	const partItems = items.filter((i) => i.partId);
-	const partsRevenueCents = partItems.reduce((s, i) => s + i.quantity * i.unitPriceCents, 0);
-	const partsCostCents = partItems.reduce((s, i) => s + i.quantity * i.unitCostCents, 0);
+	const partsRevenueCents = items.reduce((s, i) => s + i.quantity * i.unitPriceCents, 0);
+	const partsCostCents = items.reduce((s, i) => s + i.quantity * i.unitCostCents, 0);
 	return {
 		days: span,
 		since,
@@ -1633,11 +1625,11 @@ async function listUsers(params, includeSyncPayload = false) {
 	if (params.role && params.role !== "ALL") where.role = params.role;
 	if (params.status && params.status !== "ALL") where.status = params.status;
 	if (params.search?.trim()) {
-		const q = params.search.trim().toLowerCase();
+		const q = params.search.trim();
 		where.OR = [
-			{ name: { contains: q } },
-			{ username: { contains: q } },
-			{ email: { contains: q } }
+			{ name: ciContains(q) },
+			{ username: ciContains(q) },
+			{ email: ciContains(q) }
 		];
 	}
 	return (await prisma.user.findMany({
@@ -1913,11 +1905,11 @@ async function listAuditLogsPaginated(params) {
 	const where = {};
 	if (params.action && params.action !== "ALL") where.action = params.action;
 	if (params.search?.trim()) {
-		const q = params.search.trim().toLowerCase();
+		const q = params.search.trim();
 		where.OR = [
-			{ actorName: { contains: q } },
-			{ details: { contains: q } },
-			{ action: { contains: q } }
+			{ actorName: ciContains(q) },
+			{ details: ciContains(q) },
+			{ action: ciContains(q) }
 		];
 	}
 	const [total, logs] = await Promise.all([prisma.auditLog.count({ where }), prisma.auditLog.findMany({
@@ -5870,11 +5862,13 @@ app.get("/api/tickets", requireAuth, wrap(async (req, res) => {
 	const view = req.query.view || req.query.status || "OPEN";
 	const search = req.query.search;
 	const bench = req.query.bench;
+	const sort = req.query.sort;
 	const hasPage = req.query.page !== void 0;
 	const result = await listTicketsPaginated({
 		view,
 		search,
 		bench,
+		sort,
 		page: hasPage ? parseInt(req.query.page, 10) || 1 : 1,
 		pageSize: req.query.pageSize ? parseInt(req.query.pageSize, 10) : req.query.limit ? parseInt(req.query.limit, 10) : hasPage ? 25 : 200
 	});
@@ -5943,7 +5937,7 @@ app.post("/api/tickets", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.put("/api/tickets/:id", requireAuth, wrap(async (req, res) => {
-	const ticket = await updateTicket(getParam(req, "id"), req.body);
+	const ticket = await updateTicket(getParam(req, "id"), req.body, req.user.name);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
 		success: true,
@@ -5956,7 +5950,7 @@ app.delete("/api/tickets/:id", requireAdmin, wrap(async (req, res) => {
 		name: req.user.name
 	};
 	const ticketId = getParam(req, "id");
-	const result = await deleteTicket(ticketId);
+	const result = await deleteTicket(ticketId, actor.name);
 	await recordAudit({
 		userId: actor.id,
 		actorName: actor.name,
@@ -5970,7 +5964,7 @@ app.delete("/api/tickets/:id", requireAdmin, wrap(async (req, res) => {
 	});
 }));
 app.post("/api/tickets/:id/quick-complete", requireAuth, wrap(async (req, res) => {
-	const ticket = await updateTicket(getParam(req, "id"), { status: "COMPLETED" });
+	const ticket = await updateTicket(getParam(req, "id"), { status: "COMPLETED" }, req.user.name);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
 		success: true,
@@ -5979,7 +5973,7 @@ app.post("/api/tickets/:id/quick-complete", requireAuth, wrap(async (req, res) =
 	});
 }));
 app.post("/api/tickets/:id/items", requireAuth, wrap(async (req, res) => {
-	const ticket = await addItem(getParam(req, "id"), req.body);
+	const ticket = await addItem(getParam(req, "id"), req.body, req.user.name);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.status(201).json({
 		success: true,
@@ -5993,7 +5987,7 @@ app.post("/api/tickets/:id/parts", requireAuth, wrap(async (req, res) => {
 		description: customName || void 0,
 		unitPriceCents: price !== void 0 ? Math.round(Number(price) * 100) : void 0,
 		quantity: quantity ? Number(quantity) : 1
-	});
+	}, req.user.name);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.status(201).json({
 		success: true,
@@ -6001,7 +5995,7 @@ app.post("/api/tickets/:id/parts", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.delete("/api/tickets/:id/items/:itemId", requireAuth, wrap(async (req, res) => {
-	const ticket = await removeItem(getParam(req, "id"), getParam(req, "itemId"));
+	const ticket = await removeItem(getParam(req, "id"), getParam(req, "itemId"), req.user.name);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
 		success: true,
@@ -6015,7 +6009,7 @@ app.post("/api/tickets/:id/payments", requireAuth, wrap(async (req, res) => {
 		amountCents,
 		method: body.method || "CASH",
 		note: body.note
-	});
+	}, req.user.name);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.status(201).json({
 		success: true,
@@ -6023,7 +6017,7 @@ app.post("/api/tickets/:id/payments", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.delete("/api/tickets/:id/payments/:paymentId", requireAuth, wrap(async (req, res) => {
-	const ticket = await voidPayment(getParam(req, "id"), getParam(req, "paymentId"));
+	const ticket = await voidPayment(getParam(req, "id"), getParam(req, "paymentId"), req.user.name);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
 		success: true,
@@ -6036,7 +6030,7 @@ app.post("/api/tickets/:id/notes", requireAuth, wrap(async (req, res) => {
 	const ticket = await addNote(getParam(req, "id"), {
 		kind: noteKind,
 		message: message || note || ""
-	});
+	}, req.user.name);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.status(201).json({
 		success: true,
@@ -6048,7 +6042,7 @@ app.post("/api/tickets/:id/notify", requireAuth, wrap(async (req, res) => {
 	const ticket = await addNote(getParam(req, "id"), {
 		kind: "MESSAGE",
 		message: `[SMS to ${customerPhone || "Customer"}]: ${message}`
-	});
+	}, req.user.name);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
 		success: true,

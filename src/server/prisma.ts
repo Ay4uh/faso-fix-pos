@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 export const SUPABASE_URL =
-  'postgresql://postgres.wlfrpafmlgadpupvublx:Fasofix%402026@aws-0-us-east-2.pooler.supabase.com:5432/postgres?sslmode=require';
+  'postgresql://postgres.wlfrpafmlgadpupvublx:Fasofix%402026@aws-0-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require&pgbouncer=true';
 
 const explicitUrl = process.env.DATABASE_URL;
 const isExplicitSqlite = !!(explicitUrl && explicitUrl.startsWith('file:'));
@@ -41,5 +41,9 @@ export const prisma = new PrismaClient({
     db: {
       url: process.env.DATABASE_URL,
     },
+  },
+  transactionOptions: {
+    maxWait: 15000,
+    timeout: 20000,
   },
 });

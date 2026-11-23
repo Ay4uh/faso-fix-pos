@@ -133,76 +133,12 @@ export async function authenticateSession(
 ) {
   if (!token || revokedTokens.has(token)) return null;
 
-  // 1. Verify stateless signed session token (seamlessly valid across all serverless lambda containers)
-  const verified = verifySignedToken(token);
-  if (verified) {
-    let user = await prisma.user.findFirst({
-      where: {
-        OR: [
-          { id: verified.uid },
-          { username: verified.u },
-        ],
-      },
-      select: {
-        id: true,
-        username: true,
-        email: true,
-        name: true,
-        role: true,
-        status: true,
-        phone: true,
-        bio: true,
-        bench: true,
-        preferences: true,
-        lastLoginAt: true,
-        createdAt: true,
-      },
-    });
-
-    if (!user) {
-      await ensureAdminProvisioning();
-      user = await prisma.user.findFirst({
-        where: {
-          OR: [
-            { id: verified.uid },
-            { username: verified.u },
-          ],
-        },
-        select: {
-          id: true,
-          username: true,
-          email: true,
-          name: true,
-          role: true,
-          status: true,
-          phone: true,
-          bio: true,
-          bench: true,
-          preferences: true,
-          lastLoginAt: true,
-          createdAt: true,
-        },
-      });
-    }
-
-    if (user) {
-      if (user.status !== 'ACTIVE') {
-        return null;
-      }
-      const dbSession = await prisma.session.findUnique({ where: { token } });
-      if (!dbSession || dbSession.expiresAt.getTime() < Date.now()) {
-        if (dbSession) {
-          await prisma.session.delete({ where: { token } }).catch(() => {});
-        }
-        return null;
-      }
-      return user;
-    }
-
+  // Reject tampered or expired stateless signed tokens before hitting the database
+  if (token.startsWith('s.') && !verifySignedToken(token)) {
     return null;
   }
 
-  // 2. Fallback to database session table lookup
+  // Single-query session + user verification
   const session = await prisma.session.findUnique({
     where: { token },
     include: {

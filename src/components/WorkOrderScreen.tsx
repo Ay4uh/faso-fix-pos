@@ -63,16 +63,19 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
   useEffect(() => {
     setTicket(initialTicket);
+  }, [initialTicket]);
+
+  useEffect(() => {
     setPasscode(initialTicket.device?.passcode || '');
     setPattern(initialTicket.device?.pattern || '');
     setEmailTo(initialTicket.customer.email || '');
     setSmsText(
-      `Hi ${initialTicket.customer.fullName}, Faso Fix update: Your ${initialTicket.device?.name || 'device'} (WO #${initialTicket.ticketNumber}) status is: ${initialTicket.status.toLowerCase().replace('_', ' ')}.`
+      `Hi ${initialTicket.customer.fullName}, Faso Fix update: Your ${initialTicket.device?.name || 'device'} (WO #${initialTicket.ticketNumber}) status is: ${initialTicket.status.toLowerCase().replace(/_/g, ' ')}.`
     );
     setDiscountInput(
       ((initialTicket.totals ? initialTicket.totals.discountCents : initialTicket.discountCents) / 100).toFixed(2)
     );
-  }, [initialTicket]);
+  }, [initialTicket.id]);
 
   const applyTicketUpdate = (freshTicket: Ticket) => {
     setTicket(freshTicket);
@@ -102,7 +105,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
   // SMS
   const [smsText, setSmsText] = useState(
-    `Hi ${ticket.customer.fullName}, Faso Fix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) status is: ${ticket.status.toLowerCase().replace('_', ' ')}.`
+    `Hi ${ticket.customer.fullName}, Faso Fix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) status is: ${ticket.status.toLowerCase().replace(/_/g, ' ')}.`
   );
   const [isSendingSms, setIsSendingSms] = useState(false);
   const [smsSuccess, setSmsSuccess] = useState(false);
@@ -121,6 +124,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const [isRecordingPayment, setIsRecordingPayment] = useState(false);
   const [terminalState, setTerminalState] = useState<'IDLE' | 'WAITING_CARD' | 'PROCESSING' | 'APPROVED'>('IDLE');
   const [terminalCardType, setTerminalCardType] = useState('VISA');
+  const [terminalAuthCode, setTerminalAuthCode] = useState('');
+  const [isVoidingPaymentId, setIsVoidingPaymentId] = useState<string | null>(null);
 
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [depositAmount, setDepositAmount] = useState('50.00');
@@ -182,6 +187,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const isPaidInFull = totals.totalCents > 0 && totals.paidCents >= totals.totalCents;
   const hasDepositCredit = totals.totalCents === 0 && totals.paidCents > 0;
 
+  const getErrorMessage = async (res: Response, fallback: string) => {
+    const json = await res.json().catch(() => ({}));
+    return json?.error || fallback;
+  };
+
   const handleSaveSecurity = async (newPasscode = passcode, newPattern = pattern) => {
     setIsSavingSecurity(true);
     try {
@@ -195,14 +205,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           },
         }),
       });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data) applyTicketUpdate(json.data);
-      }
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to save device security details'));
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
       setSecuritySaved(true);
       setTimeout(() => setSecuritySaved(false), 2000);
-    } catch {
-      alert('Failed to save device security details');
+    } catch (err: any) {
+      alert(err?.message || 'Failed to save device security details');
     } finally {
       setIsSavingSecurity(false);
     }
@@ -222,13 +231,12 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           message: newNote.trim(),
         }),
       });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data) applyTicketUpdate(json.data);
-      }
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to save note'));
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
       setNewNote('');
-    } catch {
-      alert('Failed to save note');
+    } catch (err: any) {
+      alert(err?.message || 'Failed to save note');
     } finally {
       setIsSubmittingNote(false);
     }
@@ -250,14 +258,14 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           note: 'Special-order part deposit',
         }),
       });
-      if (!res.ok) throw new Error('Deposit failed');
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Deposit failed'));
       const json = await res.json();
       if (json.data) applyTicketUpdate(json.data);
       posAudio.playCashChime();
       setIsDepositModalOpen(false);
       setDepositAmount('50.00');
-    } catch {
-      alert('Could not record part deposit');
+    } catch (err: any) {
+      alert(err?.message || 'Could not record part deposit');
     } finally {
       setIsRecordingDeposit(false);
     }
@@ -325,13 +333,14 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           customerPhone: ticket.customer.phone,
         }),
       });
-      if (!res.ok) throw new Error('SMS failed');
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'SMS failed'));
+      const json = await res.json().catch(() => ({}));
+      if (json.data) applyTicketUpdate(json.data);
       posAudio.playScanBeep();
       setSmsSuccess(true);
       setTimeout(() => setSmsSuccess(false), 3000);
-      onRefresh();
-    } catch {
-      alert('Could not dispatch SMS');
+    } catch (err: any) {
+      alert(err?.message || 'Could not dispatch SMS');
     } finally {
       setIsSendingSms(false);
     }
@@ -365,6 +374,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             throw new Error(json.error || 'Terminal payment was declined or failed to record');
           }
 
+          setTerminalAuthCode(authCode);
           setTerminalState('APPROVED');
           posAudio.playCashChime();
           if (json.data) applyTicketUpdate(json.data);
@@ -372,6 +382,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           setTimeout(() => {
             setIsPaymentModalOpen(false);
             setTerminalState('IDLE');
+            setTerminalAuthCode('');
             setPaymentAmount('');
           }, 1200);
         } catch (err: any) {
@@ -405,16 +416,34 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           note: `Payment collected at checkout`,
         }),
       });
-      if (!res.ok) throw new Error('Payment failed');
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Payment failed'));
       const json = await res.json();
       if (json.data) applyTicketUpdate(json.data);
       posAudio.playCashChime();
       setIsPaymentModalOpen(false);
       setPaymentAmount('');
-    } catch {
-      alert('Could not process payment');
+    } catch (err: any) {
+      alert(err?.message || 'Could not process payment');
     } finally {
       setIsRecordingPayment(false);
+    }
+  };
+
+  const handleVoidPayment = async (paymentId: string, amountCents: number) => {
+    if (!window.confirm(`Void payment of $${(amountCents / 100).toFixed(2)}?`)) return;
+    try {
+      setIsVoidingPaymentId(paymentId);
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/payments/${paymentId}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Could not void payment'));
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
+      posAudio.playWarningBeep();
+    } catch (err: any) {
+      alert(err?.message || 'Could not void payment');
+    } finally {
+      setIsVoidingPaymentId(null);
     }
   };
 
@@ -481,12 +510,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       const res = await fetchWithAuth(`/api/tickets/${ticket.id}/items/${itemId}`, {
         method: 'DELETE',
       });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data) applyTicketUpdate(json.data);
-      }
-    } catch {
-      alert('Could not remove line item');
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Could not remove line item'));
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
+    } catch (err: any) {
+      alert(err?.message || 'Could not remove line item');
     }
   };
 
@@ -507,7 +535,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           discountCents: Math.round(discountVal * 100),
         }),
       });
-      if (!res.ok) throw new Error('Failed to apply discount');
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to apply discount'));
       const json = await res.json();
       if (json.data) applyTicketUpdate(json.data);
       setIsDiscountModalOpen(false);
@@ -527,12 +555,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           signature: dataUrl,
         }),
       });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data) applyTicketUpdate(json.data);
-      }
-    } catch {
-      alert('Could not save customer signature');
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Could not save customer signature'));
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
+    } catch (err: any) {
+      alert(err?.message || 'Could not save customer signature');
     }
   };
 
@@ -541,7 +568,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     if (!emailTo.trim()) return;
     setIsSendingEmail(true);
     try {
-      await fetchWithAuth(`/api/tickets/${ticket.id}/notes`, {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -549,15 +576,17 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           message: `[Email Invoice Sent to ${emailTo.trim()}]: WO #${ticket.ticketNumber} Total: $${(totals.totalCents / 100).toFixed(2)}, Paid: $${(totals.paidCents / 100).toFixed(2)}`,
         }),
       });
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Could not send email receipt'));
+      const json = await res.json().catch(() => ({}));
+      if (json.data) applyTicketUpdate(json.data);
       posAudio.playSuccessChime();
       setEmailSuccess(true);
       setTimeout(() => {
         setEmailSuccess(false);
         setIsEmailModalOpen(false);
       }, 1500);
-      onRefresh();
-    } catch {
-      alert('Could not send email receipt');
+    } catch (err: any) {
+      alert(err?.message || 'Could not send email receipt');
     } finally {
       setIsSendingEmail(false);
     }
@@ -644,7 +673,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
             {/* Quick Status Dropdown (6-Stage Pipeline) */}
             <select
-              value={ticket.status}
+              value={ticket.status === 'PENDING' ? 'CHECKED_IN' : ticket.status === 'IN_PROGRESS' ? 'DIAGNOSING' : ticket.status}
               onChange={async (e) => {
                 const nextStatus = e.target.value as any;
                 if (nextStatus === 'COMPLETED') posAudio.playSuccessChime();
@@ -1540,6 +1569,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                           <th className="py-2 px-3">Method</th>
                           <th className="py-2 px-3">Amount</th>
                           <th className="py-2 px-3">Note</th>
+                          <th className="py-2 px-3 text-right">Action</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
@@ -1553,11 +1583,23 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                               +${(pmt.amountCents / 100).toFixed(2)}
                             </td>
                             <td className="py-2 px-3 text-slate-500">{pmt.note || 'N/A'}</td>
+                            <td className="py-2 px-3 text-right whitespace-nowrap">
+                              <button
+                                type="button"
+                                disabled={isVoidingPaymentId === pmt.id}
+                                onClick={() => handleVoidPayment(pmt.id, pmt.amountCents)}
+                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer disabled:opacity-40"
+                                title="Void Payment"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>{isVoidingPaymentId === pmt.id ? 'Voiding...' : 'Void'}</span>
+                              </button>
+                            </td>
                           </tr>
                         ))}
                         {(!ticket.payments || ticket.payments.length === 0) && (
                           <tr>
-                            <td colSpan={4} className="py-6 text-center text-slate-400 italic">
+                            <td colSpan={5} className="py-6 text-center text-slate-400 italic">
                               No payments recorded yet.
                             </td>
                           </tr>
@@ -1657,32 +1699,36 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             )}
 
             <form onSubmit={handleAttachItem} className="space-y-3 text-xs">
-              {/* Select from Inventory */}
-              <div>
-                <label className="block text-[11px] font-bold text-slate-700 mb-1">
-                  Select from Shop Inventory
-                </label>
-                <select
-                  value={selectedPartId}
-                  onChange={(e) => {
-                    setSelectedPartId(e.target.value);
-                    if (e.target.value) {
-                      setCustomItemDesc('');
-                      setCustomItemPrice('');
-                    }
-                  }}
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:border-indigo-600"
-                >
-                  <option value="">-- Choose in-stock component --</option>
-                  {availableParts.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} - ${(p.priceCents / 100).toFixed(2)} ({p.stock} in stock)
-                    </option>
-                  ))}
-                </select>
-              </div>
+              {/* Select from Inventory (only shown when inventory parts exist) */}
+              {availableParts.length > 0 && (
+                <>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Select from Shop Inventory
+                    </label>
+                    <select
+                      value={selectedPartId}
+                      onChange={(e) => {
+                        setSelectedPartId(e.target.value);
+                        if (e.target.value) {
+                          setCustomItemDesc('');
+                          setCustomItemPrice('');
+                        }
+                      }}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold focus:outline-none focus:border-indigo-600"
+                    >
+                      <option value="">-- Choose in-stock component --</option>
+                      {availableParts.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.name} - ${(p.priceCents / 100).toFixed(2)} ({p.stock} in stock)
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-              <div className="text-center font-bold text-slate-400 text-[10px]">OR CUSTOM ITEM</div>
+                  <div className="text-center font-bold text-slate-400 text-[10px]">OR CUSTOM ITEM</div>
+                </>
+              )}
 
               {/* Custom Description */}
               <div>
@@ -1873,7 +1919,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   {terminalState === 'APPROVED' && (
                     <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-lg text-center">
                       <div className="font-bold text-emerald-900 text-xs">✅ Approved! Receipt Generated</div>
-                      <div className="text-[10px] text-emerald-700 mt-0.5">Auth Code: AUTH-892411 • Recorded to Work Order</div>
+                      <div className="text-[10px] text-emerald-700 mt-0.5">Auth Code: {terminalAuthCode || 'APPROVED'} • Recorded to Work Order</div>
                     </div>
                   )}
                 </div>

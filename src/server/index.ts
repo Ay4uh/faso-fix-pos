@@ -488,6 +488,7 @@ app.get('/api/tickets', requireAuth, wrap(async (req, res) => {
   const view = (req.query.view || req.query.status || 'OPEN') as string;
   const search = req.query.search as string | undefined;
   const bench = req.query.bench as string | undefined;
+  const sort = req.query.sort as string | undefined;
   const hasPage = req.query.page !== undefined;
   const page = hasPage ? parseInt(req.query.page as string, 10) || 1 : 1;
   const pageSize = req.query.pageSize
@@ -497,7 +498,7 @@ app.get('/api/tickets', requireAuth, wrap(async (req, res) => {
     : hasPage
     ? 25
     : 200;
-  const result = await listTicketsPaginated({ view, search, bench, page, pageSize });
+  const result = await listTicketsPaginated({ view, search, bench, sort, page, pageSize });
   res.json({
     success: true,
     count: result.items.length,
@@ -571,7 +572,7 @@ app.post('/api/tickets', requireAuth, wrap(async (req, res) => {
 }));
 
 app.put('/api/tickets/:id', requireAuth, wrap(async (req, res) => {
-  const ticket = await updateTicket(getParam(req, 'id'), req.body);
+  const ticket = await updateTicket(getParam(req, 'id'), req.body, req.user!.name);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));
@@ -579,7 +580,7 @@ app.put('/api/tickets/:id', requireAuth, wrap(async (req, res) => {
 app.delete('/api/tickets/:id', requireAdmin, wrap(async (req, res) => {
   const actor = { id: req.user!.id, name: req.user!.name };
   const ticketId = getParam(req, 'id');
-  const result = await deleteTicket(ticketId);
+  const result = await deleteTicket(ticketId, actor.name);
 
   await recordAudit({
     userId: actor.id,
@@ -594,14 +595,14 @@ app.delete('/api/tickets/:id', requireAdmin, wrap(async (req, res) => {
 
 // Quick complete shortcut
 app.post('/api/tickets/:id/quick-complete', requireAuth, wrap(async (req, res) => {
-  const ticket = await updateTicket(getParam(req, 'id'), { status: 'COMPLETED' });
+  const ticket = await updateTicket(getParam(req, 'id'), { status: 'COMPLETED' }, req.user!.name);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, message: 'Work order marked completed', data: ticket });
 }));
 
 // Line items / parts attachment
 app.post('/api/tickets/:id/items', requireAuth, wrap(async (req, res) => {
-  const ticket = await addItem(getParam(req, 'id'), req.body);
+  const ticket = await addItem(getParam(req, 'id'), req.body, req.user!.name);
   broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
@@ -614,13 +615,13 @@ app.post('/api/tickets/:id/parts', requireAuth, wrap(async (req, res) => {
     description: customName || undefined,
     unitPriceCents: price !== undefined ? Math.round(Number(price) * 100) : undefined,
     quantity: quantity ? Number(quantity) : 1,
-  });
+  }, req.user!.name);
   broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
 
 app.delete('/api/tickets/:id/items/:itemId', requireAuth, wrap(async (req, res) => {
-  const ticket = await removeItem(getParam(req, 'id'), getParam(req, 'itemId'));
+  const ticket = await removeItem(getParam(req, 'id'), getParam(req, 'itemId'), req.user!.name);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));
@@ -633,13 +634,13 @@ app.post('/api/tickets/:id/payments', requireAuth, wrap(async (req, res) => {
     amountCents,
     method: body.method || 'CASH',
     note: body.note,
-  });
+  }, req.user!.name);
   broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
 
 app.delete('/api/tickets/:id/payments/:paymentId', requireAuth, wrap(async (req, res) => {
-  const ticket = await voidPayment(getParam(req, 'id'), getParam(req, 'paymentId'));
+  const ticket = await voidPayment(getParam(req, 'id'), getParam(req, 'paymentId'), req.user!.name);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));
@@ -651,7 +652,7 @@ app.post('/api/tickets/:id/notes', requireAuth, wrap(async (req, res) => {
   const ticket = await addNote(getParam(req, 'id'), {
     kind: noteKind,
     message: message || note || '',
-  });
+  }, req.user!.name);
   broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
@@ -661,7 +662,7 @@ app.post('/api/tickets/:id/notify', requireAuth, wrap(async (req, res) => {
   const ticket = await addNote(getParam(req, 'id'), {
     kind: 'MESSAGE',
     message: `[SMS to ${customerPhone || 'Customer'}]: ${message}`,
-  });
+  }, req.user!.name);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, message: `Notification sent to ${customerPhone}`, data: ticket });
 }));

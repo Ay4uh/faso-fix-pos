@@ -193,20 +193,47 @@ export const Header: React.FC<HeaderProps> = ({
     return () => window.removeEventListener('click', handleClick);
   }, []);
 
+  const [serverSearchResults, setServerSearchResults] = useState<Ticket[] | null>(null);
   const query = searchQuery.trim().toLowerCase();
+  const numericQuery = query.replace(/^(wo[\s\-_]*)?#?/i, '');
   const digits = searchQuery.replace(/\D/g, '');
 
-  const searchResults = query && tickets.length > 0
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (!trimmed) {
+      setServerSearchResults(null);
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetchWithAuth(`/api/tickets?view=ALL&search=${encodeURIComponent(trimmed)}&page=1&pageSize=6`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((json) => {
+          if (!cancelled && Array.isArray(json?.data)) {
+            setServerSearchResults(json.data);
+          }
+        })
+        .catch(() => {});
+    }, 200);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery]);
+
+  const localResults = query && tickets.length > 0
     ? tickets.filter((t) => {
         const matchName = t.customer.fullName.toLowerCase().includes(query);
         const matchPhone = digits.length >= 3 && t.customer.phone.replace(/\D/g, '').includes(digits);
         const matchDevice = t.device?.name?.toLowerCase().includes(query);
         const matchSerial = t.device?.serialNumber?.toLowerCase().includes(query);
-        const matchTicketNum = String(t.ticketNumber) === query.replace('#', '');
+        const matchTicketNum = /^\d+$/.test(numericQuery) && String(t.ticketNumber) === numericQuery;
         const matchIssue = t.faultDescription.toLowerCase().includes(query);
         return matchName || matchPhone || matchDevice || matchSerial || matchTicketNum || matchIssue;
       }).slice(0, 6)
     : [];
+
+  const searchResults = query ? (serverSearchResults ?? localResults) : [];
 
   const handleSelectResult = (t: Ticket) => {
     setIsDropdownOpen(false);

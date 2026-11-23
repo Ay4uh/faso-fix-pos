@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Ticket, User } from '../types';
+import { Ticket, User, DashboardStats } from '../types';
 import {
   Calendar,
   Phone,
@@ -27,6 +27,7 @@ export interface PaginationMeta {
 interface TicketTableProps {
   tickets: Ticket[];
   totalTicketsCount: number;
+  stats?: DashboardStats | null;
   activeFilter: string;
   setActiveFilter: (filter: string) => void;
   currentUser?: User | null;
@@ -43,6 +44,7 @@ interface TicketTableProps {
 export const TicketTable: React.FC<TicketTableProps> = ({
   tickets,
   totalTicketsCount,
+  stats,
   activeFilter,
   setActiveFilter,
   currentUser,
@@ -126,13 +128,13 @@ export const TicketTable: React.FC<TicketTableProps> = ({
   const filteredTickets = tickets.filter((t) => statusMatches(t.status, activeFilter));
 
   const filterPills = [
-    { id: 'ALL', label: 'All' },
-    { id: 'CHECKED_IN', label: 'Checked In' },
-    { id: 'DIAGNOSING', label: 'Diagnosing' },
-    { id: 'WAITING_ON_APPROVAL', label: 'Waiting Approval' },
-    { id: 'WAITING_ON_PARTS', label: 'Waiting on Part' },
-    { id: 'READY_FOR_PICKUP', label: 'Ready for Pickup' },
-    { id: 'COMPLETED', label: 'Completed / Paid' },
+    { id: 'ALL', label: 'All', count: stats?.totalTickets },
+    { id: 'CHECKED_IN', label: 'Checked In', count: stats ? (stats.checkedIn ?? stats.pending) : undefined },
+    { id: 'DIAGNOSING', label: 'Diagnosing', count: stats ? (stats.diagnosing ?? stats.inProgress) : undefined },
+    { id: 'WAITING_ON_APPROVAL', label: 'Waiting Approval', count: stats ? (stats.waitingOnApproval ?? 0) : undefined },
+    { id: 'WAITING_ON_PARTS', label: 'Waiting on Part', count: stats?.waitingOnParts },
+    { id: 'READY_FOR_PICKUP', label: 'Ready for Pickup', count: stats ? (stats.readyForPickup ?? 0) : undefined },
+    { id: 'COMPLETED', label: 'Completed / Paid', count: stats?.completed },
   ];
 
   return (
@@ -141,24 +143,30 @@ export const TicketTable: React.FC<TicketTableProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-3 rounded-xl border border-slate-200/90 shadow-xs">
         <div className="flex items-center space-x-1.5 overflow-x-auto pb-1 sm:pb-0">
           <span className="text-xs font-semibold text-slate-500 mr-1 whitespace-nowrap">Status Flow:</span>
-          {filterPills.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveFilter(item.id)}
-              className={`px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer whitespace-nowrap ${
-                activeFilter === item.id
-                  ? 'bg-indigo-600 text-white shadow-xs font-bold'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
-            >
-              {item.label}
-              {item.id !== 'ALL' && (
-                <span className="ml-1.5 opacity-80 font-bold">
-                  ({tickets.filter((t) => statusMatches(t.status, item.id)).length})
-                </span>
-              )}
-            </button>
-          ))}
+          {filterPills.map((item) => {
+            const pillCount =
+              item.count !== undefined
+                ? item.count
+                : tickets.filter((t) => statusMatches(t.status, item.id)).length;
+            return (
+              <button
+                key={item.id}
+                onClick={() => setActiveFilter(item.id)}
+                className={`px-2.5 py-1 rounded-md text-xs font-medium transition cursor-pointer whitespace-nowrap ${
+                  activeFilter === item.id
+                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                    : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                }`}
+              >
+                {item.label}
+                {(item.id !== 'ALL' || item.count !== undefined) && (
+                  <span className="ml-1.5 opacity-80 font-bold">
+                    ({pillCount})
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
 
         <div className="flex items-center space-x-2 text-xs text-slate-600 font-medium whitespace-nowrap">

@@ -16,6 +16,7 @@ export const NOTE_KINDS = ['CUSTOMER_NOTE', 'INTERNAL_NOTE', 'MESSAGE'] as const
 
 const trimmed = z.string().trim();
 const optionalText = trimmed.max(2000).optional().nullable();
+const signatureText = trimmed.max(500_000).optional().nullable();
 const cents = z.number().int().min(0).max(100_000_000);
 // Dates arrive as "YYYY-MM-DD" from <input type="date"> or as full ISO strings.
 const dateString = trimmed.refine((v) => !Number.isNaN(Date.parse(v)), 'Must be a valid date');
@@ -49,7 +50,7 @@ export const createTicketSchema = z.object({
   technician: optionalText,
   bench: optionalText,
   storageBin: optionalText,
-  signature: optionalText,
+  signature: signatureText,
   depositCents: cents.optional(),
   depositMethod: z.enum(PAYMENT_METHODS).optional(),
 });
@@ -65,8 +66,8 @@ export const updateTicketSchema = z
     technician: optionalText,
     bench: optionalText,
     storageBin: optionalText,
-    signature: optionalText,
-    diagnostics: z.record(z.string(), z.enum(['PASS', 'FAIL'])),
+    signature: signatureText,
+    diagnostics: z.record(z.string(), z.enum(['PASS', 'FAIL', 'PENDING'])),
     device: z
       .object({
         name: trimmed.min(1).max(120),

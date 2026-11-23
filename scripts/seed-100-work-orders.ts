@@ -247,7 +247,7 @@ async function generateWorkOrders() {
       const daysAgo = (totalToCreate - (ticketNum % totalToCreate)) % 21;
       const createdAt = new Date(Date.now() - daysAgo * 86400000 - ((ticketNum % 24) * 3600000));
       const dueDate = new Date(createdAt.getTime() + 48 * 3600000); // 2 days turnaround
-      const completedAt = status === 'COMPLETED' ? new Date(createdAt.getTime() + 26 * 3600000) : null;
+      const completedAt = status === 'COMPLETED' ? new Date(Math.min(Date.now(), createdAt.getTime() + 26 * 3600000)) : null;
 
       const tech = TECHNICIANS[ticketNum % TECHNICIANS.length];
       const bench = BENCHES[ticketNum % BENCHES.length];
@@ -271,8 +271,7 @@ async function generateWorkOrders() {
           bench: status === 'PENDING' ? null : bench,
           storageBin,
           diagnostics: JSON.stringify({
-            screen: status === 'PENDING' ? 'PENDING' : 'PASS',
-            touch: status === 'PENDING' ? 'PENDING' : 'PASS',
+            ...(status !== 'PENDING' ? { screen: 'PASS', touch: 'PASS' } : {}),
             battery: 'PASS',
             cameras: 'PASS',
             charging: 'PASS',

@@ -71,8 +71,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'ADMIN' | 'USER'>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'ACTIVE' | 'DISABLED'>('ALL');
 
-  // Ticket filters & search
+  // Ticket filters & search (server-side pagination)
   const [ticketSearch, setTicketSearch] = useState('');
+  const [ticketPage, setTicketPage] = useState(1);
+  const [ticketTotal, setTicketTotal] = useState(0);
+  const [ticketTotalPages, setTicketTotalPages] = useState(1);
 
   // Audit filters & search
   const [auditSearch, setAuditSearch] = useState('');
@@ -145,12 +148,20 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
-  const fetchTicketsList = async () => {
+  const fetchTicketsList = async (targetPage = ticketPage) => {
     try {
-      const res = await fetchWithAuth('/api/tickets?view=ALL');
+      const params = new URLSearchParams();
+      params.set('view', 'ALL');
+      params.set('page', String(targetPage));
+      params.set('pageSize', '25');
+      if (ticketSearch.trim()) params.set('search', ticketSearch.trim());
+
+      const res = await fetchWithAuth(`/api/tickets?${params.toString()}`);
       if (res.ok) {
         const json = await res.json();
         setTickets(json.data || []);
+        setTicketTotal(json.total ?? (json.data?.length || 0));
+        setTicketTotalPages(json.totalPages ?? 1);
       }
     } catch (err) {
       console.error(err);
@@ -181,9 +192,9 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   useEffect(() => {
     if (activeSection === 'tickets') {
-      fetchTicketsList();
+      fetchTicketsList(ticketPage);
     }
-  }, [activeSection]);
+  }, [ticketSearch, ticketPage, activeSection]);
 
   useEffect(() => {
     if (activeSection === 'audit') {
@@ -326,7 +337,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'schedule', label: 'Shift Calendar & Scheduling', icon: Calendar },
           { id: 'payroll', label: 'Payroll & Remuneration', icon: DollarSign },
           { id: 'sales-labor', label: 'Sales & Labor ROI', icon: TrendingUp },
-          { id: 'tickets', label: 'Work Orders & Tickets', icon: Wrench, badge: tickets.length },
+          { id: 'tickets', label: 'Work Orders & Tickets', icon: Wrench, badge: ticketTotal || tickets.length },
           { id: 'roles', label: 'Roles & RBAC Permissions', icon: ShieldCheck },
           { id: 'audit', label: 'System Audit Logs', icon: Layers, badge: auditTotal || auditLogs.length },
         ].map((tab) => {
@@ -712,11 +723,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   Admin Authority
                 </span>
                 <span className="px-2 py-0.5 rounded-full text-[10px] font-semibold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                  {tickets.length} Active Work Orders
+                  {ticketTotal || tickets.length} Total Work Orders
                 </span>
               </div>
               <h3 className="text-base font-bold text-slate-900 tracking-tight">
-                Work Orders & Ticket Management
+                Work Orders &amp; Ticket Management
               </h3>
               <p className="text-xs text-slate-500 mt-0.5">
                 Inspect, audit, or permanently delete repair tickets across all benches and statuses.
@@ -729,14 +740,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <input
                   type="text"
                   value={ticketSearch}
-                  onChange={(e) => setTicketSearch(e.target.value)}
+                  onChange={(e) => {
+                    setTicketPage(1);
+                    setTicketSearch(e.target.value);
+                  }}
                   placeholder="Search by ticket #, client, phone, device..."
                   className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 transition"
                 />
               </div>
               <button
                 type="button"
-                onClick={() => fetchTicketsList()}
+                onClick={() => fetchTicketsList(ticketPage)}
                 className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold rounded-xl transition flex items-center gap-1.5 cursor-pointer shadow-2xs"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -760,36 +774,14 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {tickets.filter((t) => {
-                    const q = ticketSearch.trim().toLowerCase();
-                    if (!q) return true;
-                    return (
-                      t.ticketNumber.toString().includes(q) ||
-                      t.customer.fullName.toLowerCase().includes(q) ||
-                      t.customer.phone.includes(q) ||
-                      (t.device?.name && t.device.name.toLowerCase().includes(q)) ||
-                      (t.faultDescription && t.faultDescription.toLowerCase().includes(q))
-                    );
-                  }).length === 0 ? (
+                  {tickets.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="text-center py-12 text-slate-400 italic">
                         No work orders found matching your search.
                       </td>
                     </tr>
                   ) : (
-                    tickets
-                      .filter((t) => {
-                        const q = ticketSearch.trim().toLowerCase();
-                        if (!q) return true;
-                        return (
-                          t.ticketNumber.toString().includes(q) ||
-                          t.customer.fullName.toLowerCase().includes(q) ||
-                          t.customer.phone.includes(q) ||
-                          (t.device?.name && t.device.name.toLowerCase().includes(q)) ||
-                          (t.faultDescription && t.faultDescription.toLowerCase().includes(q))
-                        );
-                      })
-                      .map((ticket) => {
+                    tickets.map((ticket) => {
                         const totalCents = ticket.totals ? ticket.totals.totalCents : ticket.laborCents;
                         const paidCents = ticket.totals ? ticket.totals.paidCents : 0;
                         const balanceCents = ticket.totals ? ticket.totals.balanceCents : (ticket.laborCents - paidCents);
@@ -849,6 +841,36 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </table>
             </div>
           </div>
+
+          {ticketTotalPages > 1 && (
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 bg-white px-4 py-3 rounded-xl border border-slate-200/90 shadow-xs text-xs">
+              <span className="text-slate-600 font-medium">
+                Page <strong className="text-slate-900">{ticketPage}</strong> of{' '}
+                <strong className="text-slate-900">{ticketTotalPages}</strong> &bull;{' '}
+                <strong className="text-slate-900">{ticketTotal}</strong> total work orders
+              </span>
+              <div className="flex items-center space-x-2">
+                <button
+                  type="button"
+                  disabled={ticketPage <= 1}
+                  onClick={() => setTicketPage((p) => Math.max(1, p - 1))}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                  <span>Previous</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={ticketPage >= ticketTotalPages}
+                  onClick={() => setTicketPage((p) => p + 1)}
+                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
+                >
+                  <span>Next</span>
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

@@ -32,13 +32,22 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
       .catch((err) => console.error('Failed to load reports', err));
   }, [days]);
 
-  const total = tickets.length || 1;
-  const completedCount = tickets.filter((t) => t.status === 'COMPLETED' || t.status === 'READY_FOR_PICKUP').length;
-  const inProgressCount = tickets.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'DIAGNOSING').length;
-  const waitingPartsCount = tickets.filter((t) => t.status === 'WAITING_ON_PARTS').length;
-  const pendingCount = tickets.filter(
-    (t) => t.status === 'PENDING' || t.status === 'CHECKED_IN' || t.status === 'WAITING_ON_APPROVAL'
-  ).length;
+  const totalTickets = stats?.totalTickets ?? tickets.length;
+  const completedCount = stats
+    ? stats.completed + (stats.readyForPickup ?? 0)
+    : tickets.filter((t) => t.status === 'COMPLETED' || t.status === 'READY_FOR_PICKUP').length;
+  const inProgressCount = stats
+    ? (stats.diagnosing ?? stats.inProgress)
+    : tickets.filter((t) => t.status === 'IN_PROGRESS' || t.status === 'DIAGNOSING').length;
+  const waitingPartsCount = stats
+    ? stats.waitingOnParts
+    : tickets.filter((t) => t.status === 'WAITING_ON_PARTS').length;
+  const pendingCount = stats
+    ? (stats.checkedIn ?? stats.pending) + (stats.waitingOnApproval ?? 0)
+    : tickets.filter(
+        (t) => t.status === 'PENDING' || t.status === 'CHECKED_IN' || t.status === 'WAITING_ON_APPROVAL'
+      ).length;
+  const total = totalTickets || 1;
 
   const handleExportTicketsCsv = async () => {
     try {
@@ -56,11 +65,19 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
     }
   };
 
-  const totalValue = tickets.reduce(
-    (acc, t) => acc + (t.totals ? t.totals.totalCents / 100 : t.laborCents / 100),
-    0
-  );
-  const avgTicket = total > 0 ? totalValue / total : 0;
+  const totalValue =
+    stats?.totalValueCents !== undefined
+      ? stats.totalValueCents / 100
+      : tickets.reduce(
+          (acc, t) => acc + (t.totals ? t.totals.totalCents / 100 : t.laborCents / 100),
+          0
+        );
+  const avgTicket =
+    stats?.avgTicketValueCents !== undefined
+      ? stats.avgTicketValueCents / 100
+      : totalTickets > 0
+      ? totalValue / totalTickets
+      : 0;
 
   const revenue = report ? report.revenueCents / 100 : (stats ? stats.collectedMonthCents / 100 : 0);
   const partsMarginCents = report ? report.partsRevenueCents - report.partsCostCents : 0;
@@ -218,7 +235,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
         <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm space-y-4">
           <h3 className="text-xs font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
             <BarChart3 className="w-4 h-4 text-indigo-600" />
-            Active Queue Distribution ({tickets.length} total)
+            Active Queue Distribution ({totalTickets} total)
           </h3>
 
           <div className="space-y-3 text-xs">

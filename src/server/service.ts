@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
-import { prisma } from './prisma';
+import { prisma, isPostgres } from './prisma';
 import { computeTotals, digitsOnly } from './money';
 import {
   addItemSchema,
@@ -62,6 +62,7 @@ const OPEN_STATUSES = [
 
 const money = (c: number) => `$${(c / 100).toFixed(2)}`;
 const emptyToNull = (v: string | null | undefined) => (v === undefined ? undefined : v?.trim() ? v.trim() : null);
+const ciContains = (q: string) => (isPostgres ? { contains: q, mode: 'insensitive' as const } : { contains: q });
 
 /** "YYYY-MM-DD" is stored at local noon so it never shifts a day across time zones. */
 function parseDate(v: string): Date {
@@ -165,6 +166,7 @@ export async function listTicketsPaginated(params: {
   view?: string;
   search?: string;
   bench?: string;
+  sort?: string;
   page?: number;
   pageSize?: number;
 }) {
@@ -174,6 +176,8 @@ export async function listTicketsPaginated(params: {
   };
 
   if (view === 'OPEN') where.status = { in: OPEN_STATUSES };
+  else if (view === 'CHECKED_IN' || view === 'PENDING') where.status = { in: ['CHECKED_IN', 'PENDING'] };
+  else if (view === 'DIAGNOSING' || view === 'IN_PROGRESS') where.status = { in: ['DIAGNOSING', 'IN_PROGRESS'] };
   else if (view !== 'ALL') where.status = view;
 
   if (params.bench && params.bench !== 'ALL') {
@@ -182,13 +186,13 @@ export async function listTicketsPaginated(params: {
 
   const q = (params.search || '').trim();
   if (q) {
-    const numeric = q.replace(/^(wo\s*)?#?/i, '');
+    const numeric = q.replace(/^(wo[\s\-_]*)?#?/i, '');
     const digits = digitsOnly(q);
     const or: Prisma.TicketWhereInput[] = [
-      { customer: { fullName: { contains: q } } },
-      { device: { name: { contains: q } } },
-      { device: { serialNumber: { contains: q } } },
-      { faultDescription: { contains: q } },
+      { customer: { fullName: ciContains(q) } },
+      { device: { name: ciContains(q) } },
+      { device: { serialNumber: ciContains(q) } },
+      { faultDescription: ciContains(q) },
     ];
     if (/^\d+$/.test(numeric)) or.push({ ticketNumber: Number(numeric) });
     if (digits.length >= 3) or.push({ customer: { phoneDigits: { contains: digits } } });
@@ -199,12 +203,19 @@ export async function listTicketsPaginated(params: {
   const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || 25)), 500);
   const skip = (page - 1) * pageSize;
 
+  const orderBy: Prisma.TicketOrderByWithRelationInput[] =
+    params.sort === 'dueDate'
+      ? [{ dueDate: 'asc' }, { ticketNumber: 'desc' }]
+      : view === 'COMPLETED'
+      ? [{ completedAt: 'desc' }, { ticketNumber: 'desc' }]
+      : [{ ticketNumber: 'desc' }];
+
   const [total, tickets] = await Promise.all([
     prisma.ticket.count({ where }),
     prisma.ticket.findMany({
       where,
       include: ticketInclude,
-      orderBy: view === 'COMPLETED' ? { completedAt: 'desc' } : [{ dueDate: 'asc' }, { ticketNumber: 'asc' }],
+      orderBy,
       skip,
       take: pageSize,
     }),
@@ -221,7 +232,7 @@ export async function listTicketsPaginated(params: {
   };
 }
 
-export async function listTickets(params: { view?: string; search?: string; bench?: string }) {
+export async function listTickets(params: { view?: string; search?: string; bench?: string; sort?: string }) {
   const res = await listTicketsPaginated({ ...params, page: 1, pageSize: 500 });
   return res.items;
 }
@@ -235,21 +246,24 @@ export async function createTicket(input: unknown) {
   const id = await prisma.$transaction(async (tx) => {
     const settings = await getSettings(tx);
 
-    // Atomically find the highest existing ticketNumber across all tickets
+    // Atomic row-locked counter increment prevents duplicate ticketNumbers under concurrency
+    const bumped = await tx.setting.update({
+      where: { id: 1 },
+      data: { nextTicketNumber: { increment: 1 } },
+    });
     const maxTicket = await tx.ticket.findFirst({
       orderBy: { ticketNumber: 'desc' },
       select: { ticketNumber: true },
     });
-
-    const nextFromSetting = settings.nextTicketNumber || 1;
+    let ticketNumber = bumped.nextTicketNumber - 1;
     const nextFromMax = (maxTicket?.ticketNumber ?? 0) + 1;
-    const ticketNumber = Math.max(nextFromSetting, nextFromMax);
-
-    // Ensure nextTicketNumber is always strictly greater than ticketNumber
-    await tx.setting.update({
-      where: { id: 1 },
-      data: { nextTicketNumber: ticketNumber + 1 },
-    });
+    if (nextFromMax > ticketNumber) {
+      ticketNumber = nextFromMax;
+      await tx.setting.update({
+        where: { id: 1 },
+        data: { nextTicketNumber: ticketNumber + 1 },
+      });
+    }
 
     // Customer: matched on phone digits so "(555) 123-4567" and "5551234567" are the same person.
     let customer = await tx.customer.findUnique({ where: { phoneDigits } });
@@ -323,7 +337,7 @@ export async function createTicket(input: unknown) {
   return getTicket(id);
 }
 
-export async function updateTicket(id: string, input: unknown) {
+export async function updateTicket(id: string, input: unknown, author?: string | null) {
   const data = updateTicketSchema.parse(input);
 
   await prisma.$transaction(async (tx) => {
@@ -334,7 +348,7 @@ export async function updateTicket(id: string, input: unknown) {
     if (data.status && data.status !== t.status) {
       update.status = data.status;
       update.completedAt = data.status === 'COMPLETED' ? new Date() : null;
-      await logEvent(tx, id, 'STATUS', `Status changed: ${STATUS_LABEL[t.status]} → ${STATUS_LABEL[data.status]}`);
+      await logEvent(tx, id, 'STATUS', `Status changed: ${STATUS_LABEL[t.status]} → ${STATUS_LABEL[data.status]}`, author);
     }
     if (data.priority && data.priority !== t.priority) {
       update.priority = data.priority;
@@ -373,7 +387,11 @@ export async function updateTicket(id: string, input: unknown) {
       }
     }
     if (data.diagnostics) {
-      update.diagnostics = JSON.stringify(data.diagnostics);
+      const cleanDiag: Record<string, 'PASS' | 'FAIL'> = {};
+      for (const [k, v] of Object.entries(data.diagnostics)) {
+        if (v === 'PASS' || v === 'FAIL') cleanDiag[k] = v;
+      }
+      update.diagnostics = JSON.stringify(cleanDiag);
     }
     if (data.device) {
       const d = data.device;
@@ -391,13 +409,13 @@ export async function updateTicket(id: string, input: unknown) {
     // Money changes must never push the total below what has already been paid
     // without the user seeing it: we allow it, but the balance shows as a refund due.
     if (Object.keys(update).length) await tx.ticket.update({ where: { id }, data: update });
-    if (changes.length) await logEvent(tx, id, 'SYSTEM', `Updated: ${changes.join(', ')}`);
-  });
+    if (changes.length) await logEvent(tx, id, 'SYSTEM', `Updated: ${changes.join(', ')}`, author);
+  }, TX_OPTIONS);
 
   return getTicket(id);
 }
 
-export async function deleteTicket(id: string) {
+export async function deleteTicket(id: string, author?: string | null) {
   await prisma.$transaction(async (tx) => {
     const t = await loadTicket(tx, id);
     // Return any inventory parts to stock.
@@ -405,12 +423,12 @@ export async function deleteTicket(id: string) {
       if (item.partId) await tx.inventoryPart.update({ where: { id: item.partId }, data: { stock: { increment: item.quantity } } });
     }
     await tx.ticket.update({ where: { id }, data: { deletedAt: new Date() } });
-    await logEvent(tx, id, 'SYSTEM', 'Work order deleted by administrator');
-  });
+    await logEvent(tx, id, 'SYSTEM', 'Work order deleted by administrator', author);
+  }, TX_OPTIONS);
   return { ok: true };
 }
 
-export async function addItem(ticketId: string, input: unknown) {
+export async function addItem(ticketId: string, input: unknown, author?: string | null) {
   const data = addItemSchema.parse(input);
 
   await prisma.$transaction(async (tx) => {
@@ -434,13 +452,13 @@ export async function addItem(ticketId: string, input: unknown) {
     await tx.ticketItem.create({
       data: { ticketId, partId: data.partId ?? null, description, quantity: data.quantity, unitPriceCents, unitCostCents },
     });
-    await logEvent(tx, ticketId, 'ITEM', `Added ${data.quantity} × ${description} @ ${money(unitPriceCents)}`);
-  });
+    await logEvent(tx, ticketId, 'ITEM', `Added ${data.quantity} × ${description} @ ${money(unitPriceCents)}`, author);
+  }, TX_OPTIONS);
 
   return getTicket(ticketId);
 }
 
-export async function removeItem(ticketId: string, itemId: string) {
+export async function removeItem(ticketId: string, itemId: string, author?: string | null) {
   await prisma.$transaction(async (tx) => {
     await loadTicket(tx, ticketId);
     const item = await tx.ticketItem.findFirst({ where: { id: itemId, ticketId } });
@@ -449,12 +467,12 @@ export async function removeItem(ticketId: string, itemId: string) {
       await tx.inventoryPart.update({ where: { id: item.partId }, data: { stock: { increment: item.quantity } } });
     }
     await tx.ticketItem.delete({ where: { id: itemId } });
-    await logEvent(tx, ticketId, 'ITEM', `Removed ${item.quantity} × ${item.description}${item.partId ? ' (returned to stock)' : ''}`);
-  });
+    await logEvent(tx, ticketId, 'ITEM', `Removed ${item.quantity} × ${item.description}${item.partId ? ' (returned to stock)' : ''}`, author);
+  }, TX_OPTIONS);
   return getTicket(ticketId);
 }
 
-export async function addPayment(ticketId: string, input: unknown) {
+export async function addPayment(ticketId: string, input: unknown, author?: string | null) {
   const data = paymentSchema.parse(input);
 
   await prisma.$transaction(async (tx) => {
@@ -474,28 +492,29 @@ export async function addPayment(ticketId: string, input: unknown) {
       ticketId,
       'PAYMENT',
       `${isDeposit ? 'Deposit' : 'Payment'} of ${money(data.amountCents)} received (${data.method.replace('_', '-')})${remaining === 0 ? ' — paid in full' : `, ${money(remaining)} still owing`}`,
+      author,
     );
-  });
+  }, TX_OPTIONS);
   return getTicket(ticketId);
 }
 
-export async function voidPayment(ticketId: string, paymentId: string) {
+export async function voidPayment(ticketId: string, paymentId: string, author?: string | null) {
   await prisma.$transaction(async (tx) => {
     await loadTicket(tx, ticketId);
     const p = await tx.payment.findFirst({ where: { id: paymentId, ticketId } });
     if (!p) throw new HttpError(404, 'Payment not found');
     await tx.payment.delete({ where: { id: paymentId } });
-    await logEvent(tx, ticketId, 'PAYMENT', `Voided payment of ${money(p.amountCents)} (${p.method})`);
-  });
+    await logEvent(tx, ticketId, 'PAYMENT', `Voided payment of ${money(p.amountCents)} (${p.method})`, author);
+  }, TX_OPTIONS);
   return getTicket(ticketId);
 }
 
-export async function addNote(ticketId: string, input: unknown) {
+export async function addNote(ticketId: string, input: unknown, author?: string | null) {
   const data = noteSchema.parse(input);
   await prisma.$transaction(async (tx) => {
     await loadTicket(tx, ticketId);
-    await logEvent(tx, ticketId, data.kind, data.message);
-  });
+    await logEvent(tx, ticketId, data.kind, data.message, author);
+  }, TX_OPTIONS);
   return getTicket(ticketId);
 }
 
@@ -510,7 +529,7 @@ export async function updateNote(ticketId: string, noteId: string, message: stri
       where: { id: noteId },
       data: { message: message.trim() },
     });
-  });
+  }, TX_OPTIONS);
   return getTicket(ticketId);
 }
 
@@ -524,7 +543,7 @@ export async function deleteNote(ticketId: string, noteId: string) {
     await tx.ticketEvent.delete({
       where: { id: noteId },
     });
-  });
+  }, TX_OPTIONS);
   return getTicket(ticketId);
 }
 
@@ -547,8 +566,8 @@ export async function listCustomersPaginated(params: {
   const where: Prisma.CustomerWhereInput = q
     ? {
         OR: [
-          { fullName: { contains: q } },
-          { email: { contains: q } },
+          { fullName: ciContains(q) },
+          { email: ciContains(q) },
           ...(digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []),
         ],
       }
@@ -642,7 +661,7 @@ export async function updateCustomer(id: string, input: unknown) {
 export function listParts(search?: string) {
   const q = (search || '').trim();
   return prisma.inventoryPart.findMany({
-    where: q ? { OR: [{ name: { contains: q } }, { sku: { contains: q } }, { supplier: { contains: q } }] } : {},
+    where: q ? { OR: [{ name: ciContains(q) }, { sku: ciContains(q) }, { supplier: ciContains(q) }] } : {},
     orderBy: [{ name: 'asc' }],
   });
 }
@@ -729,15 +748,29 @@ export async function getDashboard() {
       (t.status === 'COMPLETED' && computeTotals(t).balanceCents > 0)
   );
 
+  const checkedIn = count('PENDING') + count('CHECKED_IN');
+  const diagnosing = count('IN_PROGRESS') + count('DIAGNOSING');
+  const waitingOnApproval = count('WAITING_ON_APPROVAL');
+  const readyForPickup = count('READY_FOR_PICKUP');
+  const totalValueCents = Math.max(0, tickets.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0));
+  const avgTicketValueCents = tickets.length > 0 ? Math.round(totalValueCents / tickets.length) : 0;
+
   return {
+    totalTickets: tickets.length,
     open: open.length,
-    pending: count('PENDING') + count('CHECKED_IN'),
-    inProgress: count('IN_PROGRESS') + count('DIAGNOSING'),
+    checkedIn,
+    pending: checkedIn,
+    diagnosing,
+    inProgress: diagnosing,
+    waitingOnApproval,
     waitingOnParts: count('WAITING_ON_PARTS'),
+    readyForPickup,
     completed: count('COMPLETED'),
     overdue: open.filter((t) => t.dueDate < today).length,
     dueToday: open.filter((t) => t.dueDate >= today && t.dueDate < tomorrow).length,
     openValueCents: Math.max(0, open.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0)),
+    totalValueCents,
+    avgTicketValueCents,
     awaitingPickupCount: awaitingPickupTickets.length,
     awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
     collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
@@ -801,9 +834,8 @@ export async function getReport(days: number) {
     .map((t) => (t.completedAt!.getTime() - t.createdAt.getTime()) / 3_600_000);
   const onTime = completed.filter((t) => t.completedAt && t.completedAt.getTime() <= t.dueDate.getTime() + 86_400_000 / 2).length;
 
-  const partItems = items.filter((i) => i.partId);
-  const partsRevenueCents = partItems.reduce((s, i) => s + i.quantity * i.unitPriceCents, 0);
-  const partsCostCents = partItems.reduce((s, i) => s + i.quantity * i.unitCostCents, 0);
+  const partsRevenueCents = items.reduce((s, i) => s + i.quantity * i.unitPriceCents, 0);
+  const partsCostCents = items.reduce((s, i) => s + i.quantity * i.unitCostCents, 0);
 
   return {
     days: span,
@@ -1292,11 +1324,11 @@ export async function listUsers(
   }
 
   if (params.search?.trim()) {
-    const q = params.search.trim().toLowerCase();
+    const q = params.search.trim();
     where.OR = [
-      { name: { contains: q } },
-      { username: { contains: q } },
-      { email: { contains: q } },
+      { name: ciContains(q) },
+      { username: ciContains(q) },
+      { email: ciContains(q) },
     ];
   }
 
@@ -1658,11 +1690,11 @@ export async function listAuditLogsPaginated(params: {
   }
 
   if (params.search?.trim()) {
-    const q = params.search.trim().toLowerCase();
+    const q = params.search.trim();
     where.OR = [
-      { actorName: { contains: q } },
-      { details: { contains: q } },
-      { action: { contains: q } },
+      { actorName: ciContains(q) },
+      { details: ciContains(q) },
+      { action: ciContains(q) },
     ];
   }
 

@@ -18,7 +18,7 @@ export const SendSmsModal: React.FC<SendSmsModalProps> = ({ ticket, onClose, onS
   useEffect(() => {
     if (ticket) {
       setMessage(
-        `Hello ${ticket.customer.fullName}, Faso Fix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) is currently ${ticket.status.toLowerCase().replace('_', ' ')}.`
+        `Hello ${ticket.customer.fullName}, Faso Fix update: Your ${ticket.device?.name || 'device'} (WO #${ticket.ticketNumber}) is currently ${ticket.status.toLowerCase().replace(/_/g, ' ')}.`
       );
       setErrorMsg(null);
     }
@@ -42,7 +42,10 @@ export const SendSmsModal: React.FC<SendSmsModalProps> = ({ ticket, onClose, onS
         }),
       });
 
-      if (!res.ok) throw new Error('SMS transmission failed');
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json?.error || 'SMS transmission failed');
+      }
 
       posAudio.playScanBeep();
       onSuccess();
