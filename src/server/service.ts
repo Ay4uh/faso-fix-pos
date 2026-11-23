@@ -8,7 +8,10 @@ import {
   customerUpdateSchema,
   noteSchema,
   partSchema,
+  partUpdateSchema,
   paymentSchema,
+  refundSchema,
+  photoUploadSchema,
   settingsSchema,
   updateTicketSchema,
   loginSchema,
@@ -49,6 +52,8 @@ const STATUS_LABEL: Record<string, string> = {
   WAITING_ON_PARTS: 'Waiting on Part',
   READY_FOR_PICKUP: 'Ready for Pickup',
   COMPLETED: 'Completed / Paid',
+  DECLINED: 'Declined',
+  CANCELLED: 'Cancelled',
 };
 const OPEN_STATUSES = [
   'CHECKED_IN',
@@ -167,6 +172,7 @@ export async function listTicketsPaginated(params: {
   search?: string;
   bench?: string;
   sort?: string;
+  warranty?: boolean | string;
   page?: number;
   pageSize?: number;
 }) {
@@ -178,7 +184,14 @@ export async function listTicketsPaginated(params: {
   if (view === 'OPEN') where.status = { in: OPEN_STATUSES };
   else if (view === 'CHECKED_IN' || view === 'PENDING') where.status = { in: ['CHECKED_IN', 'PENDING'] };
   else if (view === 'DIAGNOSING' || view === 'IN_PROGRESS') where.status = { in: ['DIAGNOSING', 'IN_PROGRESS'] };
+  else if (view === 'WARRANTY') where.isWarranty = true;
   else if (view !== 'ALL') where.status = view;
+
+  if (params.warranty === true || params.warranty === 'true') {
+    where.isWarranty = true;
+  } else if (params.warranty === false || params.warranty === 'false') {
+    where.isWarranty = false;
+  }
 
   if (params.bench && params.bench !== 'ALL') {
     where.bench = params.bench;
@@ -232,16 +245,20 @@ export async function listTicketsPaginated(params: {
   };
 }
 
-export async function listTickets(params: { view?: string; search?: string; bench?: string; sort?: string }) {
+export async function listTickets(params: { view?: string; search?: string; bench?: string; sort?: string; warranty?: boolean | string }) {
   const res = await listTicketsPaginated({ ...params, page: 1, pageSize: 500 });
   return res.items;
 }
 
 const TX_OPTIONS = { maxWait: 15000, timeout: 20000 };
 
-export async function createTicket(input: unknown) {
+export async function createTicket(input: unknown, actor?: { id?: string; name?: string }) {
   const data = createTicketSchema.parse(input);
   const phoneDigits = digitsOnly(data.customer.phone);
+
+  let createdNumber = 0;
+  let customerName = data.customer.fullName;
+  let deviceName = data.device.name;
 
   const id = await prisma.$transaction(async (tx) => {
     const settings = await getSettings(tx);
@@ -316,10 +333,20 @@ export async function createTicket(input: unknown) {
         bench: emptyToNull(data.bench) ?? null,
         storageBin: emptyToNull(data.storageBin) ?? null,
         signature: emptyToNull(data.signature) ?? null,
+        isWarranty: Boolean(data.isWarranty),
         dueDate: parseDate(data.dueDate),
       },
     });
-    await logEvent(tx, ticket.id, 'STATUS', `Work order #${ticketNumber} created for ${device.name}`, data.technician);
+    createdNumber = ticketNumber;
+    customerName = customer.fullName;
+    deviceName = device.name;
+    await logEvent(
+      tx,
+      ticket.id,
+      'STATUS',
+      `Work order #${ticketNumber}${data.isWarranty ? ' (WARRANTY)' : ''} created for ${device.name}`,
+      actor?.name || data.technician
+    );
 
     if (data.depositCents && data.depositCents > 0) {
       const totals = computeTotals({ ...ticket, items: [], payments: [] });
@@ -329,30 +356,87 @@ export async function createTicket(input: unknown) {
       await tx.payment.create({
         data: { ticketId: ticket.id, amountCents: data.depositCents, method: data.depositMethod || 'CASH', note: 'Deposit at intake' },
       });
-      await logEvent(tx, ticket.id, 'PAYMENT', `Deposit of ${money(data.depositCents)} received (${data.depositMethod || 'CASH'})`);
+      await logEvent(tx, ticket.id, 'PAYMENT', `Deposit of ${money(data.depositCents)} received (${data.depositMethod || 'CASH'})`, actor?.name);
     }
     return ticket.id;
   }, TX_OPTIONS);
 
+  await recordAudit({
+    userId: actor?.id,
+    actorName: actor?.name || 'POS User',
+    action: 'TICKET_CREATE',
+    details: `Created work order #${createdNumber} for ${customerName} (${deviceName})${data.isWarranty ? ' [Warranty]' : ''}`,
+  });
+
   return getTicket(id);
 }
 
-export async function updateTicket(id: string, input: unknown, author?: string | null) {
+export async function updateTicket(id: string, input: unknown, author?: string | null, actorId?: string | null) {
   const data = updateTicketSchema.parse(input);
+  let auditSummary = '';
+  let auditTicketNum = 0;
 
   await prisma.$transaction(async (tx) => {
     const t = await loadTicket(tx, id);
+    auditTicketNum = t.ticketNumber;
+
+    // Optimistic concurrency guard: reject stale writes if another staff member saved newer edits
+    if (data.expectedUpdatedAt) {
+      const expectedMs = Date.parse(data.expectedUpdatedAt);
+      if (!Number.isNaN(expectedMs) && t.updatedAt.getTime() !== expectedMs) {
+        throw new HttpError(
+          409,
+          'Conflict: This work order was modified by another employee. Refresh before saving to avoid overwriting their changes.'
+        );
+      }
+    }
+
     const update: Prisma.TicketUpdateInput = {};
     const changes: string[] = [];
 
     if (data.status && data.status !== t.status) {
+      const wasClosedOut = t.status === 'CANCELLED' || t.status === 'DECLINED';
+      const willCloseOut = data.status === 'CANCELLED' || data.status === 'DECLINED';
+
+      if (!wasClosedOut && willCloseOut) {
+        // Restore attached inventory parts back to stock on cancel/decline while preserving ticket line history
+        let returnedCount = 0;
+        for (const item of t.items) {
+          if (item.partId) {
+            await tx.inventoryPart.update({ where: { id: item.partId }, data: { stock: { increment: item.quantity } } });
+            returnedCount += item.quantity;
+          }
+        }
+        if (returnedCount > 0) {
+          changes.push(`returned ${returnedCount} part(s) to stock`);
+        }
+      } else if (wasClosedOut && !willCloseOut) {
+        // Re-deduct attached inventory parts if reopened
+        for (const item of t.items) {
+          if (item.partId) {
+            const part = await tx.inventoryPart.findUnique({ where: { id: item.partId } });
+            if (part) {
+              if (part.stock < item.quantity) {
+                throw new HttpError(409, `Cannot reopen work order: insufficient stock for ${part.name} (${part.stock} available, ${item.quantity} needed)`);
+              }
+              await tx.inventoryPart.update({ where: { id: item.partId }, data: { stock: { decrement: item.quantity } } });
+            }
+          }
+        }
+      }
+
       update.status = data.status;
       update.completedAt = data.status === 'COMPLETED' ? new Date() : null;
-      await logEvent(tx, id, 'STATUS', `Status changed: ${STATUS_LABEL[t.status]} → ${STATUS_LABEL[data.status]}`, author);
+      await logEvent(tx, id, 'STATUS', `Status changed: ${STATUS_LABEL[t.status] || t.status} → ${STATUS_LABEL[data.status] || data.status}`, author);
+      changes.push(`status ${t.status} → ${data.status}`);
     }
     if (data.priority && data.priority !== t.priority) {
       update.priority = data.priority;
       changes.push(`priority → ${data.priority.toLowerCase()}`);
+    }
+    if (data.isWarranty !== undefined && data.isWarranty !== t.isWarranty) {
+      update.isWarranty = data.isWarranty;
+      changes.push(data.isWarranty ? 'marked warranty repair' : 'cleared warranty repair');
     }
     if (data.faultDescription !== undefined && data.faultDescription !== t.faultDescription) {
       update.faultDescription = data.faultDescription;
@@ -409,8 +493,20 @@ export async function updateTicket(id: string, input: unknown, author?: string |
     // Money changes must never push the total below what has already been paid
     // without the user seeing it: we allow it, but the balance shows as a refund due.
     if (Object.keys(update).length) await tx.ticket.update({ where: { id }, data: update });
-    if (changes.length) await logEvent(tx, id, 'SYSTEM', `Updated: ${changes.join(', ')}`, author);
+    if (changes.length) {
+      auditSummary = changes.join(', ');
+      await logEvent(tx, id, 'SYSTEM', `Updated: ${auditSummary}`, author);
+    }
   }, TX_OPTIONS);
+
+  if (auditSummary) {
+    await recordAudit({
+      userId: actorId ?? undefined,
+      actorName: author || 'POS User',
+      action: 'TICKET_UPDATE',
+      details: `WO #${auditTicketNum}: ${auditSummary}`,
+    });
+  }
 
   return getTicket(id);
 }
@@ -472,12 +568,31 @@ export async function removeItem(ticketId: string, itemId: string, author?: stri
   return getTicket(ticketId);
 }
 
-export async function addPayment(ticketId: string, input: unknown, author?: string | null) {
+export async function addPayment(ticketId: string, input: unknown, author?: string | null, actorId?: string | null) {
   const data = paymentSchema.parse(input);
+  const cleanKey = data.idempotencyKey?.replace(/[\[\]]/g, '').trim();
+  const idempMarker = cleanKey ? `[ref:${cleanKey}]` : '';
+  let wasDuplicate = false;
+  let ticketNum = 0;
 
   await prisma.$transaction(async (tx) => {
     const t = await loadTicket(tx, ticketId);
+    ticketNum = t.ticketNumber;
+
+    if (idempMarker && t.payments.some((p) => p.note?.includes(idempMarker))) {
+      wasDuplicate = true;
+      return;
+    }
+
+    if (t.status === 'CANCELLED' || t.status === 'DECLINED') {
+      throw new HttpError(409, 'Cannot process payment on a cancelled or declined work order');
+    }
+
     const { balanceCents } = computeTotals(t);
+    if (t.status === 'COMPLETED' && balanceCents <= 0) {
+      throw new HttpError(409, 'This completed work order is already settled and cannot be charged twice');
+    }
+
     const isDeposit = data.note && /deposit/i.test(data.note);
     if (!isDeposit) {
       if (balanceCents <= 0) throw new HttpError(409, 'Nothing is owing on this work order');
@@ -485,7 +600,9 @@ export async function addPayment(ticketId: string, input: unknown, author?: stri
         throw new HttpError(400, `Payment (${money(data.amountCents)}) is more than the balance owing (${money(balanceCents)})`);
       }
     }
-    await tx.payment.create({ data: { ticketId, amountCents: data.amountCents, method: data.method, note: emptyToNull(data.note) ?? null } });
+    const baseNote = emptyToNull(data.note) ?? null;
+    const storedNote = idempMarker ? (baseNote ? `${baseNote} ${idempMarker}` : idempMarker) : baseNote;
+    await tx.payment.create({ data: { ticketId, amountCents: data.amountCents, method: data.method, note: storedNote } });
     const remaining = Math.max(0, balanceCents - data.amountCents);
     await logEvent(
       tx,
@@ -495,17 +612,137 @@ export async function addPayment(ticketId: string, input: unknown, author?: stri
       author,
     );
   }, TX_OPTIONS);
+
+  if (!wasDuplicate) {
+    await recordAudit({
+      userId: actorId ?? undefined,
+      actorName: author || 'POS User',
+      action: 'PAYMENT_RECORDED',
+      details: `WO #${ticketNum}: Payment of ${money(data.amountCents)} (${data.method})`,
+    });
+  }
   return getTicket(ticketId);
 }
 
-export async function voidPayment(ticketId: string, paymentId: string, author?: string | null) {
+export async function refundPayment(ticketId: string, input: unknown, author?: string | null, actorId?: string | null) {
+  const data = refundSchema.parse(input);
+  const cleanKey = data.idempotencyKey?.replace(/[\[\]]/g, '').trim();
+  const idempMarker = cleanKey ? `[ref:${cleanKey}]` : '';
+  let wasDuplicate = false;
+  let ticketNum = 0;
+
   await prisma.$transaction(async (tx) => {
-    await loadTicket(tx, ticketId);
+    const t = await loadTicket(tx, ticketId);
+    ticketNum = t.ticketNumber;
+
+    if (idempMarker && t.payments.some((p) => p.note?.includes(idempMarker))) {
+      wasDuplicate = true;
+      return;
+    }
+
+    const totals = computeTotals(t);
+    if (totals.paidCents <= 0) {
+      throw new HttpError(409, 'No paid balance exists to refund on this work order');
+    }
+    if (data.amountCents > totals.paidCents) {
+      throw new HttpError(400, `Refund (${money(data.amountCents)}) exceeds net collected amount (${money(totals.paidCents)})`);
+    }
+
+    const storedNote = idempMarker ? `Refund: ${data.reason} ${idempMarker}` : `Refund: ${data.reason}`;
+    await tx.payment.create({
+      data: {
+        ticketId,
+        amountCents: -data.amountCents,
+        method: data.method,
+        note: storedNote,
+      },
+    });
+    await logEvent(
+      tx,
+      ticketId,
+      'PAYMENT',
+      `Refund of ${money(data.amountCents)} issued (${data.method.replace('_', '-')}) — Reason: ${data.reason}`,
+      author,
+    );
+  }, TX_OPTIONS);
+
+  if (!wasDuplicate) {
+    await recordAudit({
+      userId: actorId ?? undefined,
+      actorName: author || 'POS User',
+      action: 'PAYMENT_REFUND',
+      details: `WO #${ticketNum}: Refunded ${money(data.amountCents)} (${data.method}) - ${data.reason}`,
+    });
+  }
+  return getTicket(ticketId);
+}
+
+export async function voidPayment(ticketId: string, paymentId: string, author?: string | null, actorId?: string | null) {
+  let ticketNum = 0;
+  let voidedAmount = 0;
+  let voidedMethod = '';
+  await prisma.$transaction(async (tx) => {
+    const t = await loadTicket(tx, ticketId);
+    ticketNum = t.ticketNumber;
     const p = await tx.payment.findFirst({ where: { id: paymentId, ticketId } });
     if (!p) throw new HttpError(404, 'Payment not found');
+    voidedAmount = p.amountCents;
+    voidedMethod = p.method;
     await tx.payment.delete({ where: { id: paymentId } });
     await logEvent(tx, ticketId, 'PAYMENT', `Voided payment of ${money(p.amountCents)} (${p.method})`, author);
   }, TX_OPTIONS);
+
+  await recordAudit({
+    userId: actorId ?? undefined,
+    actorName: author || 'POS User',
+    action: 'PAYMENT_VOID',
+    details: `WO #${ticketNum}: Voided payment of ${money(voidedAmount)} (${voidedMethod})`,
+  });
+  return getTicket(ticketId);
+}
+
+export async function addPhoto(ticketId: string, input: unknown, author?: string | null, actorId?: string | null) {
+  const data = photoUploadSchema.parse(input);
+  const match = data.dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/);
+  if (!match) {
+    throw new HttpError(400, 'Unsupported file format. Only valid JPEG, PNG, and WebP images are accepted.');
+  }
+
+  const [, mime, b64] = match;
+  const header = Buffer.from(b64.slice(0, 32), 'base64');
+  const isPng = mime === 'image/png' && header.length >= 8 && header[0] === 0x89 && header[1] === 0x50 && header[2] === 0x4e && header[3] === 0x47;
+  const isJpeg = mime === 'image/jpeg' && header.length >= 3 && header[0] === 0xff && header[1] === 0xd8 && header[2] === 0xff;
+  const isWebp =
+    mime === 'image/webp' &&
+    header.length >= 12 &&
+    header.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    header.subarray(8, 12).toString('ascii') === 'WEBP';
+
+  if (!isPng && !isJpeg && !isWebp) {
+    throw new HttpError(400, 'Unsupported or corrupted image signature. File magic bytes do not match JPEG, PNG, or WebP.');
+  }
+
+  const safeFilename = data.filename.replace(/[^\w.\- ()]/g, '_').slice(0, 120) || 'device-photo.jpg';
+  let ticketNum = 0;
+
+  await prisma.$transaction(async (tx) => {
+    const t = await loadTicket(tx, ticketId);
+    ticketNum = t.ticketNumber;
+    const payload = JSON.stringify({
+      filename: safeFilename,
+      caption: emptyToNull(data.caption) ?? null,
+      dataUrl: data.dataUrl,
+    });
+    await logEvent(tx, ticketId, 'PHOTO', payload, author);
+  }, TX_OPTIONS);
+
+  await recordAudit({
+    userId: actorId ?? undefined,
+    actorName: author || 'POS User',
+    action: 'TICKET_PHOTO_UPLOAD',
+    details: `WO #${ticketNum}: Attached device photo "${safeFilename}"`,
+  });
+
   return getTicket(ticketId);
 }
 
@@ -558,20 +795,24 @@ export async function listCustomers(search?: string) {
 
 export async function listCustomersPaginated(params: {
   search?: string;
+  includeArchived?: boolean;
   page?: number;
   pageSize?: number;
 }) {
   const q = (params.search || '').trim();
   const digits = digitsOnly(q);
-  const where: Prisma.CustomerWhereInput = q
-    ? {
-        OR: [
-          { fullName: ciContains(q) },
-          { email: ciContains(q) },
-          ...(digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []),
-        ],
-      }
-    : {};
+  const where: Prisma.CustomerWhereInput = {
+    ...(params.includeArchived ? {} : { archivedAt: null }),
+    ...(q
+      ? {
+          OR: [
+            { fullName: ciContains(q) },
+            { email: ciContains(q) },
+            ...(digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []),
+          ],
+        }
+      : {}),
+  };
 
   const page = Math.max(1, Math.floor(params.page || 1));
   const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || 25)), 500);
@@ -630,7 +871,7 @@ export async function getCustomer(id: string) {
   return { ...c, tickets: c.tickets.map(withTotals) };
 }
 
-export async function updateCustomer(id: string, input: unknown) {
+export async function updateCustomer(id: string, input: unknown, actor?: { id?: string; name?: string }) {
   const data = customerUpdateSchema.parse(input);
   const existing = await prisma.customer.findUnique({ where: { id } });
   if (!existing) throw new HttpError(404, 'Customer not found');
@@ -651,6 +892,28 @@ export async function updateCustomer(id: string, input: unknown) {
     update.phoneDigits = phoneDigits;
   }
   await prisma.customer.update({ where: { id }, data: update });
+  await recordAudit({
+    userId: actor?.id,
+    actorName: actor?.name || 'POS User',
+    action: 'CUSTOMER_UPDATE',
+    details: `Updated customer profile for ${data.fullName || existing.fullName} (${id})`,
+  });
+  return getCustomer(id);
+}
+
+export async function archiveCustomer(id: string, archived = true, actor?: { id?: string; name?: string }) {
+  const existing = await prisma.customer.findUnique({ where: { id } });
+  if (!existing) throw new HttpError(404, 'Customer not found');
+  await prisma.customer.update({
+    where: { id },
+    data: { archivedAt: archived ? new Date() : null },
+  });
+  await recordAudit({
+    userId: actor?.id,
+    actorName: actor?.name || 'POS User',
+    action: archived ? 'CUSTOMER_ARCHIVE' : 'CUSTOMER_UNARCHIVE',
+    details: `${archived ? 'Archived' : 'Restored'} customer ${existing.fullName} (${id}); invoices and repair history preserved`,
+  });
   return getCustomer(id);
 }
 
@@ -671,37 +934,65 @@ async function assertSkuFree(sku: string, exceptId?: string) {
   if (clash && clash.id !== exceptId) throw new HttpError(409, `SKU "${sku}" is already used by ${clash.name}`);
 }
 
-export async function createPart(input: unknown) {
+export async function createPart(input: unknown, actor?: { id?: string; name?: string }) {
   const data = partSchema.parse(input);
   data.sku = data.sku.toUpperCase();
   await assertSkuFree(data.sku);
-  return prisma.inventoryPart.create({ data: { ...data, supplier: emptyToNull(data.supplier) ?? null } });
+  const created = await prisma.inventoryPart.create({ data: { ...data, supplier: emptyToNull(data.supplier) ?? null } });
+  await recordAudit({
+    userId: actor?.id,
+    actorName: actor?.name || 'POS User',
+    action: 'INVENTORY_CREATE',
+    details: `Added inventory item ${created.sku} (${created.name}), stock=${created.stock}`,
+  });
+  return created;
 }
 
-export async function updatePart(id: string, input: unknown) {
-  const data = partSchema.partial().parse(input);
+export async function updatePart(id: string, input: unknown, actor?: { id?: string; name?: string }) {
+  const data = partUpdateSchema.parse(input);
   if (!(await prisma.inventoryPart.findUnique({ where: { id } }))) throw new HttpError(404, 'Part not found');
   if (data.sku) {
     data.sku = data.sku.toUpperCase();
     await assertSkuFree(data.sku, id);
   }
-  return prisma.inventoryPart.update({
+  const updated = await prisma.inventoryPart.update({
     where: { id },
     data: { ...data, supplier: data.supplier === undefined ? undefined : emptyToNull(data.supplier) ?? null },
   });
+  await recordAudit({
+    userId: actor?.id,
+    actorName: actor?.name || 'POS User',
+    action: 'INVENTORY_UPDATE',
+    details: `Updated inventory item ${updated.sku} (${updated.name})`,
+  });
+  return updated;
 }
 
-export async function adjustStock(id: string, delta: number) {
+export async function adjustStock(id: string, delta: number, actor?: { id?: string; name?: string }) {
   const part = await prisma.inventoryPart.findUnique({ where: { id } });
   if (!part) throw new HttpError(404, 'Part not found');
   if (part.stock + delta < 0) throw new HttpError(409, `Stock cannot go below zero (currently ${part.stock})`);
-  return prisma.inventoryPart.update({ where: { id }, data: { stock: { increment: delta } } });
+  const updated = await prisma.inventoryPart.update({ where: { id }, data: { stock: { increment: delta } } });
+  await recordAudit({
+    userId: actor?.id,
+    actorName: actor?.name || 'POS User',
+    action: 'INVENTORY_ADJUST',
+    details: `Adjusted ${updated.sku} stock by ${delta > 0 ? `+${delta}` : delta} → ${updated.stock}`,
+  });
+  return updated;
 }
 
-export async function deletePart(id: string) {
-  if (!(await prisma.inventoryPart.findUnique({ where: { id } }))) throw new HttpError(404, 'Part not found');
+export async function deletePart(id: string, actor?: { id?: string; name?: string }) {
+  const existing = await prisma.inventoryPart.findUnique({ where: { id } });
+  if (!existing) throw new HttpError(404, 'Part not found');
   // Past work orders keep their own snapshot of the description and price.
   await prisma.inventoryPart.delete({ where: { id } });
+  await recordAudit({
+    userId: actor?.id,
+    actorName: actor?.name || 'Admin',
+    action: 'INVENTORY_DELETE',
+    details: `Deleted inventory part ${existing.sku} (${existing.name})`,
+  });
   return { ok: true };
 }
 
@@ -730,6 +1021,7 @@ export async function getDashboard() {
       laborCents: true,
       discountCents: true,
       taxRateBps: true,
+      isWarranty: true,
       items: { select: { quantity: true, unitPriceCents: true } },
       payments: { select: { amountCents: true } },
     },
@@ -766,6 +1058,10 @@ export async function getDashboard() {
     waitingOnParts: count('WAITING_ON_PARTS'),
     readyForPickup,
     completed: count('COMPLETED'),
+    declined: count('DECLINED'),
+    cancelled: count('CANCELLED'),
+    warrantyTickets: tickets.filter((t) => t.isWarranty).length,
+    paidTickets: tickets.filter((t) => !t.isWarranty).length,
     overdue: open.filter((t) => t.dueDate < today).length,
     dueToday: open.filter((t) => t.dueDate >= today && t.dueDate < tomorrow).length,
     openValueCents: Math.max(0, open.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0)),
@@ -775,7 +1071,7 @@ export async function getDashboard() {
     awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
     collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
     collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
-    customerCount: await prisma.customer.count(),
+    customerCount: await prisma.customer.count({ where: { archivedAt: null } }),
     lowStock,
   };
 }
@@ -787,11 +1083,24 @@ export async function getReport(days: number) {
   const [payments, created, completed, items] = await Promise.all([
     prisma.payment.findMany({
       where: { createdAt: { gte: since }, ticket: { deletedAt: null } },
-      select: { amountCents: true, method: true, createdAt: true },
+      select: {
+        amountCents: true,
+        method: true,
+        createdAt: true,
+        ticket: {
+          select: {
+            laborCents: true,
+            discountCents: true,
+            taxRateBps: true,
+            items: { select: { quantity: true, unitPriceCents: true } },
+            payments: { select: { amountCents: true } },
+          },
+        },
+      },
     }),
     prisma.ticket.findMany({
       where: { createdAt: { gte: since }, deletedAt: null },
-      select: { createdAt: true, device: { select: { name: true } } },
+      select: { createdAt: true, isWarranty: true, device: { select: { name: true } } },
     }),
     prisma.ticket.findMany({
       where: { completedAt: { gte: since }, deletedAt: null },
@@ -836,12 +1145,27 @@ export async function getReport(days: number) {
 
   const partsRevenueCents = items.reduce((s, i) => s + i.quantity * i.unitPriceCents, 0);
   const partsCostCents = items.reduce((s, i) => s + i.quantity * i.unitCostCents, 0);
+  const refundsCents = payments.filter((p) => p.amountCents < 0).reduce((s, p) => s + Math.abs(p.amountCents), 0);
+  let netTaxCollectedCents = 0;
+  for (const p of payments) {
+    if (p.ticket) {
+      const totals = computeTotals(p.ticket);
+      if (totals.totalCents > 0 && totals.taxCents > 0) {
+        const share = Math.max(-1, Math.min(1, p.amountCents / totals.totalCents));
+        netTaxCollectedCents += Math.round(totals.taxCents * share);
+      }
+    }
+  }
 
   return {
     days: span,
     since,
     revenueCents: payments.reduce((s, p) => s + p.amountCents, 0),
+    refundsCents,
+    netTaxCollectedCents,
     ticketsCreated: created.length,
+    warrantyTicketsCount: created.filter((t) => t.isWarranty).length,
+    paidTicketsCount: created.filter((t) => !t.isWarranty).length,
     ticketsCompleted: completed.length,
     avgTurnaroundHours: turnaroundHours.length ? turnaroundHours.reduce((a, b) => a + b, 0) / turnaroundHours.length : null,
     onTimeRate: completed.length ? onTime / completed.length : null,
@@ -941,16 +1265,18 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
       byMethod[m].count++;
       byMethod[m].totalCents += p.amountCents;
       totalRevenueCents += p.amountCents;
-      if (p.ticket) {
-        const totals = computeTotals(p.ticket);
-        if (totals.totalCents > 0 && totals.taxCents > 0) {
-          const share = Math.min(1, p.amountCents / totals.totalCents);
-          taxCollectedCents += Math.round(totals.taxCents * share);
-        }
-      }
     } else {
+      byMethod[m].totalCents += p.amountCents;
+      totalRevenueCents += p.amountCents;
       totalRefundsCents += Math.abs(p.amountCents);
       totalVoidedTransactions++;
+    }
+    if (p.ticket) {
+      const totals = computeTotals(p.ticket);
+      if (totals.totalCents > 0 && totals.taxCents > 0) {
+        const share = Math.max(-1, Math.min(1, p.amountCents / totals.totalCents));
+        taxCollectedCents += Math.round(totals.taxCents * share);
+      }
     }
   }
 
@@ -1026,7 +1352,6 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
   }
 
   for (const p of payments) {
-    if (p.amountCents <= 0) continue;
     const stat = ensureEmployeeStat(p.ticket?.technician || 'Unassigned');
     stat.totalRevenueCents += p.amountCents;
   }
@@ -1070,9 +1395,10 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
     const shiftEnd = s.clockOut || new Date(s.clockIn.getTime() + s.totalMinutes * 60000);
 
     const shiftPayments = payments.filter(
-      (p) => p.createdAt >= shiftStart && p.createdAt <= shiftEnd && p.amountCents > 0
+      (p) => p.createdAt >= shiftStart && p.createdAt <= shiftEnd
     );
     const shiftRevenueCents = shiftPayments.reduce((sum, p) => sum + p.amountCents, 0);
+    const positiveTxCount = shiftPayments.filter((p) => p.amountCents > 0).length;
 
     const regularHours = s.regularMinutes / 60;
     const overtimeHours = s.overtimeMinutes / 60;
@@ -1094,8 +1420,8 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
       shiftLaborCostCents,
       revenueGeneratedCents: shiftRevenueCents,
       shiftRevenueCents,
-      transactionsCount: shiftPayments.length,
-      ticketsCount: shiftPayments.length,
+      transactionsCount: positiveTxCount,
+      ticketsCount: positiveTxCount,
       laborCostPct,
       shiftLaborCostPct: laborCostPct,
     };
@@ -1286,7 +1612,7 @@ export async function loginUser(input: unknown, ipAddress?: string) {
     ipAddress,
   });
 
-  const { passwordHash: _, ...safeUser } = user;
+  const { passwordHash: _, sin: _sin, ...safeUser } = user;
   const expiresAtMs = Date.now() + 24 * 60 * 60 * 1000;
   return { 
     token, 

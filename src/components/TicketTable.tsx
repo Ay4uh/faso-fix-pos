@@ -106,6 +106,20 @@ export const TicketTable: React.FC<TicketTableProps> = ({
             Completed / Paid
           </span>
         );
+      case 'DECLINED':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-rose-50 text-rose-700 border border-rose-200 ring-1 ring-rose-600/10">
+            <span className="w-1.5 h-1.5 rounded-full bg-rose-500 mr-1.5"></span>
+            Declined
+          </span>
+        );
+      case 'CANCELLED':
+        return (
+          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-200 text-slate-600 border border-slate-300 ring-1 ring-slate-500/10 line-through">
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-500 mr-1.5"></span>
+            Cancelled
+          </span>
+        );
       case 'CHECKED_IN':
       case 'PENDING':
       default:
@@ -135,6 +149,8 @@ export const TicketTable: React.FC<TicketTableProps> = ({
     { id: 'WAITING_ON_PARTS', label: 'Waiting on Part', count: stats?.waitingOnParts },
     { id: 'READY_FOR_PICKUP', label: 'Ready for Pickup', count: stats ? (stats.readyForPickup ?? 0) : undefined },
     { id: 'COMPLETED', label: 'Completed / Paid', count: stats?.completed },
+    { id: 'DECLINED', label: 'Declined', count: stats ? (stats.declined ?? 0) : undefined },
+    { id: 'CANCELLED', label: 'Cancelled', count: stats ? (stats.cancelled ?? 0) : undefined },
   ];
 
   return (
@@ -236,6 +252,11 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                             <span>#{ticket.ticketNumber}</span>
                             {ticket.priority === 'URGENT' && (
                               <span className="w-1.5 h-1.5 rounded-full bg-red-500" title="Urgent Priority"></span>
+                            )}
+                            {ticket.isWarranty && (
+                              <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[9px] font-extrabold uppercase tracking-tight">
+                                Warranty
+                              </span>
                             )}
                           </div>
                         </td>

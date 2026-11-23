@@ -16,14 +16,17 @@ import {
   addItem,
   removeItem,
   addPayment,
+  refundPayment,
   voidPayment,
   addNote,
   updateNote,
   deleteNote,
+  addPhoto,
   listCustomersPaginated,
   lookupCustomerByPhone,
   getCustomer,
   updateCustomer,
+  archiveCustomer,
   listParts,
   createPart,
   updatePart,
@@ -82,13 +85,16 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '5mb' }));
 
-// Prevent any browser or CDN edge caching of dynamic POS API responses
+// Prevent any browser or CDN edge caching of dynamic POS API responses and enforce security headers
 app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   next();
 });
 
@@ -180,7 +186,7 @@ export function broadcastLiveEvent(event: string, data: any = {}) {
   }
 }
 
-app.get('/api/live/stream', (req: Request, res: Response) => {
+app.get('/api/live/stream', requireAuth, (req: Request, res: Response) => {
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
@@ -489,6 +495,7 @@ app.get('/api/tickets', requireAuth, wrap(async (req, res) => {
   const search = req.query.search as string | undefined;
   const bench = req.query.bench as string | undefined;
   const sort = req.query.sort as string | undefined;
+  const warranty = req.query.warranty as string | undefined;
   const hasPage = req.query.page !== undefined;
   const page = hasPage ? parseInt(req.query.page as string, 10) || 1 : 1;
   const pageSize = req.query.pageSize
@@ -498,7 +505,7 @@ app.get('/api/tickets', requireAuth, wrap(async (req, res) => {
     : hasPage
     ? 25
     : 200;
-  const result = await listTicketsPaginated({ view, search, bench, sort, page, pageSize });
+  const result = await listTicketsPaginated({ view, search, bench, sort, warranty, page, pageSize });
   res.json({
     success: true,
     count: result.items.length,
@@ -566,13 +573,14 @@ app.get('/api/tickets/:id/print', requireAuth, wrap(async (req, res) => {
 }));
 
 app.post('/api/tickets', requireAuth, wrap(async (req, res) => {
-  const ticket = await createTicket(req.body);
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const ticket = await createTicket(req.body, actor);
   broadcastLiveEvent('ticket_created', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
 
 app.put('/api/tickets/:id', requireAuth, wrap(async (req, res) => {
-  const ticket = await updateTicket(getParam(req, 'id'), req.body, req.user!.name);
+  const ticket = await updateTicket(getParam(req, 'id'), req.body, req.user!.name, req.user!.id);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));
@@ -595,7 +603,7 @@ app.delete('/api/tickets/:id', requireAdmin, wrap(async (req, res) => {
 
 // Quick complete shortcut
 app.post('/api/tickets/:id/quick-complete', requireAuth, wrap(async (req, res) => {
-  const ticket = await updateTicket(getParam(req, 'id'), { status: 'COMPLETED' }, req.user!.name);
+  const ticket = await updateTicket(getParam(req, 'id'), { status: 'COMPLETED' }, req.user!.name, req.user!.id);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, message: 'Work order marked completed', data: ticket });
 }));
@@ -626,23 +634,46 @@ app.delete('/api/tickets/:id/items/:itemId', requireAuth, wrap(async (req, res) 
   res.json({ success: true, data: ticket });
 }));
 
-// Payments
+// Payments & Refunds
 app.post('/api/tickets/:id/payments', requireAuth, wrap(async (req, res) => {
   const body = req.body || {};
   const amountCents = body.amountCents ?? (body.amount !== undefined ? Math.round(Number(body.amount) * 100) : undefined);
+  const idempotencyKey = body.idempotencyKey || (req.headers['x-idempotency-key'] as string | undefined);
   const ticket = await addPayment(getParam(req, 'id'), {
     amountCents,
     method: body.method || 'CASH',
     note: body.note,
-  }, req.user!.name);
+    idempotencyKey,
+  }, req.user!.name, req.user!.id);
+  broadcastLiveEvent('ticket_updated', ticket);
+  res.status(201).json({ success: true, data: ticket });
+}));
+
+app.post('/api/tickets/:id/refund', requireAuth, wrap(async (req, res) => {
+  const body = req.body || {};
+  const amountCents = body.amountCents ?? (body.amount !== undefined ? Math.round(Number(body.amount) * 100) : undefined);
+  const idempotencyKey = body.idempotencyKey || (req.headers['x-idempotency-key'] as string | undefined);
+  const ticket = await refundPayment(getParam(req, 'id'), {
+    amountCents,
+    method: body.method || 'CARD',
+    reason: body.reason,
+    idempotencyKey,
+  }, req.user!.name, req.user!.id);
   broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
 
 app.delete('/api/tickets/:id/payments/:paymentId', requireAuth, wrap(async (req, res) => {
-  const ticket = await voidPayment(getParam(req, 'id'), getParam(req, 'paymentId'), req.user!.name);
+  const ticket = await voidPayment(getParam(req, 'id'), getParam(req, 'paymentId'), req.user!.name, req.user!.id);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
+}));
+
+// Device Photos (Magic-byte validated)
+app.post('/api/tickets/:id/photos', requireAuth, wrap(async (req, res) => {
+  const ticket = await addPhoto(getParam(req, 'id'), req.body, req.user!.name, req.user!.id);
+  broadcastLiveEvent('ticket_updated', ticket);
+  res.status(201).json({ success: true, data: ticket });
 }));
 
 // Notes & notifications
@@ -689,6 +720,7 @@ app.delete('/api/tickets/:id/notes/:noteId', requireAuth, wrap(async (req, res) 
 
 app.get('/api/customers', requireAuth, wrap(async (req, res) => {
   const search = req.query.search as string | undefined;
+  const includeArchived = req.query.includeArchived === 'true';
   const hasPage = req.query.page !== undefined;
   const page = hasPage ? parseInt(req.query.page as string, 10) || 1 : 1;
   const pageSize = req.query.pageSize
@@ -698,7 +730,7 @@ app.get('/api/customers', requireAuth, wrap(async (req, res) => {
     : hasPage
     ? 25
     : 200;
-  const result = await listCustomersPaginated({ search, page, pageSize });
+  const result = await listCustomersPaginated({ search, includeArchived, page, pageSize });
   res.json({
     success: true,
     count: result.items.length,
@@ -723,7 +755,22 @@ app.get('/api/customers/:id', requireAuth, wrap(async (req, res) => {
 }));
 
 app.put('/api/customers/:id', requireAuth, wrap(async (req, res) => {
-  const customer = await updateCustomer(getParam(req, 'id'), req.body);
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const customer = await updateCustomer(getParam(req, 'id'), req.body, actor);
+  broadcastLiveEvent('customer_updated', customer);
+  res.json({ success: true, data: customer });
+}));
+
+app.post('/api/customers/:id/archive', requireAuth, wrap(async (req, res) => {
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const customer = await archiveCustomer(getParam(req, 'id'), true, actor);
+  broadcastLiveEvent('customer_updated', customer);
+  res.json({ success: true, data: customer });
+}));
+
+app.post('/api/customers/:id/unarchive', requireAuth, wrap(async (req, res) => {
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const customer = await archiveCustomer(getParam(req, 'id'), false, actor);
   broadcastLiveEvent('customer_updated', customer);
   res.json({ success: true, data: customer });
 }));
@@ -745,6 +792,7 @@ app.post('/api/inventory', requireAuth, wrap(async (req, res) => {
   const stock = body.stock ?? (body.stockQuantity !== undefined ? Number(body.stockQuantity) : 0);
   const reorderPoint = body.reorderPoint !== undefined ? Number(body.reorderPoint) : 2;
 
+  const actor = { id: req.user!.id, name: req.user!.name };
   const part = await createPart({
     sku: body.sku,
     name: body.name,
@@ -754,7 +802,7 @@ app.post('/api/inventory', requireAuth, wrap(async (req, res) => {
     stock,
     reorderPoint,
     supplier: body.supplier,
-  });
+  }, actor);
   broadcastLiveEvent('inventory_updated', part);
   res.status(201).json({ success: true, data: part });
 }));
@@ -774,7 +822,8 @@ app.put('/api/inventory/:id', requireAuth, wrap(async (req, res) => {
     updateData.stock = Number(body.stockQuantity);
     delete updateData.stockQuantity;
   }
-  const part = await updatePart(getParam(req, 'id'), updateData);
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const part = await updatePart(getParam(req, 'id'), updateData, actor);
   broadcastLiveEvent('inventory_updated', part);
   res.json({ success: true, data: part });
 }));
@@ -784,13 +833,15 @@ app.post('/api/inventory/:id/adjust', requireAuth, wrap(async (req, res) => {
   if (isNaN(delta) || delta === 0) {
     throw new HttpError(400, 'A non-zero numeric delta is required for stock adjustment');
   }
-  const part = await adjustStock(getParam(req, 'id'), delta);
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const part = await adjustStock(getParam(req, 'id'), delta, actor);
   broadcastLiveEvent('inventory_updated', part);
   res.json({ success: true, data: part });
 }));
 
 app.delete('/api/inventory/:id', requireAdmin, wrap(async (req, res) => {
-  const result = await deletePart(getParam(req, 'id'));
+  const actor = { id: req.user!.id, name: req.user!.name };
+  const result = await deletePart(getParam(req, 'id'), actor);
   broadcastLiveEvent('inventory_updated', { id: getParam(req, 'id') });
   res.json({ success: true, data: result });
 }));
@@ -824,7 +875,9 @@ app.post('/api/admin/backups', requireAdmin, wrap(async (req, res) => {
 app.get('/api/admin/backups/:file', requireAdmin, (req, res) => {
   const full = resolveBackup(getParam(req, 'file'));
   if (!full) return res.status(404).json({ success: false, error: 'Backup not found' });
-  res.download(full);
+  res.setHeader('Content-Type', 'application/octet-stream');
+  res.setHeader('Content-Disposition', `attachment; filename="${path.basename(full)}"`);
+  fs.createReadStream(full).pipe(res);
 });
 
 // ---------------------------------------------------------------------------

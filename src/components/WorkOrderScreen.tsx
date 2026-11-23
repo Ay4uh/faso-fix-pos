@@ -22,6 +22,8 @@ import {
   Pencil,
   Grid3X3,
   Tag,
+  Shield,
+  RotateCcw,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
@@ -126,6 +128,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const [terminalCardType, setTerminalCardType] = useState('VISA');
   const [terminalAuthCode, setTerminalAuthCode] = useState('');
   const [isVoidingPaymentId, setIsVoidingPaymentId] = useState<string | null>(null);
+  const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState('');
+  const [isTogglingWarranty, setIsTogglingWarranty] = useState(false);
+  const [isRefunding, setIsRefunding] = useState(false);
+  const newPaymentKey = () => `pay-${ticket.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
   const [depositAmount, setDepositAmount] = useState('50.00');
@@ -199,12 +205,17 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          expectedUpdatedAt: ticket.updatedAt,
           device: {
             passcode: newPasscode,
             pattern: newPattern,
           },
         }),
       });
+      if (res.status === 409) {
+        onRefresh();
+        throw new Error(await getErrorMessage(res, 'Conflict: Ticket changed elsewhere; refreshed latest data.'));
+      }
       if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to save device security details'));
       const json = await res.json();
       if (json.data) applyTicketUpdate(json.data);
@@ -249,13 +260,15 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
     setIsRecordingDeposit(true);
     try {
+      const key = newPaymentKey();
       const res = await fetchWithAuth(`/api/tickets/${ticket.id}/payments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': key },
         body: JSON.stringify({
           amountCents: Math.round(amountVal * 100),
           method: depositMethod,
           note: 'Special-order part deposit',
+          idempotencyKey: key,
         }),
       });
       if (!res.ok) throw new Error(await getErrorMessage(res, 'Deposit failed'));
@@ -360,13 +373,15 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
         try {
           setIsRecordingPayment(true);
+          const key = paymentIdempotencyKey || newPaymentKey();
           const res = await fetchWithAuth(`/api/tickets/${ticket.id}/payments`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': key },
             body: JSON.stringify({
               amountCents: Math.round(amountVal * 100),
               method: 'CARD',
               note: `[Terminal EMV Tap] ${terminalCardType} •••• ${last4} | Auth: ${authCode} | AID: ${aid}`,
+              idempotencyKey: key,
             }),
           });
           const json = await res.json().catch(() => ({}));
@@ -384,6 +399,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             setTerminalState('IDLE');
             setTerminalAuthCode('');
             setPaymentAmount('');
+            setPaymentIdempotencyKey('');
           }, 1200);
         } catch (err: any) {
           posAudio.playWarningBeep();
@@ -407,13 +423,15 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
     setIsRecordingPayment(true);
     try {
+      const key = paymentIdempotencyKey || newPaymentKey();
       const res = await fetchWithAuth(`/api/tickets/${ticket.id}/payments`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': key },
         body: JSON.stringify({
           amountCents: Math.round(amountVal * 100),
           method: paymentMethod,
           note: `Payment collected at checkout`,
+          idempotencyKey: key,
         }),
       });
       if (!res.ok) throw new Error(await getErrorMessage(res, 'Payment failed'));
@@ -422,6 +440,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       posAudio.playCashChime();
       setIsPaymentModalOpen(false);
       setPaymentAmount('');
+      setPaymentIdempotencyKey('');
     } catch (err: any) {
       alert(err?.message || 'Could not process payment');
     } finally {
@@ -444,6 +463,67 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       alert(err?.message || 'Could not void payment');
     } finally {
       setIsVoidingPaymentId(null);
+    }
+  };
+
+  const handleIssueRefund = async () => {
+    const netPaidDollars = (totals.paidCents / 100).toFixed(2);
+    const amountStr = window.prompt(`Enter refund amount (max $${netPaidDollars}):`, netPaidDollars);
+    if (!amountStr) return;
+    const amountVal = parseFloat(amountStr);
+    if (!amountVal || amountVal <= 0) {
+      alert('Invalid refund amount');
+      return;
+    }
+    const reason = window.prompt('Reason for refund:', 'Customer refund');
+    if (!reason || !reason.trim()) return;
+
+    setIsRefunding(true);
+    try {
+      const key = `ref-${ticket.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/refund`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Idempotency-Key': key },
+        body: JSON.stringify({
+          amountCents: Math.round(amountVal * 100),
+          method: 'CARD',
+          reason: reason.trim(),
+          idempotencyKey: key,
+        }),
+      });
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Refund failed'));
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
+      posAudio.playWarningBeep();
+    } catch (err: any) {
+      alert(err?.message || 'Could not process refund');
+    } finally {
+      setIsRefunding(false);
+    }
+  };
+
+  const handleToggleWarranty = async () => {
+    setIsTogglingWarranty(true);
+    try {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isWarranty: !ticket.isWarranty,
+          expectedUpdatedAt: ticket.updatedAt,
+        }),
+      });
+      if (res.status === 409) {
+        onRefresh();
+        throw new Error(await getErrorMessage(res, 'Conflict: Ticket changed elsewhere; refreshed latest data.'));
+      }
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to update warranty flag'));
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
+    } catch (err: any) {
+      alert(err?.message || 'Could not toggle warranty status');
+    } finally {
+      setIsTogglingWarranty(false);
     }
   };
 
@@ -533,8 +613,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           discountCents: Math.round(discountVal * 100),
+          expectedUpdatedAt: ticket.updatedAt,
         }),
       });
+      if (res.status === 409) {
+        onRefresh();
+        throw new Error(await getErrorMessage(res, 'Conflict: Ticket changed elsewhere; refreshed latest data.'));
+      }
       if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to apply discount'));
       const json = await res.json();
       if (json.data) applyTicketUpdate(json.data);
@@ -553,8 +638,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           signature: dataUrl,
+          expectedUpdatedAt: ticket.updatedAt,
         }),
       });
+      if (res.status === 409) {
+        onRefresh();
+        throw new Error(await getErrorMessage(res, 'Conflict: Ticket changed elsewhere; refreshed latest data.'));
+      }
       if (!res.ok) throw new Error(await getErrorMessage(res, 'Could not save customer signature'));
       const json = await res.json();
       if (json.data) applyTicketUpdate(json.data);
@@ -607,6 +697,18 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
             COMPLETED / PAID
+          </span>
+        );
+      case 'DECLINED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+            DECLINED
+          </span>
+        );
+      case 'CANCELLED':
+        return (
+          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 text-slate-600 border border-slate-300 line-through">
+            CANCELLED
           </span>
         );
       case 'READY_FOR_PICKUP':
@@ -689,15 +791,33 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               <option value="WAITING_ON_PARTS">4. Waiting on Part</option>
               <option value="READY_FOR_PICKUP">5. Ready for Pickup</option>
               <option value="COMPLETED">6. Completed / Paid</option>
+              <option value="DECLINED">7. Declined</option>
+              <option value="CANCELLED">8. Cancelled</option>
             </select>
+
+            <button
+              type="button"
+              disabled={isTogglingWarranty}
+              onClick={handleToggleWarranty}
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold border transition cursor-pointer ${
+                ticket.isWarranty
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+              }`}
+              title="Toggle Warranty Coverage"
+            >
+              <Shield className="w-3.5 h-3.5" />
+              <span>{ticket.isWarranty ? 'Warranty Repair' : 'Mark Warranty'}</span>
+            </button>
           </div>
 
           {/* Action CTAs */}
           <div className="flex items-center gap-2">
-            {balanceOwing > 0 ? (
+            {balanceOwing > 0 && ticket.status !== 'CANCELLED' && ticket.status !== 'DECLINED' ? (
               <button
                 onClick={() => {
                   setPaymentAmount(balanceOwing.toFixed(2));
+                  setPaymentIdempotencyKey(newPaymentKey());
                   setIsPaymentModalOpen(true);
                 }}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
@@ -1547,19 +1667,33 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       <span className="font-bold text-xs text-slate-800">
                         Payment &amp; Transaction Ledger
                       </span>
-                      {balanceOwing > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setPaymentAmount(balanceOwing.toFixed(2));
-                            setIsPaymentModalOpen(true);
-                          }}
-                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition"
-                        >
-                          <CreditCard className="w-3.5 h-3.5" />
-                          <span>Record Payment</span>
-                        </button>
-                      )}
+                      <div className="flex items-center gap-2">
+                        {totals.paidCents > 0 && (
+                          <button
+                            type="button"
+                            disabled={isRefunding}
+                            onClick={handleIssueRefund}
+                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>{isRefunding ? 'Refunding...' : 'Issue Refund'}</span>
+                          </button>
+                        )}
+                        {balanceOwing > 0 && ticket.status !== 'CANCELLED' && ticket.status !== 'DECLINED' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPaymentAmount(balanceOwing.toFixed(2));
+                              setPaymentIdempotencyKey(newPaymentKey());
+                              setIsPaymentModalOpen(true);
+                            }}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition"
+                          >
+                            <CreditCard className="w-3.5 h-3.5" />
+                            <span>Record Payment</span>
+                          </button>
+                        )}
+                      </div>
                     </div>
 
                     <table className="w-full text-left border-collapse">
@@ -1579,8 +1713,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                               {new Date(pmt.createdAt).toLocaleDateString()}
                             </td>
                             <td className="py-2 px-3 font-semibold text-slate-900">{pmt.method}</td>
-                            <td className="py-2 px-3 font-mono font-bold text-emerald-700">
-                              +${(pmt.amountCents / 100).toFixed(2)}
+                            <td className={`py-2 px-3 font-mono font-bold ${pmt.amountCents < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                              {pmt.amountCents < 0 ? `-$${(Math.abs(pmt.amountCents) / 100).toFixed(2)}` : `+$${(pmt.amountCents / 100).toFixed(2)}`}
                             </td>
                             <td className="py-2 px-3 text-slate-500">{pmt.note || 'N/A'}</td>
                             <td className="py-2 px-3 text-right whitespace-nowrap">
@@ -1660,7 +1794,18 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                                 {ev.kind}
                               </span>
                             </td>
-                            <td className="py-2 px-3 text-slate-700 text-xs">{ev.message}</td>
+                            <td className="py-2 px-3 text-slate-700 text-xs">
+                              {ev.kind === 'PHOTO'
+                                ? (() => {
+                                    try {
+                                      const meta = JSON.parse(ev.message);
+                                      return `📷 Photo uploaded: ${meta.filename}${meta.caption ? ` — ${meta.caption}` : ''}`;
+                                    } catch {
+                                      return '📷 Device photo attached';
+                                    }
+                                  })()
+                                : ev.message}
+                            </td>
                           </tr>
                         ))}
                       </tbody>

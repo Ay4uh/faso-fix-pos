@@ -41,7 +41,6 @@ async function login(creds: object, adminMode = false) {
 
 describe('Complete Work Orders & Database Audit Suite', () => {
   let adminToken = '';
-  let adminUser: any = null;
   let techToken = '';
   let techUser: any = null;
 
@@ -51,7 +50,7 @@ describe('Complete Work Orders & Database Audit Suite', () => {
   before(async () => {
     const a = await login(ADMIN, true);
     adminToken = a.token;
-    adminUser = a.user;
+    assert.equal(a.user?.role, 'ADMIN');
 
     // Ensure tech exists cleanly without touching existing seed accounts
     await call('/api/admin/users', {

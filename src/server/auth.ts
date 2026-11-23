@@ -106,13 +106,28 @@ export async function createSession(userId: string): Promise<string> {
     expiresAt.getTime()
   );
 
-  await prisma.session.create({
-    data: {
-      token,
-      userId,
-      expiresAt,
-    },
-  }).catch(() => {});
+  let persisted = false;
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      await prisma.session.create({
+        data: {
+          token,
+          userId,
+          expiresAt,
+        },
+      });
+      persisted = true;
+      break;
+    } catch (err) {
+      lastErr = err;
+      if (attempt === 0) await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  if (!persisted) {
+    console.error('[Create Session Error]', lastErr);
+    throw new Error('Failed to persist session — please try signing in again.');
+  }
 
   return token;
 }

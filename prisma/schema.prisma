@@ -111,6 +111,7 @@ model Customer {
   email       String?
   address     String?
   notes       String?
+  archivedAt  DateTime?
   devices     Device[]
   tickets     Ticket[]
   createdAt   DateTime @default(now())
@@ -155,6 +156,7 @@ model Ticket {
   dueDate          DateTime
   completedAt      DateTime?
   deletedAt        DateTime?
+  isWarranty       Boolean       @default(false)
   customer         Customer      @relation(fields: [customerId], references: [id], onDelete: Restrict)
   device           Device        @relation(fields: [deviceId], references: [id], onDelete: Restrict)
   items            TicketItem[]

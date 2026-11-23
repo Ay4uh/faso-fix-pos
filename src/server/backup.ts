@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { prisma } from './prisma';
 
-const BACKUP_DIR = path.resolve(process.env.BACKUP_DIR || 'backups');
+const BACKUP_DIR = path.resolve(process.env.BACKUP_DIR || (process.env.VERCEL ? '/tmp/backups' : 'backups'));
 const KEEP = Number(process.env.BACKUP_KEEP || 30);
 const INTERVAL_HOURS = Number(process.env.BACKUP_INTERVAL_HOURS || 6);
 
@@ -39,7 +39,20 @@ export async function createBackup(reason = 'manual'): Promise<BackupInfo> {
   const full = path.join(BACKUP_DIR, file);
 
   if (isPostgres) {
-    const [users, settings, tickets, customers, devices, shifts, audits] = await Promise.all([
+    const [
+      users,
+      settings,
+      tickets,
+      customers,
+      devices,
+      shifts,
+      audits,
+      inventoryParts,
+      wageRates,
+      scheduledShifts,
+      payrollPeriods,
+      paystubs,
+    ] = await Promise.all([
       prisma.user.findMany(),
       prisma.setting.findMany(),
       prisma.ticket.findMany({ include: { items: true, payments: true, events: true } }),
@@ -47,12 +60,30 @@ export async function createBackup(reason = 'manual'): Promise<BackupInfo> {
       prisma.device.findMany(),
       prisma.shift.findMany(),
       prisma.auditLog.findMany({ take: 500 }),
+      prisma.inventoryPart.findMany(),
+      prisma.wageRate.findMany(),
+      prisma.scheduledShift.findMany(),
+      prisma.payrollPeriod.findMany(),
+      prisma.paystub.findMany(),
     ]);
     const snapshot = {
       timestamp: new Date().toISOString(),
       reason,
       provider: 'postgresql',
-      data: { users, settings, tickets, customers, devices, shifts, audits },
+      data: {
+        users,
+        settings,
+        tickets,
+        customers,
+        devices,
+        shifts,
+        audits,
+        inventoryParts,
+        wageRates,
+        scheduledShifts,
+        payrollPeriods,
+        paystubs,
+      },
     };
     fs.writeFileSync(full, JSON.stringify(snapshot, null, 2), 'utf-8');
   } else {

@@ -5,11 +5,13 @@ export type TicketStatus =
   | 'WAITING_ON_PARTS'
   | 'READY_FOR_PICKUP'
   | 'COMPLETED'
+  | 'DECLINED'
+  | 'CANCELLED'
   | 'PENDING'
   | 'IN_PROGRESS';
 export type TicketPriority = 'LOW' | 'STANDARD' | 'URGENT';
-export type PaymentMethod = 'CASH' | 'CARD' | 'DEBIT' | 'E_TRANSFER' | 'OTHER';
-export type EventKind = 'STATUS' | 'CUSTOMER_NOTE' | 'INTERNAL_NOTE' | 'PAYMENT' | 'ITEM' | 'MESSAGE' | 'SYSTEM';
+export type PaymentMethod = 'CASH' | 'CARD' | 'CREDIT' | 'DEBIT' | 'E_TRANSFER' | 'OTHER';
+export type EventKind = 'STATUS' | 'CUSTOMER_NOTE' | 'INTERNAL_NOTE' | 'PAYMENT' | 'ITEM' | 'MESSAGE' | 'SYSTEM' | 'PHOTO';
 export type PaymentStatus = 'UNPAID' | 'PARTIAL' | 'PARTIALLY_PAID' | 'PAID' | 'OVERPAID';
 
 export interface Totals {
@@ -35,6 +37,7 @@ export interface Customer {
   email?: string | null;
   address?: string | null;
   notes?: string | null;
+  archivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
   ticketCount?: number;
@@ -113,6 +116,7 @@ export interface Ticket {
   dueDate: string;
   completedAt?: string | null;
   deletedAt?: string | null;
+  isWarranty?: boolean;
   createdAt: string;
   updatedAt: string;
 
@@ -245,6 +249,10 @@ export interface DashboardData {
   waitingOnParts: number;
   readyForPickup?: number;
   completed: number;
+  declined?: number;
+  cancelled?: number;
+  warrantyTickets?: number;
+  paidTickets?: number;
   overdue: number;
   dueToday: number;
   openValueCents: number;
@@ -280,7 +288,11 @@ export interface ReportData {
   days: number;
   since: string;
   revenueCents: number;
+  refundsCents?: number;
+  netTaxCollectedCents?: number;
   ticketsCreated: number;
+  warrantyTicketsCount?: number;
+  paidTicketsCount?: number;
   ticketsCompleted: number;
   avgTurnaroundHours: number | null;
   onTimeRate: number | null;

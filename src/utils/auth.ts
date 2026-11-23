@@ -79,22 +79,30 @@ export async function fetchWithAuth(url: string, options: RequestInit = {}): Pro
     );
   }
 
+  const sentToken = getToken();
   const headers = {
     ...getAuthHeaders(),
     ...(options.headers || {}),
   };
   const res = await fetch(url, { ...options, headers });
   if (res.status === 401) {
+    // Ignore stale in-flight 401s after the user already logged out or re-authenticated with a new token
+    if (!sentToken || getToken() !== sentToken) {
+      return res;
+    }
     const clone = res.clone();
     try {
       const body = await clone.json();
-      if (body.code === 'SESSION_EXPIRED' || body.error?.includes('expired') || !getToken()) {
+      if (body.code === 'SESSION_EXPIRED' || body.error?.includes('expired')) {
         removeToken();
         window.dispatchEvent(
           new CustomEvent('session-expired', {
             detail: { reason: 'Your 24-hour session has expired for security. Please sign in again.' },
           })
         );
+      } else {
+        removeToken();
+        window.dispatchEvent(new CustomEvent('apexfix_auth_unauthorized'));
       }
     } catch {}
   }

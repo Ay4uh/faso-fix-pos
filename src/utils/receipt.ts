@@ -60,7 +60,18 @@ export function buildReceiptHtml(ticket: Ticket, shop: ReceiptShop, width: Recei
     .join('');
 
   const paperPx = width === '58mm' ? '58mm' : '80mm';
-  const status = t ? (t.balanceCents <= 0 ? 'PAID IN FULL' : t.paidCents > 0 ? 'PARTIALLY PAID' : 'BALANCE DUE') : '';
+  const status =
+    ticket.status === 'CANCELLED'
+      ? 'CANCELLED'
+      : ticket.status === 'DECLINED'
+      ? 'DECLINED'
+      : t
+      ? t.balanceCents <= 0
+        ? 'PAID IN FULL'
+        : t.paidCents > 0
+        ? 'PARTIALLY PAID'
+        : 'BALANCE DUE'
+      : '';
 
   return `<!doctype html><html><head><meta charset="utf-8"><title>Receipt WO #${ticket.ticketNumber}</title>
 <style>
@@ -87,6 +98,7 @@ ${row('Customer', esc(ticket.customer?.fullName))}
 ${row('Phone', esc(ticket.customer?.phone))}
 ${row('Device', esc(ticket.device?.name))}
 ${ticket.device?.serialNumber ? row('Serial/IMEI', esc(ticket.device.serialNumber)) : ''}
+${ticket.isWarranty ? row('Coverage', 'WARRANTY REPAIR', true) : ''}
 <hr>
 <div class="b">Issue</div><div>${esc(ticket.faultDescription)}</div>
 ${publicNotes ? `<hr><div class="b">Work Performed</div>${publicNotes}` : ''}
@@ -216,8 +228,9 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
     ${(shop.phone || shop.email) ? `<div style="font-size:10px;color:#4f46e5;font-weight:600">${[shop.phone ? `Tel: ${esc(shop.phone)}` : '', shop.email ? esc(shop.email) : ''].filter(Boolean).join(' • ')}</div>` : ''}
   </div>
   <div style="text-align:right">
-    <div class="badge ${isPaid ? 'badge-paid' : 'badge-due'}">
-      ${isPaid ? 'PAID • READY FOR RELEASE' : 'INSPECTION / BALANCE DUE'}
+    ${ticket.isWarranty ? `<div class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;margin-right:4px">WARRANTY REPAIR</div>` : ''}
+    <div class="badge ${ticket.status === 'CANCELLED' || ticket.status === 'DECLINED' ? 'badge-due' : isPaid ? 'badge-paid' : 'badge-due'}">
+      ${ticket.status === 'CANCELLED' ? 'CANCELLED' : ticket.status === 'DECLINED' ? 'DECLINED' : isPaid ? 'PAID • READY FOR RELEASE' : 'INSPECTION / BALANCE DUE'}
     </div>
     <div style="margin-top:6px">${barcodeSvg}</div>
     <div style="font-family:monospace;font-size:10px;color:#64748b;margin-top:2px">*${woBarcode}*</div>
@@ -270,7 +283,7 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
       S/N: ${esc(ticket.device?.serialNumber || 'N/A')}
     </div>
     <div style="font-size:11px;color:#4f46e5;font-weight:bold">
-      ${ticket.device?.pattern ? `Pattern: ${esc(ticket.device.pattern)}${ticket.device.passcode ? ` • PIN: ${esc(ticket.device.passcode)}` : ''}` : `Passcode / PIN: ${esc(ticket.device?.passcode || 'Verified by Owner')}`}
+      Access Credentials: ${(ticket.device?.passcode || ticket.device?.pattern) ? 'Protected • Encrypted on File' : 'None / Unlocked'}
     </div>
     <div style="font-size:10px;color:#64748b;margin-top:2px">Condition: ${esc(ticket.device?.condition || 'Standard')}</div>
   </div>

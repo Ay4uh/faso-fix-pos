@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Lock, User, Eye, EyeOff, X, KeyRound, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { setToken } from '../utils/auth';
 import { posAudio } from '../utils/audio';
@@ -21,6 +21,15 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setUsernameOrEmail('');
+      setPassword('');
+      setErrorMessage(null);
+      setShowPassword(false);
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -64,11 +73,14 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         throw new Error(data?.error || 'Authentication failed. Please verify credentials.');
       }
 
-      setToken(data.token);
+      setToken(data.token, data.expiresAtMs);
       try {
         localStorage.setItem('apexfix_cached_user', JSON.stringify(data.user));
       } catch {}
       posAudio.playSuccessChime();
+      setUsernameOrEmail('');
+      setPassword('');
+      setErrorMessage(null);
       onLoginSuccess(data.user);
       onClose();
     } catch (err: any) {

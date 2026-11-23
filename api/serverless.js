@@ -70,6 +70,8 @@ var STATUSES = [
 	"WAITING_ON_PARTS",
 	"READY_FOR_PICKUP",
 	"COMPLETED",
+	"DECLINED",
+	"CANCELLED",
 	"PENDING",
 	"IN_PROGRESS"
 ];
@@ -124,6 +126,7 @@ var createTicketSchema = z.object({
 	bench: optionalText,
 	storageBin: optionalText,
 	signature: signatureText,
+	isWarranty: z.boolean().optional().default(false),
 	depositCents: cents.optional(),
 	depositMethod: z.enum(PAYMENT_METHODS).optional()
 });
@@ -138,6 +141,8 @@ var updateTicketSchema = z.object({
 	bench: optionalText,
 	storageBin: optionalText,
 	signature: signatureText,
+	isWarranty: z.boolean(),
+	expectedUpdatedAt: trimmed.optional(),
 	diagnostics: z.record(z.string(), z.enum([
 		"PASS",
 		"FAIL",
@@ -160,7 +165,19 @@ var addItemSchema = z.object({
 var paymentSchema = z.object({
 	amountCents: z.number().int().min(1, "Amount must be greater than zero").max(1e8),
 	method: z.enum(PAYMENT_METHODS),
-	note: optionalText
+	note: optionalText,
+	idempotencyKey: trimmed.max(120).optional()
+});
+var refundSchema = z.object({
+	amountCents: z.number().int().min(1, "Refund amount must be greater than zero").max(1e8),
+	method: z.enum(PAYMENT_METHODS).default("CARD"),
+	reason: trimmed.min(1, "Refund reason is required").max(500),
+	idempotencyKey: trimmed.max(120).optional()
+});
+var photoUploadSchema = z.object({
+	filename: trimmed.min(1, "Filename is required").max(120),
+	dataUrl: z.string().min(20, "Image payload is required").max(5e6, "Image exceeds 5MB limit"),
+	caption: optionalText
 });
 var noteSchema = z.object({
 	kind: z.enum(NOTE_KINDS),
@@ -184,6 +201,16 @@ var partSchema = z.object({
 	reorderPoint: z.number().int().min(0).max(1e6).default(2),
 	supplier: optionalText
 });
+var partUpdateSchema = z.object({
+	sku: trimmed.min(1, "SKU is required").max(60),
+	name: trimmed.min(1, "Part name is required").max(200),
+	category: trimmed.max(60),
+	costCents: cents,
+	priceCents: cents,
+	stock: z.number().int().min(0).max(1e6),
+	reorderPoint: z.number().int().min(0).max(1e6),
+	supplier: optionalText
+}).partial().refine((d) => Object.keys(d).length > 0, "Provide at least one field to update");
 z.object({ delta: z.number().int().min(-1e6).max(1e6).refine((v) => v !== 0, "Adjustment cannot be zero") });
 var settingsSchema = z.object({
 	shopName: trimmed.min(1).max(120),
@@ -319,11 +346,24 @@ async function createSession(userId) {
 	const user = await prisma.user.findUnique({ where: { id: userId } });
 	const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_MS);
 	const token = createSignedToken(userId, user?.username || "", user?.role || "USER", expiresAt.getTime());
-	await prisma.session.create({ data: {
-		token,
-		userId,
-		expiresAt
-	} }).catch(() => {});
+	let persisted = false;
+	let lastErr = null;
+	for (let attempt = 0; attempt < 2; attempt++) try {
+		await prisma.session.create({ data: {
+			token,
+			userId,
+			expiresAt
+		} });
+		persisted = true;
+		break;
+	} catch (err) {
+		lastErr = err;
+		if (attempt === 0) await new Promise((r) => setTimeout(r, 250));
+	}
+	if (!persisted) {
+		console.error("[Create Session Error]", lastErr);
+		throw new Error("Failed to persist session — please try signing in again.");
+	}
 	return token;
 }
 var revokedTokens = /* @__PURE__ */ new Set();
@@ -444,7 +484,9 @@ var STATUS_LABEL = {
 	WAITING_ON_APPROVAL: "Waiting on Approval",
 	WAITING_ON_PARTS: "Waiting on Part",
 	READY_FOR_PICKUP: "Ready for Pickup",
-	COMPLETED: "Completed / Paid"
+	COMPLETED: "Completed / Paid",
+	DECLINED: "Declined",
+	CANCELLED: "Cancelled"
 };
 var OPEN_STATUSES = [
 	"CHECKED_IN",
@@ -570,7 +612,10 @@ async function listTicketsPaginated(params) {
 	if (view === "OPEN") where.status = { in: OPEN_STATUSES };
 	else if (view === "CHECKED_IN" || view === "PENDING") where.status = { in: ["CHECKED_IN", "PENDING"] };
 	else if (view === "DIAGNOSING" || view === "IN_PROGRESS") where.status = { in: ["DIAGNOSING", "IN_PROGRESS"] };
+	else if (view === "WARRANTY") where.isWarranty = true;
 	else if (view !== "ALL") where.status = view;
+	if (params.warranty === true || params.warranty === "true") where.isWarranty = true;
+	else if (params.warranty === false || params.warranty === "false") where.isWarranty = false;
 	if (params.bench && params.bench !== "ALL") where.bench = params.bench;
 	const q = (params.search || "").trim();
 	if (q) {
@@ -611,10 +656,13 @@ var TX_OPTIONS = {
 	maxWait: 15e3,
 	timeout: 2e4
 };
-async function createTicket(input) {
+async function createTicket(input, actor) {
 	const data = createTicketSchema.parse(input);
 	const phoneDigits = digitsOnly(data.customer.phone);
-	return getTicket(await prisma.$transaction(async (tx) => {
+	let createdNumber = 0;
+	let customerName = data.customer.fullName;
+	let deviceName = data.device.name;
+	const id = await prisma.$transaction(async (tx) => {
 		const settings = await getSettings(tx);
 		const bumped = await tx.setting.update({
 			where: { id: 1 },
@@ -684,9 +732,13 @@ async function createTicket(input) {
 			bench: emptyToNull(data.bench) ?? null,
 			storageBin: emptyToNull(data.storageBin) ?? null,
 			signature: emptyToNull(data.signature) ?? null,
+			isWarranty: Boolean(data.isWarranty),
 			dueDate: parseDate(data.dueDate)
 		} });
-		await logEvent(tx, ticket.id, "STATUS", `Work order #${ticketNumber} created for ${device.name}`, data.technician);
+		createdNumber = ticketNumber;
+		customerName = customer.fullName;
+		deviceName = device.name;
+		await logEvent(tx, ticket.id, "STATUS", `Work order #${ticketNumber}${data.isWarranty ? " (WARRANTY)" : ""} created for ${device.name}`, actor?.name || data.technician);
 		if (data.depositCents && data.depositCents > 0) {
 			const totals = computeTotals({
 				...ticket,
@@ -700,25 +752,68 @@ async function createTicket(input) {
 				method: data.depositMethod || "CASH",
 				note: "Deposit at intake"
 			} });
-			await logEvent(tx, ticket.id, "PAYMENT", `Deposit of ${money(data.depositCents)} received (${data.depositMethod || "CASH"})`);
+			await logEvent(tx, ticket.id, "PAYMENT", `Deposit of ${money(data.depositCents)} received (${data.depositMethod || "CASH"})`, actor?.name);
 		}
 		return ticket.id;
-	}, TX_OPTIONS));
+	}, TX_OPTIONS);
+	await recordAudit({
+		userId: actor?.id,
+		actorName: actor?.name || "POS User",
+		action: "TICKET_CREATE",
+		details: `Created work order #${createdNumber} for ${customerName} (${deviceName})${data.isWarranty ? " [Warranty]" : ""}`
+	});
+	return getTicket(id);
 }
-async function updateTicket(id, input, author) {
+async function updateTicket(id, input, author, actorId) {
 	const data = updateTicketSchema.parse(input);
+	let auditSummary = "";
+	let auditTicketNum = 0;
 	await prisma.$transaction(async (tx) => {
 		const t = await loadTicket(tx, id);
+		auditTicketNum = t.ticketNumber;
+		if (data.expectedUpdatedAt) {
+			const expectedMs = Date.parse(data.expectedUpdatedAt);
+			if (!Number.isNaN(expectedMs) && t.updatedAt.getTime() !== expectedMs) throw new HttpError(409, "Conflict: This work order was modified by another employee. Refresh before saving to avoid overwriting their changes.");
+		}
 		const update = {};
 		const changes = [];
 		if (data.status && data.status !== t.status) {
+			const wasClosedOut = t.status === "CANCELLED" || t.status === "DECLINED";
+			const willCloseOut = data.status === "CANCELLED" || data.status === "DECLINED";
+			if (!wasClosedOut && willCloseOut) {
+				let returnedCount = 0;
+				for (const item of t.items) if (item.partId) {
+					await tx.inventoryPart.update({
+						where: { id: item.partId },
+						data: { stock: { increment: item.quantity } }
+					});
+					returnedCount += item.quantity;
+				}
+				if (returnedCount > 0) changes.push(`returned ${returnedCount} part(s) to stock`);
+			} else if (wasClosedOut && !willCloseOut) {
+				for (const item of t.items) if (item.partId) {
+					const part = await tx.inventoryPart.findUnique({ where: { id: item.partId } });
+					if (part) {
+						if (part.stock < item.quantity) throw new HttpError(409, `Cannot reopen work order: insufficient stock for ${part.name} (${part.stock} available, ${item.quantity} needed)`);
+						await tx.inventoryPart.update({
+							where: { id: item.partId },
+							data: { stock: { decrement: item.quantity } }
+						});
+					}
+				}
+			}
 			update.status = data.status;
 			update.completedAt = data.status === "COMPLETED" ? /* @__PURE__ */ new Date() : null;
-			await logEvent(tx, id, "STATUS", `Status changed: ${STATUS_LABEL[t.status]} → ${STATUS_LABEL[data.status]}`, author);
+			await logEvent(tx, id, "STATUS", `Status changed: ${STATUS_LABEL[t.status] || t.status} → ${STATUS_LABEL[data.status] || data.status}`, author);
+			changes.push(`status ${t.status} → ${data.status}`);
 		}
 		if (data.priority && data.priority !== t.priority) {
 			update.priority = data.priority;
 			changes.push(`priority → ${data.priority.toLowerCase()}`);
+		}
+		if (data.isWarranty !== void 0 && data.isWarranty !== t.isWarranty) {
+			update.isWarranty = data.isWarranty;
+			changes.push(data.isWarranty ? "marked warranty repair" : "cleared warranty repair");
 		}
 		if (data.faultDescription !== void 0 && data.faultDescription !== t.faultDescription) {
 			update.faultDescription = data.faultDescription;
@@ -779,8 +874,17 @@ async function updateTicket(id, input, author) {
 			where: { id },
 			data: update
 		});
-		if (changes.length) await logEvent(tx, id, "SYSTEM", `Updated: ${changes.join(", ")}`, author);
+		if (changes.length) {
+			auditSummary = changes.join(", ");
+			await logEvent(tx, id, "SYSTEM", `Updated: ${auditSummary}`, author);
+		}
 	}, TX_OPTIONS);
+	if (auditSummary) await recordAudit({
+		userId: actorId ?? void 0,
+		actorName: author || "POS User",
+		action: "TICKET_UPDATE",
+		details: `WO #${auditTicketNum}: ${auditSummary}`
+	});
 	return getTicket(id);
 }
 async function deleteTicket(id, author) {
@@ -846,37 +950,129 @@ async function removeItem(ticketId, itemId, author) {
 	}, TX_OPTIONS);
 	return getTicket(ticketId);
 }
-async function addPayment(ticketId, input, author) {
+async function addPayment(ticketId, input, author, actorId) {
 	const data = paymentSchema.parse(input);
+	const cleanKey = data.idempotencyKey?.replace(/[\[\]]/g, "").trim();
+	const idempMarker = cleanKey ? `[ref:${cleanKey}]` : "";
+	let wasDuplicate = false;
+	let ticketNum = 0;
 	await prisma.$transaction(async (tx) => {
-		const { balanceCents } = computeTotals(await loadTicket(tx, ticketId));
+		const t = await loadTicket(tx, ticketId);
+		ticketNum = t.ticketNumber;
+		if (idempMarker && t.payments.some((p) => p.note?.includes(idempMarker))) {
+			wasDuplicate = true;
+			return;
+		}
+		if (t.status === "CANCELLED" || t.status === "DECLINED") throw new HttpError(409, "Cannot process payment on a cancelled or declined work order");
+		const { balanceCents } = computeTotals(t);
+		if (t.status === "COMPLETED" && balanceCents <= 0) throw new HttpError(409, "This completed work order is already settled and cannot be charged twice");
 		const isDeposit = data.note && /deposit/i.test(data.note);
 		if (!isDeposit) {
 			if (balanceCents <= 0) throw new HttpError(409, "Nothing is owing on this work order");
 			if (data.amountCents > balanceCents) throw new HttpError(400, `Payment (${money(data.amountCents)}) is more than the balance owing (${money(balanceCents)})`);
 		}
+		const baseNote = emptyToNull(data.note) ?? null;
+		const storedNote = idempMarker ? baseNote ? `${baseNote} ${idempMarker}` : idempMarker : baseNote;
 		await tx.payment.create({ data: {
 			ticketId,
 			amountCents: data.amountCents,
 			method: data.method,
-			note: emptyToNull(data.note) ?? null
+			note: storedNote
 		} });
 		const remaining = Math.max(0, balanceCents - data.amountCents);
 		await logEvent(tx, ticketId, "PAYMENT", `${isDeposit ? "Deposit" : "Payment"} of ${money(data.amountCents)} received (${data.method.replace("_", "-")})${remaining === 0 ? " — paid in full" : `, ${money(remaining)} still owing`}`, author);
 	}, TX_OPTIONS);
+	if (!wasDuplicate) await recordAudit({
+		userId: actorId ?? void 0,
+		actorName: author || "POS User",
+		action: "PAYMENT_RECORDED",
+		details: `WO #${ticketNum}: Payment of ${money(data.amountCents)} (${data.method})`
+	});
 	return getTicket(ticketId);
 }
-async function voidPayment(ticketId, paymentId, author) {
+async function refundPayment(ticketId, input, author, actorId) {
+	const data = refundSchema.parse(input);
+	const cleanKey = data.idempotencyKey?.replace(/[\[\]]/g, "").trim();
+	const idempMarker = cleanKey ? `[ref:${cleanKey}]` : "";
+	let wasDuplicate = false;
+	let ticketNum = 0;
 	await prisma.$transaction(async (tx) => {
-		await loadTicket(tx, ticketId);
+		const t = await loadTicket(tx, ticketId);
+		ticketNum = t.ticketNumber;
+		if (idempMarker && t.payments.some((p) => p.note?.includes(idempMarker))) {
+			wasDuplicate = true;
+			return;
+		}
+		const totals = computeTotals(t);
+		if (totals.paidCents <= 0) throw new HttpError(409, "No paid balance exists to refund on this work order");
+		if (data.amountCents > totals.paidCents) throw new HttpError(400, `Refund (${money(data.amountCents)}) exceeds net collected amount (${money(totals.paidCents)})`);
+		const storedNote = idempMarker ? `Refund: ${data.reason} ${idempMarker}` : `Refund: ${data.reason}`;
+		await tx.payment.create({ data: {
+			ticketId,
+			amountCents: -data.amountCents,
+			method: data.method,
+			note: storedNote
+		} });
+		await logEvent(tx, ticketId, "PAYMENT", `Refund of ${money(data.amountCents)} issued (${data.method.replace("_", "-")}) — Reason: ${data.reason}`, author);
+	}, TX_OPTIONS);
+	if (!wasDuplicate) await recordAudit({
+		userId: actorId ?? void 0,
+		actorName: author || "POS User",
+		action: "PAYMENT_REFUND",
+		details: `WO #${ticketNum}: Refunded ${money(data.amountCents)} (${data.method}) - ${data.reason}`
+	});
+	return getTicket(ticketId);
+}
+async function voidPayment(ticketId, paymentId, author, actorId) {
+	let ticketNum = 0;
+	let voidedAmount = 0;
+	let voidedMethod = "";
+	await prisma.$transaction(async (tx) => {
+		ticketNum = (await loadTicket(tx, ticketId)).ticketNumber;
 		const p = await tx.payment.findFirst({ where: {
 			id: paymentId,
 			ticketId
 		} });
 		if (!p) throw new HttpError(404, "Payment not found");
+		voidedAmount = p.amountCents;
+		voidedMethod = p.method;
 		await tx.payment.delete({ where: { id: paymentId } });
 		await logEvent(tx, ticketId, "PAYMENT", `Voided payment of ${money(p.amountCents)} (${p.method})`, author);
 	}, TX_OPTIONS);
+	await recordAudit({
+		userId: actorId ?? void 0,
+		actorName: author || "POS User",
+		action: "PAYMENT_VOID",
+		details: `WO #${ticketNum}: Voided payment of ${money(voidedAmount)} (${voidedMethod})`
+	});
+	return getTicket(ticketId);
+}
+async function addPhoto(ticketId, input, author, actorId) {
+	const data = photoUploadSchema.parse(input);
+	const match = data.dataUrl.match(/^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=]+)$/);
+	if (!match) throw new HttpError(400, "Unsupported file format. Only valid JPEG, PNG, and WebP images are accepted.");
+	const [, mime, b64] = match;
+	const header = Buffer.from(b64.slice(0, 32), "base64");
+	const isPng = mime === "image/png" && header.length >= 8 && header[0] === 137 && header[1] === 80 && header[2] === 78 && header[3] === 71;
+	const isJpeg = mime === "image/jpeg" && header.length >= 3 && header[0] === 255 && header[1] === 216 && header[2] === 255;
+	const isWebp = mime === "image/webp" && header.length >= 12 && header.subarray(0, 4).toString("ascii") === "RIFF" && header.subarray(8, 12).toString("ascii") === "WEBP";
+	if (!isPng && !isJpeg && !isWebp) throw new HttpError(400, "Unsupported or corrupted image signature. File magic bytes do not match JPEG, PNG, or WebP.");
+	const safeFilename = data.filename.replace(/[^\w.\- ()]/g, "_").slice(0, 120) || "device-photo.jpg";
+	let ticketNum = 0;
+	await prisma.$transaction(async (tx) => {
+		ticketNum = (await loadTicket(tx, ticketId)).ticketNumber;
+		await logEvent(tx, ticketId, "PHOTO", JSON.stringify({
+			filename: safeFilename,
+			caption: emptyToNull(data.caption) ?? null,
+			dataUrl: data.dataUrl
+		}), author);
+	}, TX_OPTIONS);
+	await recordAudit({
+		userId: actorId ?? void 0,
+		actorName: author || "POS User",
+		action: "TICKET_PHOTO_UPLOAD",
+		details: `WO #${ticketNum}: Attached device photo "${safeFilename}"`
+	});
 	return getTicket(ticketId);
 }
 async function addNote(ticketId, input, author) {
@@ -915,11 +1111,14 @@ async function deleteNote(ticketId, noteId) {
 async function listCustomersPaginated(params) {
 	const q = (params.search || "").trim();
 	const digits = digitsOnly(q);
-	const where = q ? { OR: [
-		{ fullName: ciContains(q) },
-		{ email: ciContains(q) },
-		...digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []
-	] } : {};
+	const where = {
+		...params.includeArchived ? {} : { archivedAt: null },
+		...q ? { OR: [
+			{ fullName: ciContains(q) },
+			{ email: ciContains(q) },
+			...digits.length >= 3 ? [{ phoneDigits: { contains: digits } }] : []
+		] } : {}
+	};
 	const page = Math.max(1, Math.floor(params.page || 1));
 	const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || 25)), 500);
 	const skip = (page - 1) * pageSize;
@@ -981,7 +1180,7 @@ async function getCustomer(id) {
 		tickets: c.tickets.map(withTotals)
 	};
 }
-async function updateCustomer(id, input) {
+async function updateCustomer(id, input, actor) {
 	const data = customerUpdateSchema.parse(input);
 	const existing = await prisma.customer.findUnique({ where: { id } });
 	if (!existing) throw new HttpError(404, "Customer not found");
@@ -1004,6 +1203,27 @@ async function updateCustomer(id, input) {
 		where: { id },
 		data: update
 	});
+	await recordAudit({
+		userId: actor?.id,
+		actorName: actor?.name || "POS User",
+		action: "CUSTOMER_UPDATE",
+		details: `Updated customer profile for ${data.fullName || existing.fullName} (${id})`
+	});
+	return getCustomer(id);
+}
+async function archiveCustomer(id, archived = true, actor) {
+	const existing = await prisma.customer.findUnique({ where: { id } });
+	if (!existing) throw new HttpError(404, "Customer not found");
+	await prisma.customer.update({
+		where: { id },
+		data: { archivedAt: archived ? /* @__PURE__ */ new Date() : null }
+	});
+	await recordAudit({
+		userId: actor?.id,
+		actorName: actor?.name || "POS User",
+		action: archived ? "CUSTOMER_ARCHIVE" : "CUSTOMER_UNARCHIVE",
+		details: `${archived ? "Archived" : "Restored"} customer ${existing.fullName} (${id}); invoices and repair history preserved`
+	});
 	return getCustomer(id);
 }
 function listParts(search) {
@@ -1021,42 +1241,70 @@ async function assertSkuFree(sku, exceptId) {
 	const clash = await prisma.inventoryPart.findUnique({ where: { sku } });
 	if (clash && clash.id !== exceptId) throw new HttpError(409, `SKU "${sku}" is already used by ${clash.name}`);
 }
-async function createPart(input) {
+async function createPart(input, actor) {
 	const data = partSchema.parse(input);
 	data.sku = data.sku.toUpperCase();
 	await assertSkuFree(data.sku);
-	return prisma.inventoryPart.create({ data: {
+	const created = await prisma.inventoryPart.create({ data: {
 		...data,
 		supplier: emptyToNull(data.supplier) ?? null
 	} });
+	await recordAudit({
+		userId: actor?.id,
+		actorName: actor?.name || "POS User",
+		action: "INVENTORY_CREATE",
+		details: `Added inventory item ${created.sku} (${created.name}), stock=${created.stock}`
+	});
+	return created;
 }
-async function updatePart(id, input) {
-	const data = partSchema.partial().parse(input);
+async function updatePart(id, input, actor) {
+	const data = partUpdateSchema.parse(input);
 	if (!await prisma.inventoryPart.findUnique({ where: { id } })) throw new HttpError(404, "Part not found");
 	if (data.sku) {
 		data.sku = data.sku.toUpperCase();
 		await assertSkuFree(data.sku, id);
 	}
-	return prisma.inventoryPart.update({
+	const updated = await prisma.inventoryPart.update({
 		where: { id },
 		data: {
 			...data,
 			supplier: data.supplier === void 0 ? void 0 : emptyToNull(data.supplier) ?? null
 		}
 	});
+	await recordAudit({
+		userId: actor?.id,
+		actorName: actor?.name || "POS User",
+		action: "INVENTORY_UPDATE",
+		details: `Updated inventory item ${updated.sku} (${updated.name})`
+	});
+	return updated;
 }
-async function adjustStock(id, delta) {
+async function adjustStock(id, delta, actor) {
 	const part = await prisma.inventoryPart.findUnique({ where: { id } });
 	if (!part) throw new HttpError(404, "Part not found");
 	if (part.stock + delta < 0) throw new HttpError(409, `Stock cannot go below zero (currently ${part.stock})`);
-	return prisma.inventoryPart.update({
+	const updated = await prisma.inventoryPart.update({
 		where: { id },
 		data: { stock: { increment: delta } }
 	});
+	await recordAudit({
+		userId: actor?.id,
+		actorName: actor?.name || "POS User",
+		action: "INVENTORY_ADJUST",
+		details: `Adjusted ${updated.sku} stock by ${delta > 0 ? `+${delta}` : delta} → ${updated.stock}`
+	});
+	return updated;
 }
-async function deletePart(id) {
-	if (!await prisma.inventoryPart.findUnique({ where: { id } })) throw new HttpError(404, "Part not found");
+async function deletePart(id, actor) {
+	const existing = await prisma.inventoryPart.findUnique({ where: { id } });
+	if (!existing) throw new HttpError(404, "Part not found");
 	await prisma.inventoryPart.delete({ where: { id } });
+	await recordAudit({
+		userId: actor?.id,
+		actorName: actor?.name || "Admin",
+		action: "INVENTORY_DELETE",
+		details: `Deleted inventory part ${existing.sku} (${existing.name})`
+	});
 	return { ok: true };
 }
 function startOfDay(d = /* @__PURE__ */ new Date()) {
@@ -1076,6 +1324,7 @@ async function getDashboard() {
 			laborCents: true,
 			discountCents: true,
 			taxRateBps: true,
+			isWarranty: true,
 			items: { select: {
 				quantity: true,
 				unitPriceCents: true
@@ -1114,6 +1363,10 @@ async function getDashboard() {
 		waitingOnParts: count("WAITING_ON_PARTS"),
 		readyForPickup,
 		completed: count("COMPLETED"),
+		declined: count("DECLINED"),
+		cancelled: count("CANCELLED"),
+		warrantyTickets: tickets.filter((t) => t.isWarranty).length,
+		paidTickets: tickets.filter((t) => !t.isWarranty).length,
 		overdue: open.filter((t) => t.dueDate < today).length,
 		dueToday: open.filter((t) => t.dueDate >= today && t.dueDate < tomorrow).length,
 		openValueCents: Math.max(0, open.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0)),
@@ -1123,7 +1376,7 @@ async function getDashboard() {
 		awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
 		collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
 		collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
-		customerCount: await prisma.customer.count(),
+		customerCount: await prisma.customer.count({ where: { archivedAt: null } }),
 		lowStock
 	};
 }
@@ -1139,7 +1392,17 @@ async function getReport(days) {
 			select: {
 				amountCents: true,
 				method: true,
-				createdAt: true
+				createdAt: true,
+				ticket: { select: {
+					laborCents: true,
+					discountCents: true,
+					taxRateBps: true,
+					items: { select: {
+						quantity: true,
+						unitPriceCents: true
+					} },
+					payments: { select: { amountCents: true } }
+				} }
 			}
 		}),
 		prisma.ticket.findMany({
@@ -1149,6 +1412,7 @@ async function getReport(days) {
 			},
 			select: {
 				createdAt: true,
+				isWarranty: true,
 				device: { select: { name: true } }
 			}
 		}),
@@ -1207,11 +1471,24 @@ async function getReport(days) {
 	const onTime = completed.filter((t) => t.completedAt && t.completedAt.getTime() <= t.dueDate.getTime() + 432e5).length;
 	const partsRevenueCents = items.reduce((s, i) => s + i.quantity * i.unitPriceCents, 0);
 	const partsCostCents = items.reduce((s, i) => s + i.quantity * i.unitCostCents, 0);
+	const refundsCents = payments.filter((p) => p.amountCents < 0).reduce((s, p) => s + Math.abs(p.amountCents), 0);
+	let netTaxCollectedCents = 0;
+	for (const p of payments) if (p.ticket) {
+		const totals = computeTotals(p.ticket);
+		if (totals.totalCents > 0 && totals.taxCents > 0) {
+			const share = Math.max(-1, Math.min(1, p.amountCents / totals.totalCents));
+			netTaxCollectedCents += Math.round(totals.taxCents * share);
+		}
+	}
 	return {
 		days: span,
 		since,
 		revenueCents: payments.reduce((s, p) => s + p.amountCents, 0),
+		refundsCents,
+		netTaxCollectedCents,
 		ticketsCreated: created.length,
+		warrantyTicketsCount: created.filter((t) => t.isWarranty).length,
+		paidTicketsCount: created.filter((t) => !t.isWarranty).length,
 		ticketsCompleted: completed.length,
 		avgTurnaroundHours: turnaroundHours.length ? turnaroundHours.reduce((a, b) => a + b, 0) / turnaroundHours.length : null,
 		onTimeRate: completed.length ? onTime / completed.length : null,
@@ -1328,16 +1605,18 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 			byMethod[m].count++;
 			byMethod[m].totalCents += p.amountCents;
 			totalRevenueCents += p.amountCents;
-			if (p.ticket) {
-				const totals = computeTotals(p.ticket);
-				if (totals.totalCents > 0 && totals.taxCents > 0) {
-					const share = Math.min(1, p.amountCents / totals.totalCents);
-					taxCollectedCents += Math.round(totals.taxCents * share);
-				}
-			}
 		} else {
+			byMethod[m].totalCents += p.amountCents;
+			totalRevenueCents += p.amountCents;
 			totalRefundsCents += Math.abs(p.amountCents);
 			totalVoidedTransactions++;
+		}
+		if (p.ticket) {
+			const totals = computeTotals(p.ticket);
+			if (totals.totalCents > 0 && totals.taxCents > 0) {
+				const share = Math.max(-1, Math.min(1, p.amountCents / totals.totalCents));
+				taxCollectedCents += Math.round(totals.taxCents * share);
+			}
 		}
 	}
 	for (const t of tickets) if (t.discountCents > 0) totalDiscountsCents += t.discountCents;
@@ -1385,7 +1664,6 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 		stat.partsBilledCents += partsTotal;
 	}
 	for (const p of payments) {
-		if (p.amountCents <= 0) continue;
 		const stat = ensureEmployeeStat(p.ticket?.technician || "Unassigned");
 		stat.totalRevenueCents += p.amountCents;
 	}
@@ -1416,8 +1694,9 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 	const salesByShift = shifts.slice(0, 30).map((s) => {
 		const shiftStart = s.clockIn;
 		const shiftEnd = s.clockOut || new Date(s.clockIn.getTime() + s.totalMinutes * 6e4);
-		const shiftPayments = payments.filter((p) => p.createdAt >= shiftStart && p.createdAt <= shiftEnd && p.amountCents > 0);
+		const shiftPayments = payments.filter((p) => p.createdAt >= shiftStart && p.createdAt <= shiftEnd);
 		const shiftRevenueCents = shiftPayments.reduce((sum, p) => sum + p.amountCents, 0);
+		const positiveTxCount = shiftPayments.filter((p) => p.amountCents > 0).length;
 		const regularHours = s.regularMinutes / 60;
 		const overtimeHours = s.overtimeMinutes / 60;
 		const otRate = s.user.overtimeRateCents || Math.round(s.user.hourlyRateCents * 1.5);
@@ -1436,8 +1715,8 @@ async function getSalesLaborAnalytics(startDateStr, endDateStr) {
 			shiftLaborCostCents,
 			revenueGeneratedCents: shiftRevenueCents,
 			shiftRevenueCents,
-			transactionsCount: shiftPayments.length,
-			ticketsCount: shiftPayments.length,
+			transactionsCount: positiveTxCount,
+			ticketsCount: positiveTxCount,
 			laborCostPct,
 			shiftLaborCostPct: laborCostPct
 		};
@@ -1601,7 +1880,7 @@ async function loginUser(input, ipAddress) {
 		details: `${adminMode ? "Administrator" : "User"} signed in from ${ipAddress || "local"}`,
 		ipAddress
 	});
-	const { passwordHash: _, ...safeUser } = user;
+	const { passwordHash: _, sin: _sin, ...safeUser } = user;
 	const expiresAtMs = Date.now() + 864e5;
 	return {
 		token,
@@ -1995,7 +2274,7 @@ async function getAdminOverview() {
 	};
 }
 // src/server/backup.ts
-var BACKUP_DIR = path.resolve(process.env.BACKUP_DIR || "backups");
+var BACKUP_DIR = path.resolve(process.env.BACKUP_DIR || (process.env.VERCEL ? "/tmp/backups" : "backups"));
 var KEEP = Number(process.env.BACKUP_KEEP || 30);
 var INTERVAL_HOURS = Number(process.env.BACKUP_INTERVAL_HOURS || 6);
 /** Enable SQLite crash-safety & concurrency settings. */
@@ -2012,7 +2291,7 @@ async function createBackup(reason = "manual") {
 	const file = `apexfix-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${reason.replace(/[^a-z0-9]/gi, "")}.db`;
 	const full = path.join(BACKUP_DIR, file);
 	if (isPostgres) {
-		const [users, settings, tickets, customers, devices, shifts, audits] = await Promise.all([
+		const [users, settings, tickets, customers, devices, shifts, audits, inventoryParts, wageRates, scheduledShifts, payrollPeriods, paystubs] = await Promise.all([
 			prisma.user.findMany(),
 			prisma.setting.findMany(),
 			prisma.ticket.findMany({ include: {
@@ -2023,7 +2302,12 @@ async function createBackup(reason = "manual") {
 			prisma.customer.findMany(),
 			prisma.device.findMany(),
 			prisma.shift.findMany(),
-			prisma.auditLog.findMany({ take: 500 })
+			prisma.auditLog.findMany({ take: 500 }),
+			prisma.inventoryPart.findMany(),
+			prisma.wageRate.findMany(),
+			prisma.scheduledShift.findMany(),
+			prisma.payrollPeriod.findMany(),
+			prisma.paystub.findMany()
 		]);
 		const snapshot = {
 			timestamp: (/* @__PURE__ */ new Date()).toISOString(),
@@ -2036,7 +2320,12 @@ async function createBackup(reason = "manual") {
 				customers,
 				devices,
 				shifts,
-				audits
+				audits,
+				inventoryParts,
+				wageRates,
+				scheduledShifts,
+				payrollPeriods,
+				paystubs
 			}
 		};
 		fs.writeFileSync(full, JSON.stringify(snapshot, null, 2), "utf-8");
@@ -2089,6 +2378,7 @@ CREATE TABLE IF NOT EXISTS "Customer" (
     "email" TEXT,
     "address" TEXT,
     "notes" TEXT,
+    "archivedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     "altPhone" TEXT
@@ -2123,6 +2413,7 @@ CREATE TABLE IF NOT EXISTS "Ticket" (
     "dueDate" DATETIME NOT NULL,
     "completedAt" DATETIME,
     "deletedAt" DATETIME,
+    "isWarranty" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     "signature" TEXT,
@@ -2608,6 +2899,9 @@ var POSTGRES_SCHEMA_STATEMENTS = [
 	`ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "branchLocation" TEXT DEFAULT 'Main Shop'`,
 	`ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "recurrenceRule" TEXT DEFAULT 'NONE'`,
 	`ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "isPublished" BOOLEAN NOT NULL DEFAULT true`,
+	`ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "archivedAt" TIMESTAMP(3)`,
+	`ALTER TABLE "Ticket" ADD COLUMN IF NOT EXISTS "isWarranty" BOOLEAN NOT NULL DEFAULT false`,
+	`CREATE INDEX IF NOT EXISTS "Ticket_isWarranty_idx" ON "Ticket"("isWarranty")`,
 	`CREATE TABLE IF NOT EXISTS "Notification" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "userId" TEXT NOT NULL,
@@ -2654,7 +2948,9 @@ async function ensureDatabaseSchema() {
 		"ALTER TABLE \"Setting\" ADD COLUMN \"vacationPayPctOver5Years\" INTEGER NOT NULL DEFAULT 600;",
 		"ALTER TABLE \"ScheduledShift\" ADD COLUMN \"branchLocation\" TEXT DEFAULT 'Main Shop';",
 		"ALTER TABLE \"ScheduledShift\" ADD COLUMN \"recurrenceRule\" TEXT DEFAULT 'NONE';",
-		"ALTER TABLE \"ScheduledShift\" ADD COLUMN \"isPublished\" INTEGER NOT NULL DEFAULT 1;"
+		"ALTER TABLE \"ScheduledShift\" ADD COLUMN \"isPublished\" INTEGER NOT NULL DEFAULT 1;",
+		"ALTER TABLE \"Customer\" ADD COLUMN \"archivedAt\" DATETIME;",
+		"ALTER TABLE \"Ticket\" ADD COLUMN \"isWarranty\" INTEGER NOT NULL DEFAULT 0;"
 	]) try {
 		await prisma.$executeRawUnsafe(alter);
 	} catch {}
@@ -3082,17 +3378,20 @@ async function getTimeClockStatus(userId) {
 		weekMinutes += Math.max(0, elapsed - s.breakMinutes - openUnpaid);
 	}
 	const activeOpenUnpaid = activeShift ? getOpenUnpaidBreakMinutes(activeShift.breaks, now) : 0;
+	const liveElapsedSeconds = activeShift ? Math.max(0, Math.floor((now.getTime() - activeShift.clockIn.getTime()) / 1e3) - (activeShift.breakMinutes + activeOpenUnpaid) * 60) : 0;
 	return {
 		user,
 		isClockedIn: Boolean(activeShift),
 		clockedIn: Boolean(activeShift),
 		isOnBreak: activeShift?.status === "ON_BREAK",
 		onBreak: activeShift?.status === "ON_BREAK",
+		liveElapsedSeconds,
 		activeShift: activeShift ? {
 			id: activeShift.id,
 			clockIn: activeShift.clockIn,
 			status: activeShift.status,
 			breakMinutes: activeShift.breakMinutes + activeOpenUnpaid,
+			activeDurationSeconds: liveElapsedSeconds,
 			activeDurationMinutes: Math.max(0, Math.round((now.getTime() - activeShift.clockIn.getTime()) / 6e4) - activeShift.breakMinutes - activeOpenUnpaid),
 			activeBreak
 		} : null,
@@ -3375,7 +3674,15 @@ async function getMyPaystub(userId, paystubId, isAdmin = false) {
 	});
 	if (!paystub) throw new HttpError(404, "Paystub not found");
 	if (!isAdmin && paystub.userId !== userId) throw new HttpError(403, "Unauthorized access to confidential paystub");
-	return paystub;
+	const rawSin = paystub.user?.sin ? paystub.user.sin.replace(/\D/g, "") : "";
+	const maskedSin = rawSin.length >= 3 ? `***-***-${rawSin.slice(-3)}` : null;
+	return {
+		...paystub,
+		user: paystub.user ? {
+			...paystub.user,
+			sin: maskedSin
+		} : paystub.user
+	};
 }
 async function getAttendanceOverview(filters) {
 	const where = {};
@@ -5165,7 +5472,7 @@ function buildReceiptHtml(ticket, shop, width = "80mm") {
 	const payments = (ticket.payments || []).map((p) => row(`${esc(METHOD_LABEL[p.method] || p.method)} ${new Date(p.createdAt).toLocaleDateString()}`, money(p.amountCents))).join("");
 	const publicNotes = (ticket.events || []).filter((e) => e.kind === "CUSTOMER_NOTE").map((e) => `<div class="note">• ${esc(e.message)}</div>`).join("");
 	const paperPx = width === "58mm" ? "58mm" : "80mm";
-	const status = t ? t.balanceCents <= 0 ? "PAID IN FULL" : t.paidCents > 0 ? "PARTIALLY PAID" : "BALANCE DUE" : "";
+	const status = ticket.status === "CANCELLED" ? "CANCELLED" : ticket.status === "DECLINED" ? "DECLINED" : t ? t.balanceCents <= 0 ? "PAID IN FULL" : t.paidCents > 0 ? "PARTIALLY PAID" : "BALANCE DUE" : "";
 	return `<!doctype html><html><head><meta charset="utf-8"><title>Receipt WO #${ticket.ticketNumber}</title>
 <style>
 @page { size: ${paperPx} auto; margin: 0; }
@@ -5191,6 +5498,7 @@ ${row("Customer", esc(ticket.customer?.fullName))}
 ${row("Phone", esc(ticket.customer?.phone))}
 ${row("Device", esc(ticket.device?.name))}
 ${ticket.device?.serialNumber ? row("Serial/IMEI", esc(ticket.device.serialNumber)) : ""}
+${ticket.isWarranty ? row("Coverage", "WARRANTY REPAIR", true) : ""}
 <hr>
 <div class="b">Issue</div><div>${esc(ticket.faultDescription)}</div>
 ${publicNotes ? `<hr><div class="b">Work Performed</div>${publicNotes}` : ""}
@@ -5313,8 +5621,9 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
     ${shop.phone || shop.email ? `<div style="font-size:10px;color:#4f46e5;font-weight:600">${[shop.phone ? `Tel: ${esc(shop.phone)}` : "", shop.email ? esc(shop.email) : ""].filter(Boolean).join(" • ")}</div>` : ""}
   </div>
   <div style="text-align:right">
-    <div class="badge ${isPaid ? "badge-paid" : "badge-due"}">
-      ${isPaid ? "PAID • READY FOR RELEASE" : "INSPECTION / BALANCE DUE"}
+    ${ticket.isWarranty ? `<div class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;margin-right:4px">WARRANTY REPAIR</div>` : ""}
+    <div class="badge ${ticket.status === "CANCELLED" || ticket.status === "DECLINED" ? "badge-due" : isPaid ? "badge-paid" : "badge-due"}">
+      ${ticket.status === "CANCELLED" ? "CANCELLED" : ticket.status === "DECLINED" ? "DECLINED" : isPaid ? "PAID • READY FOR RELEASE" : "INSPECTION / BALANCE DUE"}
     </div>
     <div style="margin-top:6px">${barcodeSvg}</div>
     <div style="font-family:monospace;font-size:10px;color:#64748b;margin-top:2px">*${woBarcode}*</div>
@@ -5370,7 +5679,7 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
       S/N: ${esc(ticket.device?.serialNumber || "N/A")}
     </div>
     <div style="font-size:11px;color:#4f46e5;font-weight:bold">
-      ${ticket.device?.pattern ? `Pattern: ${esc(ticket.device.pattern)}${ticket.device.passcode ? ` • PIN: ${esc(ticket.device.passcode)}` : ""}` : `Passcode / PIN: ${esc(ticket.device?.passcode || "Verified by Owner")}`}
+      Access Credentials: ${ticket.device?.passcode || ticket.device?.pattern ? "Protected • Encrypted on File" : "None / Unlocked"}
     </div>
     <div style="font-size:10px;color:#64748b;margin-top:2px">Condition: ${esc(ticket.device?.condition || "Standard")}</div>
   </div>
@@ -5471,11 +5780,14 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
 var app = express();
 var PORT = process.env.PORT || 4e3;
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "5mb" }));
 app.use((_req, res, next) => {
 	res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
 	res.setHeader("Pragma", "no-cache");
 	res.setHeader("Expires", "0");
+	res.setHeader("X-Content-Type-Options", "nosniff");
+	res.setHeader("X-Frame-Options", "DENY");
+	res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
 	next();
 });
 app.use(async (req, _res, next) => {
@@ -5532,7 +5844,7 @@ function broadcastLiveEvent(event, data = {}) {
 		sseClients.splice(i, 1);
 	}
 }
-app.get("/api/live/stream", (req, res) => {
+app.get("/api/live/stream", requireAuth, (req, res) => {
 	res.writeHead(200, {
 		"Content-Type": "text/event-stream",
 		"Cache-Control": "no-cache",
@@ -5863,12 +6175,14 @@ app.get("/api/tickets", requireAuth, wrap(async (req, res) => {
 	const search = req.query.search;
 	const bench = req.query.bench;
 	const sort = req.query.sort;
+	const warranty = req.query.warranty;
 	const hasPage = req.query.page !== void 0;
 	const result = await listTicketsPaginated({
 		view,
 		search,
 		bench,
 		sort,
+		warranty,
 		page: hasPage ? parseInt(req.query.page, 10) || 1 : 1,
 		pageSize: req.query.pageSize ? parseInt(req.query.pageSize, 10) : req.query.limit ? parseInt(req.query.limit, 10) : hasPage ? 25 : 200
 	});
@@ -5929,7 +6243,11 @@ app.get("/api/tickets/:id/print", requireAuth, wrap(async (req, res) => {
 	res.send(html);
 }));
 app.post("/api/tickets", requireAuth, wrap(async (req, res) => {
-	const ticket = await createTicket(req.body);
+	const actor = {
+		id: req.user.id,
+		name: req.user.name
+	};
+	const ticket = await createTicket(req.body, actor);
 	broadcastLiveEvent("ticket_created", ticket);
 	res.status(201).json({
 		success: true,
@@ -5937,7 +6255,7 @@ app.post("/api/tickets", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.put("/api/tickets/:id", requireAuth, wrap(async (req, res) => {
-	const ticket = await updateTicket(getParam(req, "id"), req.body, req.user.name);
+	const ticket = await updateTicket(getParam(req, "id"), req.body, req.user.name, req.user.id);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
 		success: true,
@@ -5964,7 +6282,7 @@ app.delete("/api/tickets/:id", requireAdmin, wrap(async (req, res) => {
 	});
 }));
 app.post("/api/tickets/:id/quick-complete", requireAuth, wrap(async (req, res) => {
-	const ticket = await updateTicket(getParam(req, "id"), { status: "COMPLETED" }, req.user.name);
+	const ticket = await updateTicket(getParam(req, "id"), { status: "COMPLETED" }, req.user.name, req.user.id);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
 		success: true,
@@ -6005,11 +6323,29 @@ app.delete("/api/tickets/:id/items/:itemId", requireAuth, wrap(async (req, res) 
 app.post("/api/tickets/:id/payments", requireAuth, wrap(async (req, res) => {
 	const body = req.body || {};
 	const amountCents = body.amountCents ?? (body.amount !== void 0 ? Math.round(Number(body.amount) * 100) : void 0);
+	const idempotencyKey = body.idempotencyKey || req.headers["x-idempotency-key"];
 	const ticket = await addPayment(getParam(req, "id"), {
 		amountCents,
 		method: body.method || "CASH",
-		note: body.note
-	}, req.user.name);
+		note: body.note,
+		idempotencyKey
+	}, req.user.name, req.user.id);
+	broadcastLiveEvent("ticket_updated", ticket);
+	res.status(201).json({
+		success: true,
+		data: ticket
+	});
+}));
+app.post("/api/tickets/:id/refund", requireAuth, wrap(async (req, res) => {
+	const body = req.body || {};
+	const amountCents = body.amountCents ?? (body.amount !== void 0 ? Math.round(Number(body.amount) * 100) : void 0);
+	const idempotencyKey = body.idempotencyKey || req.headers["x-idempotency-key"];
+	const ticket = await refundPayment(getParam(req, "id"), {
+		amountCents,
+		method: body.method || "CARD",
+		reason: body.reason,
+		idempotencyKey
+	}, req.user.name, req.user.id);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.status(201).json({
 		success: true,
@@ -6017,9 +6353,17 @@ app.post("/api/tickets/:id/payments", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.delete("/api/tickets/:id/payments/:paymentId", requireAuth, wrap(async (req, res) => {
-	const ticket = await voidPayment(getParam(req, "id"), getParam(req, "paymentId"), req.user.name);
+	const ticket = await voidPayment(getParam(req, "id"), getParam(req, "paymentId"), req.user.name, req.user.id);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
+		success: true,
+		data: ticket
+	});
+}));
+app.post("/api/tickets/:id/photos", requireAuth, wrap(async (req, res) => {
+	const ticket = await addPhoto(getParam(req, "id"), req.body, req.user.name, req.user.id);
+	broadcastLiveEvent("ticket_updated", ticket);
+	res.status(201).json({
 		success: true,
 		data: ticket
 	});
@@ -6073,9 +6417,11 @@ app.delete("/api/tickets/:id/notes/:noteId", requireAuth, wrap(async (req, res) 
 }));
 app.get("/api/customers", requireAuth, wrap(async (req, res) => {
 	const search = req.query.search;
+	const includeArchived = req.query.includeArchived === "true";
 	const hasPage = req.query.page !== void 0;
 	const result = await listCustomersPaginated({
 		search,
+		includeArchived,
 		page: hasPage ? parseInt(req.query.page, 10) || 1 : 1,
 		pageSize: req.query.pageSize ? parseInt(req.query.pageSize, 10) : req.query.limit ? parseInt(req.query.limit, 10) : hasPage ? 25 : 200
 	});
@@ -6105,7 +6451,35 @@ app.get("/api/customers/:id", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.put("/api/customers/:id", requireAuth, wrap(async (req, res) => {
-	const customer = await updateCustomer(getParam(req, "id"), req.body);
+	const actor = {
+		id: req.user.id,
+		name: req.user.name
+	};
+	const customer = await updateCustomer(getParam(req, "id"), req.body, actor);
+	broadcastLiveEvent("customer_updated", customer);
+	res.json({
+		success: true,
+		data: customer
+	});
+}));
+app.post("/api/customers/:id/archive", requireAuth, wrap(async (req, res) => {
+	const actor = {
+		id: req.user.id,
+		name: req.user.name
+	};
+	const customer = await archiveCustomer(getParam(req, "id"), true, actor);
+	broadcastLiveEvent("customer_updated", customer);
+	res.json({
+		success: true,
+		data: customer
+	});
+}));
+app.post("/api/customers/:id/unarchive", requireAuth, wrap(async (req, res) => {
+	const actor = {
+		id: req.user.id,
+		name: req.user.name
+	};
+	const customer = await archiveCustomer(getParam(req, "id"), false, actor);
 	broadcastLiveEvent("customer_updated", customer);
 	res.json({
 		success: true,
@@ -6127,6 +6501,10 @@ app.post("/api/inventory", requireAuth, wrap(async (req, res) => {
 	const priceCents = body.priceCents ?? (body.retail !== void 0 ? Math.round(Number(body.retail) * 100) : body.price !== void 0 ? Math.round(Number(body.price) * 100) : 0);
 	const stock = body.stock ?? (body.stockQuantity !== void 0 ? Number(body.stockQuantity) : 0);
 	const reorderPoint = body.reorderPoint !== void 0 ? Number(body.reorderPoint) : 2;
+	const actor = {
+		id: req.user.id,
+		name: req.user.name
+	};
 	const part = await createPart({
 		sku: body.sku,
 		name: body.name,
@@ -6136,7 +6514,7 @@ app.post("/api/inventory", requireAuth, wrap(async (req, res) => {
 		stock,
 		reorderPoint,
 		supplier: body.supplier
-	});
+	}, actor);
 	broadcastLiveEvent("inventory_updated", part);
 	res.status(201).json({
 		success: true,
@@ -6158,7 +6536,11 @@ app.put("/api/inventory/:id", requireAuth, wrap(async (req, res) => {
 		updateData.stock = Number(body.stockQuantity);
 		delete updateData.stockQuantity;
 	}
-	const part = await updatePart(getParam(req, "id"), updateData);
+	const actor = {
+		id: req.user.id,
+		name: req.user.name
+	};
+	const part = await updatePart(getParam(req, "id"), updateData, actor);
 	broadcastLiveEvent("inventory_updated", part);
 	res.json({
 		success: true,
@@ -6168,7 +6550,11 @@ app.put("/api/inventory/:id", requireAuth, wrap(async (req, res) => {
 app.post("/api/inventory/:id/adjust", requireAuth, wrap(async (req, res) => {
 	const delta = Number(req.body.delta);
 	if (isNaN(delta) || delta === 0) throw new HttpError(400, "A non-zero numeric delta is required for stock adjustment");
-	const part = await adjustStock(getParam(req, "id"), delta);
+	const actor = {
+		id: req.user.id,
+		name: req.user.name
+	};
+	const part = await adjustStock(getParam(req, "id"), delta, actor);
 	broadcastLiveEvent("inventory_updated", part);
 	res.json({
 		success: true,
@@ -6176,7 +6562,11 @@ app.post("/api/inventory/:id/adjust", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.delete("/api/inventory/:id", requireAdmin, wrap(async (req, res) => {
-	const result = await deletePart(getParam(req, "id"));
+	const actor = {
+		id: req.user.id,
+		name: req.user.name
+	};
+	const result = await deletePart(getParam(req, "id"), actor);
 	broadcastLiveEvent("inventory_updated", { id: getParam(req, "id") });
 	res.json({
 		success: true,
@@ -6214,7 +6604,9 @@ app.get("/api/admin/backups/:file", requireAdmin, (req, res) => {
 		success: false,
 		error: "Backup not found"
 	});
-	res.download(full);
+	res.setHeader("Content-Type", "application/octet-stream");
+	res.setHeader("Content-Disposition", `attachment; filename="${path.basename(full)}"`);
+	fs.createReadStream(full).pipe(res);
 });
 app.get("/api/timeclock/status", requireAuth, wrap(async (req, res) => {
 	const status = await getTimeClockStatus(req.user.id);

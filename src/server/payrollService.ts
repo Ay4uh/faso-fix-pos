@@ -126,6 +126,13 @@ export async function getTimeClockStatus(userId: string) {
   }
 
   const activeOpenUnpaid = activeShift ? getOpenUnpaidBreakMinutes(activeShift.breaks, now) : 0;
+  const liveElapsedSeconds = activeShift
+    ? Math.max(
+        0,
+        Math.floor((now.getTime() - activeShift.clockIn.getTime()) / 1000) -
+          (activeShift.breakMinutes + activeOpenUnpaid) * 60
+      )
+    : 0;
 
   return {
     user,
@@ -133,12 +140,14 @@ export async function getTimeClockStatus(userId: string) {
     clockedIn: Boolean(activeShift),
     isOnBreak: activeShift?.status === 'ON_BREAK',
     onBreak: activeShift?.status === 'ON_BREAK',
+    liveElapsedSeconds,
     activeShift: activeShift
       ? {
           id: activeShift.id,
           clockIn: activeShift.clockIn,
           status: activeShift.status,
           breakMinutes: activeShift.breakMinutes + activeOpenUnpaid,
+          activeDurationSeconds: liveElapsedSeconds,
           activeDurationMinutes: Math.max(
             0,
             Math.round((now.getTime() - activeShift.clockIn.getTime()) / 60000) -
@@ -504,7 +513,18 @@ export async function getMyPaystub(userId: string, paystubId: string, isAdmin = 
     throw new HttpError(403, 'Unauthorized access to confidential paystub');
   }
 
-  return paystub;
+  const rawSin = paystub.user?.sin ? paystub.user.sin.replace(/\D/g, '') : '';
+  const maskedSin = rawSin.length >= 3 ? `***-***-${rawSin.slice(-3)}` : null;
+
+  return {
+    ...paystub,
+    user: paystub.user
+      ? {
+          ...paystub.user,
+          sin: maskedSin,
+        }
+      : paystub.user,
+  };
 }
 
 // ---------------------------------------------------------------------------

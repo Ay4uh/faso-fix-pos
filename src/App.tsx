@@ -54,8 +54,21 @@ const getInitialTickets = (): Ticket[] => {
   return [];
 };
 
+const TAB_IDS = ['repairs', 'customers', 'inventory', 'analytics', 'settings', 'admin'] as const;
+type TabId = (typeof TAB_IDS)[number];
+
+const getTabFromLocation = (): TabId => {
+  try {
+    const hash = window.location.hash.replace(/^#\/?/, '').split('?')[0].toLowerCase();
+    if ((TAB_IDS as readonly string[]).includes(hash)) return hash as TabId;
+    const path = window.location.pathname.replace(/^\/+/, '').split('/')[0].toLowerCase();
+    if ((TAB_IDS as readonly string[]).includes(path)) return path as TabId;
+  } catch {}
+  return 'repairs';
+};
+
 export function App() {
-  const [currentTab, setCurrentTab] = useState<'repairs' | 'customers' | 'inventory' | 'analytics' | 'settings' | 'admin'>('repairs');
+  const [currentTab, setCurrentTab] = useState<TabId>(getTabFromLocation);
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('ALL');
   const [selectedBench] = useState('ALL');
@@ -153,19 +166,21 @@ export function App() {
     },
   });
 
-  // Check auth session on startup
+  // Check auth session on startup + sync multi-tab logout
   useEffect(() => {
     const verifySession = async () => {
       try {
-        const token = getToken();
-        if (!token) {
+        const mountToken = getToken();
+        if (!mountToken) {
           setCurrentUser(null);
           localStorage.removeItem('apexfix_cached_user');
           return;
         }
         const res = await fetchWithAuth('/api/auth/me');
+        if (getToken() !== mountToken) return;
         if (res.ok) {
           const json = await res.json();
+          if (getToken() !== mountToken) return;
           if (json.authenticated && json.user) {
             setCurrentUser(json.user);
             try {
@@ -186,6 +201,23 @@ export function App() {
       }
     };
     verifySession();
+
+    const handleStorage = (e: StorageEvent) => {
+      if (e.key === 'apexfix_session_token' && !e.newValue) {
+        setCurrentUser(null);
+        setSelectedTicket(null);
+        setPrintTicket(null);
+        setSmsTicket(null);
+        setIsAdminLoginModalOpen(false);
+        setIsTimeClockModalOpen(false);
+        setIsCreateModalOpen(false);
+        setIsMobileMenuOpen(false);
+        selectedTicketIdRef.current = null;
+        setSessionExpiredNotice(null);
+      }
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
   }, []);
 
   const fetchTimeClockStatus = async () => {
@@ -365,20 +397,36 @@ export function App() {
 
   const handleLogout = () => {
     const tokenToRevoke = localStorage.getItem('apexfix_session_token');
-    // 1. Immediately wipe local auth credentials
+    // 1. Immediately wipe local auth credentials & cached user data
     removeToken();
     localStorage.removeItem('apexfix_session_token');
     localStorage.removeItem('apexfix_cached_user');
+    localStorage.removeItem('apexfix_cached_tickets');
     sessionStorage.clear();
 
-    // 2. Synchronously clear active user state to render LoginPage immediately
+    // 2. Synchronously clear ALL active user state & open modals to render LoginPage cleanly
+    setSessionExpiredNotice(null);
     setCurrentUser(null);
+    setTickets([]);
+    setCustomers([]);
+    setStats(null);
+    setTimeClockStatus(null);
     setSelectedTicket(null);
+    selectedTicketIdRef.current = null;
     setPrintTicket(null);
     setSmsTicket(null);
-    if (currentTab === 'admin') {
-      setCurrentTab('repairs');
-    }
+    setIsAdminLoginModalOpen(false);
+    setIsTimeClockModalOpen(false);
+    setIsCreateModalOpen(false);
+    setIsMobileMenuOpen(false);
+    setCurrentTab('repairs');
+
+    // Clear URL hash cleanly without leaving #admin or stale tabs behind
+    try {
+      if (window.location.hash) {
+        window.history.replaceState(null, '', window.location.pathname || '/');
+      }
+    } catch {}
 
     // 3. Audio & Toast feedback
     posAudio.playBeep();
@@ -481,6 +529,11 @@ export function App() {
   }, [searchQuery, selectedBench]);
 
   const fetchData = async (silent = false) => {
+    const reqToken = getToken();
+    if (!reqToken) {
+      if (!silent) setIsLoading(false);
+      return;
+    }
     try {
       if (!silent) setIsLoading(true);
       const params = new URLSearchParams();
@@ -504,6 +557,9 @@ export function App() {
         fetchWithAuth(`/api/stats?${selectedBench !== 'ALL' ? `bench=${selectedBench}` : ''}`),
         fetchWithAuth(`/api/customers?${custParams.toString()}`),
       ]);
+
+      // Guard against stale response resolving after logout or re-login
+      if (getToken() !== reqToken) return;
 
       if (ticketsRes.ok) {
         const data = await ticketsRes.json();
@@ -584,18 +640,40 @@ export function App() {
     return () => clearInterval(interval);
   }, [currentUser?.id, activeFilter, searchQuery, selectedBench, selectedTicket?.id, ticketsPage, customersPage, customersSearch]);
 
+  // Sync active tab with URL hash so refresh, deep URLs (/admin, #customers), and Back/Forward buttons work reliably
+  useEffect(() => {
+    const onNav = () => setCurrentTab(getTabFromLocation());
+    window.addEventListener('hashchange', onNav);
+    window.addEventListener('popstate', onNav);
+    return () => {
+      window.removeEventListener('hashchange', onNav);
+      window.removeEventListener('popstate', onNav);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!currentUser) return;
+    try {
+      const targetHash = `#${currentTab}`;
+      if (window.location.hash !== targetHash) {
+        window.location.hash = targetHash;
+      }
+    } catch {}
+  }, [currentTab, currentUser]);
+
   // Real-time live updates via Server-Sent Events (SSE)
-  // Only connect on localhost. On Vercel serverless, SSE holds lambdas open and forces multi-container divergence.
+  // Only connect on localhost with an active session token. On Vercel serverless, SSE holds lambdas open and forces multi-container divergence.
   useEffect(() => {
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    if (!isLocal) return;
+    const token = getToken();
+    if (!isLocal || !currentUser || !token) return;
 
     let es: EventSource | null = null;
     let reconnectTimer: any = null;
 
     const connectSSE = () => {
       try {
-        es = new EventSource('/api/live/stream');
+        es = new EventSource(`/api/live/stream?token=${encodeURIComponent(token)}`);
 
         es.addEventListener('ticket_created', (e) => {
           try {
@@ -682,7 +760,7 @@ export function App() {
       if (es) es.close();
       if (reconnectTimer) clearTimeout(reconnectTimer);
     };
-  }, []);
+  }, [currentUser?.id]);
 
   useEffect(() => {
     const handleFocus = () => fetchDataRef.current(true);
@@ -808,7 +886,6 @@ export function App() {
             setCurrentTab('repairs');
           }
           showToast(`Welcome back, ${user.name}`);
-          fetchData(true);
         }}
       />
     );

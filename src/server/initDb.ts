@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS "Customer" (
     "email" TEXT,
     "address" TEXT,
     "notes" TEXT,
+    "archivedAt" DATETIME,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     "altPhone" TEXT
@@ -43,6 +44,7 @@ CREATE TABLE IF NOT EXISTS "Ticket" (
     "dueDate" DATETIME NOT NULL,
     "completedAt" DATETIME,
     "deletedAt" DATETIME,
+    "isWarranty" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL,
     "signature" TEXT,
@@ -529,6 +531,9 @@ const POSTGRES_SCHEMA_STATEMENTS: string[] = [
   `ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "branchLocation" TEXT DEFAULT 'Main Shop'`,
   `ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "recurrenceRule" TEXT DEFAULT 'NONE'`,
   `ALTER TABLE "ScheduledShift" ADD COLUMN IF NOT EXISTS "isPublished" BOOLEAN NOT NULL DEFAULT true`,
+  `ALTER TABLE "Customer" ADD COLUMN IF NOT EXISTS "archivedAt" TIMESTAMP(3)`,
+  `ALTER TABLE "Ticket" ADD COLUMN IF NOT EXISTS "isWarranty" BOOLEAN NOT NULL DEFAULT false`,
+  `CREATE INDEX IF NOT EXISTS "Ticket_isWarranty_idx" ON "Ticket"("isWarranty")`,
   `CREATE TABLE IF NOT EXISTS "Notification" (
     "id" TEXT NOT NULL PRIMARY KEY,
     "userId" TEXT NOT NULL,
@@ -595,6 +600,8 @@ export async function ensureDatabaseSchema() {
     'ALTER TABLE "ScheduledShift" ADD COLUMN "branchLocation" TEXT DEFAULT \'Main Shop\';',
     'ALTER TABLE "ScheduledShift" ADD COLUMN "recurrenceRule" TEXT DEFAULT \'NONE\';',
     'ALTER TABLE "ScheduledShift" ADD COLUMN "isPublished" INTEGER NOT NULL DEFAULT 1;',
+    'ALTER TABLE "Customer" ADD COLUMN "archivedAt" DATETIME;',
+    'ALTER TABLE "Ticket" ADD COLUMN "isWarranty" INTEGER NOT NULL DEFAULT 0;',
   ];
   for (const alter of sqliteMigrations) {
     try {

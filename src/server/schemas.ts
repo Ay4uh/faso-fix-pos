@@ -7,6 +7,8 @@ export const STATUSES = [
   'WAITING_ON_PARTS',
   'READY_FOR_PICKUP',
   'COMPLETED',
+  'DECLINED',
+  'CANCELLED',
   'PENDING',
   'IN_PROGRESS',
 ] as const;
@@ -51,6 +53,7 @@ export const createTicketSchema = z.object({
   bench: optionalText,
   storageBin: optionalText,
   signature: signatureText,
+  isWarranty: z.boolean().optional().default(false),
   depositCents: cents.optional(),
   depositMethod: z.enum(PAYMENT_METHODS).optional(),
 });
@@ -67,6 +70,8 @@ export const updateTicketSchema = z
     bench: optionalText,
     storageBin: optionalText,
     signature: signatureText,
+    isWarranty: z.boolean(),
+    expectedUpdatedAt: trimmed.optional(),
     diagnostics: z.record(z.string(), z.enum(['PASS', 'FAIL', 'PENDING'])),
     device: z
       .object({
@@ -96,6 +101,20 @@ export const paymentSchema = z.object({
   amountCents: z.number().int().min(1, 'Amount must be greater than zero').max(100_000_000),
   method: z.enum(PAYMENT_METHODS),
   note: optionalText,
+  idempotencyKey: trimmed.max(120).optional(),
+});
+
+export const refundSchema = z.object({
+  amountCents: z.number().int().min(1, 'Refund amount must be greater than zero').max(100_000_000),
+  method: z.enum(PAYMENT_METHODS).default('CARD'),
+  reason: trimmed.min(1, 'Refund reason is required').max(500),
+  idempotencyKey: trimmed.max(120).optional(),
+});
+
+export const photoUploadSchema = z.object({
+  filename: trimmed.min(1, 'Filename is required').max(120),
+  dataUrl: z.string().min(20, 'Image payload is required').max(5_000_000, 'Image exceeds 5MB limit'),
+  caption: optionalText,
 });
 
 export const noteSchema = z.object({
@@ -124,6 +143,20 @@ export const partSchema = z.object({
   reorderPoint: z.number().int().min(0).max(1_000_000).default(2),
   supplier: optionalText,
 });
+
+export const partUpdateSchema = z
+  .object({
+    sku: trimmed.min(1, 'SKU is required').max(60),
+    name: trimmed.min(1, 'Part name is required').max(200),
+    category: trimmed.max(60),
+    costCents: cents,
+    priceCents: cents,
+    stock: z.number().int().min(0).max(1_000_000),
+    reorderPoint: z.number().int().min(0).max(1_000_000),
+    supplier: optionalText,
+  })
+  .partial()
+  .refine((d) => Object.keys(d).length > 0, 'Provide at least one field to update');
 
 export const stockAdjustSchema = z.object({
   delta: z.number().int().min(-1_000_000).max(1_000_000).refine((v) => v !== 0, 'Adjustment cannot be zero'),

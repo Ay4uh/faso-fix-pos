@@ -417,9 +417,9 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                       </span>
                     </div>
                     <div>
-                      <span className="text-slate-400 block text-[10px]">Passcode / Pattern:</span>
+                      <span className="text-slate-400 block text-[10px]">Access Credentials:</span>
                       <span className="text-indigo-600 font-bold block truncate">
-                        {ticket.device?.pattern ? `Pattern: ${ticket.device.pattern}` : (ticket.device?.passcode || 'Verified by Owner')}
+                        {(ticket.device?.pattern || ticket.device?.passcode) ? 'Protected • Encrypted on File' : 'None / Unlocked'}
                       </span>
                     </div>
                   </div>
