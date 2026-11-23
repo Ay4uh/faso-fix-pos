@@ -1,6 +1,7 @@
 import { prisma } from './prisma';
 import { HttpError, getSettings } from './service';
 import { recordAudit } from './auth';
+import { csvCell } from './csvSafe';
 import { calculatePayroll, calculateShiftHours, CRA_2026 } from './payrollMath';
 import { createNotification, notifyAdmins } from './notificationService';
 
@@ -853,7 +854,6 @@ export async function exportAttendanceCsv(filters: {
     orderBy: { clockIn: 'desc' },
   });
 
-  const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = [
     [
       'Shift ID',
@@ -892,7 +892,7 @@ export async function exportAttendanceCsv(filters: {
     ]);
   }
 
-  return rows.map((r) => r.map(esc).join(',')).join('\n');
+  return rows.map((r) => r.map(csvCell).join(',')).join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -1434,7 +1434,6 @@ export async function finalizePayrollPeriod(periodId: string, adminUser: { id: s
 
 export async function exportPayrollCsv(periodId: string) {
   const period = await getPayrollPeriod(periodId);
-  const esc = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
 
   const rows = [
     [
@@ -1488,7 +1487,7 @@ export async function exportPayrollCsv(periodId: string) {
     ]);
   }
 
-  return rows.map((r) => r.map(esc).join(',')).join('\n');
+  return rows.map((r) => r.map(csvCell).join(',')).join('\n');
 }
 
 /**

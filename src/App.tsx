@@ -92,6 +92,11 @@ export function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(getInitialUser);
   const [isVerifyingSession, setIsVerifyingSession] = useState(!getInitialUser());
   const [isAdminLoginModalOpen, setIsAdminLoginModalOpen] = useState(false);
+  const [isTerminalLocked, setIsTerminalLocked] = useState(false);
+  const [unlockPassword, setUnlockPassword] = useState('');
+  const [unlockCode, setUnlockCode] = useState('');
+  const [unlockError, setUnlockError] = useState<string | null>(null);
+  const [isUnlocking, setIsUnlocking] = useState(false);
 
   // Modals / Screens
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -374,6 +379,37 @@ export function App() {
     }
   };
 
+  // Optional shared-counter inactivity auto-lock (from UserPreferences.autoLockMinutes)
+  useEffect(() => {
+    if (!currentUser || isTerminalLocked) return;
+    let mins = 0;
+    try {
+      const p = JSON.parse(currentUser.preferences || '{}');
+      mins = Number(p.autoLockMinutes || 0);
+    } catch {}
+    if (!mins || mins <= 0) return;
+
+    const timeoutMs = mins * 60_000;
+    let timer: ReturnType<typeof setTimeout>;
+    const resetTimer = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        setUnlockPassword('');
+        setUnlockCode('');
+        setUnlockError(null);
+        setIsTerminalLocked(true);
+      }, timeoutMs);
+    };
+
+    resetTimer();
+    const events = ['mousemove', 'keydown', 'pointerdown', 'touchstart'] as const;
+    events.forEach((ev) => window.addEventListener(ev, resetTimer, { passive: true }));
+    return () => {
+      clearTimeout(timer);
+      events.forEach((ev) => window.removeEventListener(ev, resetTimer));
+    };
+  }, [currentUser?.id, currentUser?.preferences, isTerminalLocked]);
+
   // Listen for unauthorized events to kick back to LoginPage immediately
   useEffect(() => {
     const handleUnauthorized = () => {
@@ -401,6 +437,10 @@ export function App() {
 
     // 2. Synchronously clear ALL active user state & open modals to render LoginPage cleanly
     setSessionExpiredNotice(null);
+    setIsTerminalLocked(false);
+    setUnlockPassword('');
+    setUnlockCode('');
+    setUnlockError(null);
     setCurrentUser(null);
     setTickets([]);
     setCustomers([]);
@@ -891,6 +931,104 @@ export function App() {
     );
   }
 
+  // 2.5 Shared-Counter Screen Lock Overlay (unmounts POS workspace DOM while locked)
+  if (isTerminalLocked) {
+    const handleUnlockSubmit = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setIsUnlocking(true);
+      setUnlockError(null);
+      try {
+        const res = await fetchWithAuth('/api/auth/verify-unlock', {
+          method: 'POST',
+          body: JSON.stringify({
+            password: unlockPassword,
+            ...(currentUser.twoFactorEnabled ? { code: unlockCode.trim() } : {}),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'Verification failed');
+        posAudio.playSuccessChime();
+        setUnlockPassword('');
+        setUnlockCode('');
+        setIsTerminalLocked(false);
+      } catch (err: any) {
+        setUnlockError(err.message || 'Could not unlock terminal');
+        posAudio.playWarningBeep();
+      } finally {
+        setIsUnlocking(false);
+      }
+    };
+
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 text-slate-800">
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+          <div className="bg-slate-50 px-6 py-5 border-b border-slate-200 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
+              <Lock className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-extrabold text-slate-900">Terminal Locked</h2>
+              <p className="text-xs text-slate-500">
+                Active session: <strong className="text-slate-700">{currentUser.name}</strong>
+              </p>
+            </div>
+          </div>
+
+          <form onSubmit={handleUnlockSubmit} className="p-6 space-y-4">
+            {unlockError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
+                {unlockError}
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-bold text-slate-700">Account Password</label>
+              <input
+                type="password"
+                required
+                autoFocus
+                value={unlockPassword}
+                onChange={(e) => setUnlockPassword(e.target.value)}
+                placeholder="Enter password to unlock"
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-mono"
+              />
+            </div>
+
+            {currentUser.twoFactorEnabled && (
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700">Authenticator Code</label>
+                <input
+                  type="text"
+                  required
+                  value={unlockCode}
+                  onChange={(e) => setUnlockCode(e.target.value)}
+                  placeholder="6-digit TOTP or recovery code"
+                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-mono"
+                />
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={isUnlocking}
+              className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer disabled:opacity-50"
+            >
+              {isUnlocking ? 'Unlocking...' : 'Unlock Counter Terminal'}
+            </button>
+
+            <button
+              type="button"
+              onClick={handleLogout}
+              className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+            >
+              Sign Out / Switch User
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col font-sans overflow-x-clip">
       {/* Top Loading Progress Line */}
@@ -916,6 +1054,12 @@ export function App() {
         onSelectTicket={handleSelectTicket}
         currentUser={currentUser}
         onLogout={handleLogout}
+        onLockTerminal={() => {
+          setUnlockPassword('');
+          setUnlockCode('');
+          setUnlockError(null);
+          setIsTerminalLocked(true);
+        }}
         onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
         onOpenTimeClock={() => {
           setTimeClockInitialTab('clock');
@@ -1018,7 +1162,12 @@ export function App() {
             <SettingsView
               currentUser={currentUser}
               onSettingsUpdated={() => fetchData(true)}
-              onUserUpdated={(u) => setCurrentUser(u)}
+              onUserUpdated={(u) => {
+                setCurrentUser(u);
+                try {
+                  localStorage.setItem('apexfix_cached_user', JSON.stringify(u));
+                } catch {}
+              }}
               onOpenAdminConsole={() => {
                 if (currentUser?.role === 'ADMIN') {
                   setCurrentTab('admin');

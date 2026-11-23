@@ -174,6 +174,7 @@ export interface UserPreferences {
   emailAlerts: boolean;
   highPriorityAudio: boolean;
   lowStockAlerts: boolean;
+  autoLockMinutes?: number;
 }
 
 export interface User {
@@ -186,6 +187,7 @@ export interface User {
   phone?: string | null;
   bio?: string | null;
   bench?: string | null;
+  twoFactorEnabled?: boolean;
   preferences: string; // JSON string
   lastLoginAt?: string | null;
   createdAt: string;

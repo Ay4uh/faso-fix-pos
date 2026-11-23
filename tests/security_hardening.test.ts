@@ -11,10 +11,18 @@ import crypto from 'node:crypto';
 import http from 'node:http';
 import { app } from '../src/server/index';
 import { prisma } from '../src/server/prisma';
-import { ensureAdminProvisioning, hashPassword, hashSessionToken } from '../src/server/auth';
+import {
+  ensureAdminProvisioning,
+  hashPassword,
+  hashSessionToken,
+  recordAudit,
+  verifyAuditLogChain,
+} from '../src/server/auth';
 import { buildPaystubHtml } from '../src/server/payrollService';
+import { csvCell } from '../src/server/csvSafe';
+import { generateTotpCode } from '../src/server/totp';
 
-describe('Security Hardening Suite (10/10 Controls)', () => {
+describe('Security Hardening Suite (11/10 Controls)', () => {
   let server: http.Server;
   let baseUrl = '';
   let adminToken = '';
@@ -115,7 +123,9 @@ describe('Security Hardening Suite (10/10 Controls)', () => {
 
   after(async () => {
     try {
-      await prisma.auditLog.deleteMany({ where: { actorName: { in: [bruteUser, rogueUsername] } } }).catch(() => {});
+      await prisma.auditLog.deleteMany({
+        where: { actorName: { in: [bruteUser, rogueUsername, tempTechUsername] } },
+      }).catch(() => {});
       await prisma.auditLog.deleteMany({ where: { details: { contains: rogueUsername } } }).catch(() => {});
       await prisma.auditLog.deleteMany({ where: { details: { contains: tempTechUsername } } }).catch(() => {});
       if (testPaystubId) await prisma.paystub.delete({ where: { id: testPaystubId } }).catch(() => {});
@@ -444,5 +454,272 @@ describe('Security Hardening Suite (10/10 Controls)', () => {
       where: { action: 'LOGIN_FAILED', actorName: bruteUser },
     });
     assert.equal(failRows, 5, '5 failed attempts must be persisted in AuditLog');
+  });
+
+  test('7. RFC 6238 TOTP 2FA lifecycle: local SVG QR, challenge gate, replay block, recovery codes, disable', async () => {
+    // 7a. Begin setup -> local SVG QR & manual Base32 secret
+    const setupRes = await req('/api/auth/2fa/setup', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+    });
+    assert.equal(setupRes.status, 200);
+    const { qrDataUrl, manualSecret } = setupRes.json.data;
+    assert.ok(qrDataUrl.startsWith('data:image/svg+xml;base64,'));
+    assert.ok(manualSecret.length >= 16);
+
+    // Compute current and previous TOTP codes (previous avoids bumping counter or wait - we test current vs replay)
+    const nowStep = Math.floor(Date.now() / 1000 / 30);
+    const confirmCode = generateTotpCode(manualSecret, nowStep - 1);
+
+    const confirmRes = await req('/api/auth/2fa/confirm', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+      body: { code: confirmCode },
+    });
+    assert.equal(confirmRes.status, 200);
+    assert.equal(confirmRes.json.data.enabled, true);
+    const recoveryCodes: string[] = confirmRes.json.data.recoveryCodes;
+    assert.equal(recoveryCodes.length, 8);
+
+    // 7b. Password login now issues challenge ONLY (no session cookie yet)
+    const pwLogin = await req('/api/auth/login', {
+      method: 'POST',
+      body: { usernameOrEmail: tempTechUsername, password: 'SecTechPass@2027!' },
+    });
+    assert.equal(pwLogin.status, 200);
+    assert.equal(pwLogin.json.requiresTwoFactor, true);
+    assert.equal(pwLogin.json.token, undefined);
+    assert.equal(pwLogin.setCookies.length, 0, 'Session cookie must NOT be issued before 2FA verification');
+    const challengeToken1 = pwLogin.json.challengeToken;
+
+    // 7c. Verify current step TOTP code -> succeeds & sets HttpOnly cookie
+    const stepCode = generateTotpCode(manualSecret, nowStep);
+    const verifyRes = await req('/api/auth/login/verify-2fa', {
+      method: 'POST',
+      body: { challengeToken: challengeToken1, code: stepCode },
+    });
+    assert.equal(verifyRes.status, 200);
+    assert.ok(verifyRes.json.token);
+    assert.ok(verifyRes.setCookies.some((c) => /HttpOnly/i.test(c) && /SameSite=Strict/i.test(c)));
+    techToken = verifyRes.json.token;
+
+    // 7d. Replay of same TOTP code on a second login challenge MUST fail (401)
+    const pwLogin2 = await req('/api/auth/login', {
+      method: 'POST',
+      body: { usernameOrEmail: tempTechUsername, password: 'SecTechPass@2027!' },
+    });
+    assert.equal(pwLogin2.status, 200);
+    const challengeToken2 = pwLogin2.json.challengeToken;
+    const replayRes = await req('/api/auth/login/verify-2fa', {
+      method: 'POST',
+      body: { challengeToken: challengeToken2, code: stepCode },
+    });
+    assert.equal(replayRes.status, 401, 'Reused TOTP code within window must be rejected');
+
+    // 7e. Single-use recovery code works ONCE, then fails on second attempt
+    const usedRecovery = recoveryCodes[0];
+    const recOk = await req('/api/auth/login/verify-2fa', {
+      method: 'POST',
+      body: { challengeToken: challengeToken2, code: usedRecovery },
+    });
+    assert.equal(recOk.status, 200);
+    techToken = recOk.json.token;
+
+    const pwLogin3 = await req('/api/auth/login', {
+      method: 'POST',
+      body: { usernameOrEmail: tempTechUsername, password: 'SecTechPass@2027!' },
+    });
+    const recReuseFail = await req('/api/auth/login/verify-2fa', {
+      method: 'POST',
+      body: { challengeToken: pwLogin3.json.challengeToken, code: usedRecovery },
+    });
+    assert.equal(recReuseFail.status, 401, 'Single-use recovery code must fail on reuse');
+
+    // 7f. Disable 2FA requires password + valid code
+    const badPwDisable = await req('/api/auth/2fa/disable', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+      body: { currentPassword: 'WrongPassword1!', code: recoveryCodes[1] },
+    });
+    assert.equal(badPwDisable.status, 400);
+
+    const disableOk = await req('/api/auth/2fa/disable', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+      body: { currentPassword: 'SecTechPass@2027!', code: recoveryCodes[1] },
+    });
+    assert.equal(disableOk.status, 200);
+    assert.equal(disableOk.json.data.enabled, false);
+  });
+
+  test('8. Active device session tracking, revoke other devices & auto-kill on disable', async () => {
+    const loginA = await req('/api/auth/login', {
+      method: 'POST',
+      headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Chrome/131.0.0.0 Safari/537.36' },
+      body: { usernameOrEmail: tempTechUsername, password: 'SecTechPass@2027!' },
+    });
+    assert.equal(loginA.status, 200);
+    const tokenA = loginA.json.token;
+
+    const loginB = await req('/api/auth/login', {
+      method: 'POST',
+      headers: { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) Safari/604.1' },
+      body: { usernameOrEmail: tempTechUsername, password: 'SecTechPass@2027!' },
+    });
+    assert.equal(loginB.status, 200);
+    const tokenB = loginB.json.token;
+
+    const listRes = await req('/api/auth/sessions', {
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    assert.equal(listRes.status, 200);
+    assert.ok(listRes.json.data.length >= 2);
+    assert.ok(listRes.json.data.some((s: any) => s.device === 'Chrome on macOS'));
+    assert.ok(listRes.json.data.some((s: any) => s.isCurrent === true));
+
+    // Revoke all other sessions from session B -> session A returns 401
+    const revokeOther = await req('/api/auth/sessions/other', {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${tokenB}` },
+    });
+    assert.equal(revokeOther.status, 200);
+    const deadA = await req('/api/tickets', { headers: { Authorization: `Bearer ${tokenA}` } });
+    assert.equal(deadA.status, 401);
+
+    // Disabling user immediately terminates even active session B
+    const disableRes = await req(`/api/admin/users/${testUserId}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: { status: 'DISABLED' },
+    });
+    assert.equal(disableRes.status, 200);
+    const deadB = await req('/api/tickets', { headers: { Authorization: `Bearer ${tokenB}` } });
+    assert.equal(deadB.status, 401);
+
+    // Restore ACTIVE for subsequent cleanup/checks and refresh techToken
+    await req(`/api/admin/users/${testUserId}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: { status: 'ACTIVE' },
+    });
+    const relog = await req('/api/auth/login', {
+      method: 'POST',
+      body: { usernameOrEmail: tempTechUsername, password: 'SecTechPass@2027!' },
+    });
+    techToken = relog.json.token;
+  });
+
+  test('9. Immutable work order timeline blocks altering/deleting PAYMENT or STATUS events', async () => {
+    const ticketRes = await req(`/api/tickets/${testTicketId}`, {
+      headers: { Authorization: `Bearer ${techToken}` },
+    });
+    assert.equal(ticketRes.status, 200);
+    const events: any[] = ticketRes.json.data.events || [];
+    const paymentEvent = events.find((e) => e.kind === 'PAYMENT');
+    const statusEvent = events.find((e) => e.kind === 'STATUS');
+    assert.ok(paymentEvent, 'Expected PAYMENT event from Test 5');
+    assert.ok(statusEvent, 'Expected STATUS event from Test 5');
+
+    const editPay = await req(`/api/tickets/${testTicketId}/notes/${paymentEvent.id}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: { message: 'Tampered payment log' },
+    });
+    assert.equal(editPay.status, 403);
+
+    const delStatus = await req(`/api/tickets/${testTicketId}/notes/${statusEvent.id}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(delStatus.status, 403);
+
+    // Human notes remain editable
+    const addNoteRes = await req(`/api/tickets/${testTicketId}/notes`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+      body: { kind: 'INTERNAL_NOTE', message: 'Bench check OK' },
+    });
+    assert.equal(addNoteRes.status, 201);
+    const noteEv = addNoteRes.json.data.events.find((e: any) => e.message === 'Bench check OK');
+    const editNoteOk = await req(`/api/tickets/${testTicketId}/notes/${noteEv.id}`, {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${techToken}` },
+      body: { message: 'Bench check updated OK' },
+    });
+    assert.equal(editNoteOk.status, 200);
+  });
+
+  test('10. CSV formula injection (CWE-1236) neutralization & 256kb non-media JSON payload limit', async () => {
+    assert.equal(csvCell('=HYPERLINK("http://evil.test","Click")'), `"'=HYPERLINK(""http://evil.test"",""Click"")"`);
+    assert.equal(csvCell('+cmd|"/C calc"!A0'), `"'+cmd|""/C calc""!A0"`);
+    assert.equal(csvCell('-1+1'), `"'-1+1"`);
+    assert.equal(csvCell('@SUM(A1:A2)'), `"'@SUM(A1:A2)"`);
+    assert.equal(csvCell('\t=1+1'), `"'\t=1+1"`);
+    assert.equal(csvCell('-12.50'), '"-12.50"');
+    assert.equal(csvCell('John Doe'), '"John Doe"');
+
+    // Non-photo/non-ticket routes reject payloads > 256kb with 413
+    const hugeBody = { preferences: { blob: 'A'.repeat(300_000) } };
+    const overRes = await req('/api/auth/preferences', {
+      method: 'PUT',
+      headers: { Authorization: `Bearer ${techToken}` },
+      body: hugeBody,
+    });
+    assert.equal(overRes.status, 413);
+  });
+
+  test('11. Tamper-evident AuditLog hash chain, Admin Security Posture & Terminal Unlock', async () => {
+    const entry = await recordAudit({
+      userId: testUserId,
+      actorName: tempTechUsername,
+      action: 'SEC_CHAIN_TEST',
+      details: 'Original untampered security audit entry',
+    });
+    assert.ok(entry?.entryHash);
+
+    const beforeTamper = await verifyAuditLogChain(50);
+    assert.equal(beforeTamper.intact, true);
+
+    // Mutate details directly in PostgreSQL to simulate DB tampering
+    await prisma.auditLog.update({
+      where: { id: entry!.id },
+      data: { details: 'TAMPERED BY ATTACKER' },
+    });
+    const afterTamper = await verifyAuditLogChain(50);
+    assert.equal(afterTamper.intact, false);
+    assert.ok(afterTamper.tamperedIds.includes(entry!.id));
+
+    await prisma.auditLog.delete({ where: { id: entry!.id } });
+    const restored = await verifyAuditLogChain(50);
+    assert.equal(restored.intact, true);
+
+    // Security posture endpoint restricted to ADMIN
+    const techPosture = await req('/api/admin/security/posture', {
+      headers: { Authorization: `Bearer ${techToken}` },
+    });
+    assert.equal(techPosture.status, 403);
+
+    const adminPosture = await req('/api/admin/security/posture', {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(adminPosture.status, 200);
+    assert.equal(adminPosture.json.data.rls.allEnabled, true);
+    assert.equal(adminPosture.json.data.auditChain.intact, true);
+
+    // Terminal unlock verifies current user password
+    const badUnlock = await req('/api/auth/verify-unlock', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+      body: { password: 'WrongPassword1!' },
+    });
+    assert.equal(badUnlock.status, 401);
+
+    const goodUnlock = await req('/api/auth/verify-unlock', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+      body: { password: 'SecTechPass@2027!' },
+    });
+    assert.equal(goodUnlock.status, 200);
+    assert.equal(goodUnlock.json.unlocked, true);
   });
 });

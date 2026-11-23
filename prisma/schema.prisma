@@ -59,6 +59,10 @@ model User {
   td1FederalClaimCents  Int        @default(1612900) // $16,129 basic personal amount
   td1OntarioClaimCents  Int        @default(1274600) // $12,746 Ontario personal claim
   sin                   String?
+  twoFactorEnabled       Boolean              @default(false)
+  twoFactorSecret        String?
+  twoFactorRecoveryCodes String?
+  twoFactorLastCounter   Int?
   shifts                Shift[]
   scheduledShifts       ScheduledShift[]
   timeOffRequests       TimeOffRequest[]
@@ -67,6 +71,7 @@ model User {
   wageRates             WageRate[]
   paystubs              Paystub[]
   sessions              Session[]
+  twoFactorChallenges   TwoFactorChallenge[]
   auditLogs             AuditLog[] @relation("UserAuditLogs")
   notifications         Notification[]
   createdAt             DateTime   @default(now())
@@ -77,15 +82,33 @@ model User {
 }
 
 model Session {
+  id           String   @id @default(uuid())
+  token        String   @unique
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  ipAddress    String?
+  userAgent    String?
+  lastActiveAt DateTime @default(now())
+  expiresAt    DateTime
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@index([token])
+}
+
+model TwoFactorChallenge {
   id        String   @id @default(uuid())
-  token     String   @unique
+  tokenHash String   @unique
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  adminMode Boolean  @default(false)
+  ipAddress String?
+  userAgent String?
   expiresAt DateTime
   createdAt DateTime @default(now())
 
   @@index([userId])
-  @@index([token])
+  @@index([expiresAt])
 }
 
 model AuditLog {
@@ -95,6 +118,8 @@ model AuditLog {
   action    String   // e.g. LOGIN, LOGOUT, USER_CREATE, USER_UPDATE, USER_DELETE, ROLE_CHANGE, STATUS_CHANGE, PASSWORD_RESET, SETTINGS_UPDATE
   details   String
   ipAddress String?
+  prevHash  String?
+  entryHash String?
   user      User?    @relation("UserAuditLogs", fields: [userId], references: [id], onDelete: SetNull)
   createdAt DateTime @default(now())
 

@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Square, Coffee, Zap, Bell, Check } from 'lucide-react';
+import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Square, Coffee, Zap, Bell, Check, Lock } from 'lucide-react';
 import { Ticket, User } from '../types';
 import { flushOfflineQueue } from '../utils/offlineSync';
 import { fetchWithAuth } from '../utils/auth';
@@ -23,6 +23,7 @@ interface HeaderProps {
   onSelectTicket?: (ticket: Ticket) => void;
   currentUser?: User | null;
   onLogout?: () => void;
+  onLockTerminal?: () => void;
   onOpenMobileMenu?: () => void;
   onOpenTimeClock?: () => void;
   isClockedIn?: boolean;
@@ -45,6 +46,7 @@ export const Header: React.FC<HeaderProps> = ({
   onSelectTicket,
   currentUser,
   onLogout,
+  onLockTerminal,
   onOpenMobileMenu,
   onOpenTimeClock,
   isClockedIn,
@@ -643,6 +645,18 @@ export const Header: React.FC<HeaderProps> = ({
                   {currentUser.name}
                 </span>
               </div>
+              {onLockTerminal && (
+                <button
+                  type="button"
+                  onClick={onLockTerminal}
+                  aria-label="Lock Terminal"
+                  title="Quick-lock counter screen"
+                  className="h-9 inline-flex items-center justify-center gap-1.5 px-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 shadow-2xs"
+                >
+                  <Lock className="w-3.5 h-3.5 text-slate-600" />
+                  <span className="hidden xl:inline">Lock</span>
+                </button>
+              )}
               <button
                 type="button"
                 onClick={onLogout}

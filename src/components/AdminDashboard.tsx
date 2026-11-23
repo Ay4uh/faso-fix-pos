@@ -36,12 +36,13 @@ import { AdminAttendanceTab } from './admin/AdminAttendanceTab';
 import { AdminPayrollTab } from './admin/AdminPayrollTab';
 import { AdminScheduleTab } from './admin/AdminScheduleTab';
 import { AdminSalesLaborTab } from './admin/AdminSalesLaborTab';
+import { AdminSecurityTab } from './admin/AdminSecurityTab';
 
 interface AdminDashboardProps {
   currentUser: User;
   onLogout: () => void;
   onNavigateToTab?: (tab: string) => void;
-  initialSection?: 'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'attendance' | 'payroll' | 'schedule' | 'sales-labor';
+  initialSection?: 'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'security' | 'attendance' | 'payroll' | 'schedule' | 'sales-labor';
 }
 
 export const AdminDashboard: React.FC<AdminDashboardProps> = ({
@@ -50,7 +51,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   onNavigateToTab,
   initialSection,
 }) => {
-  const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'attendance' | 'payroll' | 'schedule' | 'sales-labor'>(initialSection || 'overview');
+  const [activeSection, setActiveSection] = useState<'overview' | 'users' | 'tickets' | 'roles' | 'audit' | 'security' | 'attendance' | 'payroll' | 'schedule' | 'sales-labor'>(initialSection || 'overview');
 
   useEffect(() => {
     if (initialSection) {
@@ -239,6 +240,37 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const handleForceLogoutUser = async (user: User) => {
+    try {
+      const res = await fetchWithAuth(`/api/admin/users/${encodeURIComponent(user.id)}/revoke-sessions`, {
+        method: 'POST',
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to force logout');
+      posAudio.playSuccessChime();
+      showToast(`Signed out ${user.username} from ${json.data?.revokedCount ?? 0} session(s)`);
+    } catch (err: any) {
+      posAudio.playWarningBeep();
+      showToast(`Error: ${err.message}`);
+    }
+  };
+
+  const handleAdminResetTwoFactor = async (user: User) => {
+    try {
+      const res = await fetchWithAuth(`/api/admin/users/${encodeURIComponent(user.id)}/reset-2fa`, {
+        method: 'POST',
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Failed to reset 2FA');
+      posAudio.playSuccessChime();
+      showToast(`2FA reset and sessions cleared for ${user.username}`);
+      fetchUsersList();
+    } catch (err: any) {
+      posAudio.playWarningBeep();
+      showToast(`Error: ${err.message}`);
+    }
+  };
+
   const handleDeleteTicket = async () => {
     if (!deletingTicket) return;
     try {
@@ -335,6 +367,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
           { id: 'tickets', label: 'Work Orders & Tickets', icon: Wrench, badge: ticketTotal || tickets.length },
           { id: 'roles', label: 'Roles & RBAC Permissions', icon: ShieldCheck },
           { id: 'audit', label: 'System Audit Logs', icon: Layers, badge: auditTotal || auditLogs.length },
+          { id: 'security', label: 'Security Center', icon: ShieldAlert },
         ].map((tab) => {
           const Icon = tab.icon;
           const isActive = activeSection === tab.id;
@@ -434,7 +467,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
               </div>
               <div className="text-[11px] text-slate-400 flex items-center justify-between pt-1 border-t border-slate-100">
                 <span>Prisma ORM</span>
-                <span className="font-mono">SQLite (dev.db)</span>
+                <span className="font-mono">PostgreSQL + RLS</span>
               </div>
             </div>
           </div>
@@ -635,6 +668,17 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             >
                               {u.role === 'ADMIN' ? '👑 Administrator' : '🔧 Technician'}
                             </span>
+                            <div className="mt-1">
+                              <span
+                                className={`inline-block px-1.5 py-0.5 rounded text-[9px] font-bold ${
+                                  u.twoFactorEnabled
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : 'bg-slate-50 text-slate-400 border border-slate-200'
+                                }`}
+                              >
+                                {u.twoFactorEnabled ? '2FA On' : 'No 2FA'}
+                              </span>
+                            </div>
                           </td>
                           <td className="py-3.5 px-4 text-slate-600 font-medium">
                             {u.bench || 'Unassigned'}
@@ -685,6 +729,23 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               >
                                 <KeyRound className="w-4 h-4" />
                               </button>
+                              <button
+                                onClick={() => handleForceLogoutUser(u)}
+                                disabled={isSelf}
+                                title={isSelf ? 'Use Sign Out above for your current session' : 'Force Logout Active Sessions'}
+                                className="p-1.5 text-slate-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                              >
+                                <LogOut className="w-4 h-4" />
+                              </button>
+                              {u.twoFactorEnabled && (
+                                <button
+                                  onClick={() => handleAdminResetTwoFactor(u)}
+                                  title="Reset User 2FA"
+                                  className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition cursor-pointer"
+                                >
+                                  <ShieldAlert className="w-4 h-4" />
+                                </button>
+                              )}
                               <button
                                 onClick={() => setDeletingUser(u)}
                                 disabled={isSelf}
@@ -1066,6 +1127,13 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
             </div>
           )}
         </div>
+      )}
+
+      {/* ========================================================
+          SECTION 5.5: SECURITY CENTER & SESSION CONTROL
+         ======================================================== */}
+      {activeSection === 'security' && (
+        <AdminSecurityTab />
       )}
 
       {/* ========================================================

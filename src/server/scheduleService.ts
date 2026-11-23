@@ -1,6 +1,7 @@
 import { prisma } from './prisma';
 import { HttpError } from './service';
 import { recordAudit } from './auth';
+import { csvCell } from './csvSafe';
 import { createNotification, notifyAdmins } from './notificationService';
 
 export interface CreateScheduledShiftInput {
@@ -1099,10 +1100,10 @@ export async function exportSchedulesCsv(filters?: {
 
   const rows = shifts.map((s) => [
     s.id,
-    `"${(s.user?.name || '').replace(/"/g, '""')}"`,
-    `"${(s.user?.employeeNumber || '').replace(/"/g, '""')}"`,
-    `"${(s.roleOrStation || s.user?.role || '').replace(/"/g, '""')}"`,
-    `"${(s.branchLocation || 'Main Shop').replace(/"/g, '""')}"`,
+    s.user?.name || '',
+    s.user?.employeeNumber || '',
+    s.roleOrStation || s.user?.role || '',
+    s.branchLocation || 'Main Shop',
     s.shiftDate.toISOString().slice(0, 10),
     s.startTime,
     s.endTime,
@@ -1110,9 +1111,9 @@ export async function exportSchedulesCsv(filters?: {
     s.breakMinutes,
     s.breakType,
     s.status,
-    `"${(s.notes || '').replace(/"/g, '""')}"`,
-    `"${(s.createdByName || '').replace(/"/g, '""')}"`,
+    s.notes || '',
+    s.createdByName || '',
   ]);
 
-  return [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+  return [headers.map(csvCell).join(','), ...rows.map((r) => r.map(csvCell).join(','))].join('\n');
 }

@@ -5,6 +5,7 @@ import path from "node:path";
 import fs from "node:fs";
 import { ZodError, z } from "zod";
 import { PrismaClient } from "@prisma/client";
+import QRCode from "qrcode";
 var explicitUrl = process.env.DATABASE_URL;
 var isExplicitSqlite = !!(explicitUrl && explicitUrl.startsWith("file:"));
 var activeDbUrl = isExplicitSqlite ? explicitUrl : explicitUrl || "postgresql://postgres.wlfrpafmlgadpupvublx:Fasofix%402026@aws-0-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require&pgbouncer=true";
@@ -66,6 +67,17 @@ function computeTotals(t) {
 	};
 }
 var digitsOnly = (s) => s.replace(/\D/g, "");
+// src/server/csvSafe.ts
+/**
+* Escape a CSV field value safely and neutralize Excel/Google Sheets/LibreOffice formula injection (CWE-1236).
+* Legitimate numeric strings (including negative decimals like "-12.50") are preserved untouched.
+*/
+function csvCell(value) {
+	const s = String(value ?? "").replace(/\0/g, "");
+	const strippedLeft = s.replace(/^ +/, "");
+	const isStrictNumber = /^[+-]?\d+(\.\d+)?$/.test(s.trim());
+	return `"${((/^[=+\-@\t\r]/.test(strippedLeft) || /^[=+\-@]/.test(s.trimStart())) && !isStrictNumber ? `'${s}` : s).replace(/"/g, "\"\"")}"`;
+}
 // src/server/schemas.ts
 var STATUSES = [
 	"CHECKED_IN",
@@ -310,20 +322,42 @@ function generateToken() {
 * Refreshes or reopening the browser never bypass or extend this 24-hour window.
 */
 var SESSION_MAX_AGE_MS = 864e5;
+/** Derive a concise human-readable device/browser summary from a User-Agent header. */
+function parseUserAgent(ua) {
+	const s = (ua || "").trim();
+	if (!s) return "Unknown Client";
+	let browser = "Browser";
+	if (/Edg\//i.test(s)) browser = "Edge";
+	else if (/Chrome\//i.test(s) && !/Chromium/i.test(s)) browser = "Chrome";
+	else if (/Firefox\//i.test(s)) browser = "Firefox";
+	else if (/Safari\//i.test(s) && !/Chrome\//i.test(s)) browser = "Safari";
+	else if (/node|undici|curl|Postman/i.test(s)) browser = "API Client";
+	let os = "";
+	if (/iPhone|iPad/i.test(s)) os = "iOS";
+	else if (/Android/i.test(s)) os = "Android";
+	else if (/Mac OS X|Macintosh/i.test(s)) os = "macOS";
+	else if (/Windows/i.test(s)) os = "Windows";
+	else if (/Linux/i.test(s)) os = "Linux";
+	return os ? `${browser} on ${os}` : browser;
+}
 /**
 * Create a persistent session for a user valid for a strict maximum of 24 hours.
 * Returns the raw bearer/cookie token while storing only its SHA-256 hash in the database.
 */
-async function createSession(userId) {
+async function createSession(userId, meta) {
 	const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_MS);
 	const rawToken = generateToken();
 	const tokenHash = hashSessionToken(rawToken);
+	const now = /* @__PURE__ */ new Date();
 	let persisted = false;
 	let lastErr = null;
 	for (let attempt = 0; attempt < 2; attempt++) try {
 		await prisma.session.create({ data: {
 			token: tokenHash,
 			userId,
+			ipAddress: meta?.ipAddress ? String(meta.ipAddress).slice(0, 100) : null,
+			userAgent: meta?.userAgent ? String(meta.userAgent).slice(0, 200) : null,
+			lastActiveAt: now,
 			expiresAt
 		} });
 		persisted = true;
@@ -372,6 +406,7 @@ async function authenticateSession(token, _clientHeaders) {
 			bio: true,
 			bench: true,
 			preferences: true,
+			twoFactorEnabled: true,
 			lastLoginAt: true,
 			createdAt: true
 		} } }
@@ -382,21 +417,81 @@ async function authenticateSession(token, _clientHeaders) {
 			return null;
 		}
 		if (session.user.status !== "ACTIVE") return null;
+		if (Date.now() - session.lastActiveAt.getTime() > 3e5) prisma.session.update({
+			where: { id: session.id },
+			data: { lastActiveAt: /* @__PURE__ */ new Date() }
+		}).catch(() => {});
 		return session.user;
 	}
 	return null;
 }
+function computeAuditHash(fields) {
+	const payload = [
+		fields.prevHash,
+		fields.userId || "",
+		fields.actorName,
+		fields.action,
+		fields.details,
+		fields.ipAddress || "",
+		fields.createdAt.toISOString()
+	].join("|");
+	return crypto$1.createHash("sha256").update(payload, "utf8").digest("hex");
+}
 /**
-* Record an immutable audit log entry.
+* Verify cryptographic integrity of hash-chained AuditLog entries.
+*/
+async function verifyAuditLogChain(limit = 200) {
+	const rows = await prisma.auditLog.findMany({
+		where: { entryHash: { not: null } },
+		orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+		take: limit
+	});
+	const tamperedIds = [];
+	for (const row of rows) if (computeAuditHash({
+		prevHash: row.prevHash || "GENESIS",
+		userId: row.userId,
+		actorName: row.actorName,
+		action: row.action,
+		details: row.details,
+		ipAddress: row.ipAddress,
+		createdAt: row.createdAt
+	}) !== row.entryHash) tamperedIds.push(row.id);
+	return {
+		checked: rows.length,
+		intact: tamperedIds.length === 0,
+		tamperedCount: tamperedIds.length,
+		tamperedIds
+	};
+}
+/**
+* Record an immutable hash-chained audit log entry.
 */
 async function recordAudit(params) {
 	try {
+		const prevHash = (await prisma.auditLog.findFirst({
+			where: { entryHash: { not: null } },
+			orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+			select: { entryHash: true }
+		}))?.entryHash || "GENESIS";
+		const createdAt = /* @__PURE__ */ new Date();
+		const entryHash = computeAuditHash({
+			prevHash,
+			userId: params.userId || null,
+			actorName: params.actorName,
+			action: params.action,
+			details: params.details,
+			ipAddress: params.ipAddress || null,
+			createdAt
+		});
 		return await prisma.auditLog.create({ data: {
 			userId: params.userId || null,
 			actorName: params.actorName,
 			action: params.action,
 			details: params.details,
-			ipAddress: params.ipAddress || null
+			ipAddress: params.ipAddress || null,
+			prevHash,
+			entryHash,
+			createdAt
 		} });
 	} catch (err) {
 		console.error("[AuditLog Error]", err);
@@ -1114,10 +1209,12 @@ async function addNote(ticketId, input, author) {
 async function updateNote(ticketId, noteId, message) {
 	await prisma.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
-		if (!await tx.ticketEvent.findFirst({ where: {
+		const existing = await tx.ticketEvent.findFirst({ where: {
 			id: noteId,
 			ticketId
-		} })) throw new HttpError(404, "Note not found");
+		} });
+		if (!existing) throw new HttpError(404, "Note not found");
+		if (existing.kind !== "CUSTOMER_NOTE" && existing.kind !== "INTERNAL_NOTE") throw new HttpError(403, "System, status, item, and payment timeline events are immutable and cannot be altered.");
 		await tx.ticketEvent.update({
 			where: { id: noteId },
 			data: { message: message.trim() }
@@ -1128,10 +1225,12 @@ async function updateNote(ticketId, noteId, message) {
 async function deleteNote(ticketId, noteId) {
 	await prisma.$transaction(async (tx) => {
 		await loadTicket(tx, ticketId);
-		if (!await tx.ticketEvent.findFirst({ where: {
+		const existing = await tx.ticketEvent.findFirst({ where: {
 			id: noteId,
 			ticketId
-		} })) throw new HttpError(404, "Note not found");
+		} });
+		if (!existing) throw new HttpError(404, "Note not found");
+		if (existing.kind !== "CUSTOMER_NOTE" && existing.kind !== "INTERNAL_NOTE") throw new HttpError(403, "System, status, item, and payment timeline events are immutable and cannot be deleted.");
 		await tx.ticketEvent.delete({ where: { id: noteId } });
 	}, TX_OPTIONS);
 	return getTicket(ticketId);
@@ -1819,7 +1918,6 @@ async function exportTicketsCsv() {
 		include: ticketInclude,
 		orderBy: { ticketNumber: "asc" }
 	});
-	const esc = (v) => `"${String(v ?? "").replace(/"/g, "\"\"")}"`;
 	const rows = [[
 		"WO #",
 		"Created",
@@ -1855,9 +1953,9 @@ async function exportTicketsCsv() {
 			(totals.balanceCents / 100).toFixed(2)
 		]);
 	}
-	return rows.map((r) => r.map(esc).join(",")).join("\n") + "\n";
+	return rows.map((r) => r.map(csvCell).join(",")).join("\n") + "\n";
 }
-async function loginUser(input, ipAddress) {
+async function loginUser(input, ipAddress, userAgent) {
 	const { usernameOrEmail, password, adminMode } = loginSchema.parse(input);
 	const user = await prisma.user.findFirst({ where: { OR: [{ username: usernameOrEmail.toLowerCase() }, { email: usernameOrEmail.toLowerCase() }] } });
 	if (!user) {
@@ -1876,11 +1974,45 @@ async function loginUser(input, ipAddress) {
 		});
 		throw new HttpError(403, "Access Denied: Administrator role required. Standard technicians must use Technician Login.");
 	}
+	if (user.twoFactorEnabled && user.twoFactorSecret) {
+		const challengeToken = generateToken();
+		const challengeExpiresAt = new Date(Date.now() + 3e5);
+		await prisma.twoFactorChallenge.create({ data: {
+			tokenHash: hashSessionToken(challengeToken),
+			userId: user.id,
+			adminMode,
+			ipAddress: ipAddress ? ipAddress.slice(0, 100) : null,
+			userAgent: userAgent ? userAgent.slice(0, 200) : null,
+			expiresAt: challengeExpiresAt
+		} });
+		await recordAudit({
+			userId: user.id,
+			actorName: user.name,
+			action: "LOGIN_2FA_CHALLENGE",
+			details: `Issued 2FA challenge for ${user.username}`,
+			ipAddress
+		});
+		return {
+			requiresTwoFactor: true,
+			challengeToken,
+			expiresAtMs: challengeExpiresAt.getTime(),
+			user: {
+				id: user.id,
+				username: user.username,
+				name: user.name,
+				role: user.role,
+				twoFactorEnabled: true
+			}
+		};
+	}
 	await prisma.user.update({
 		where: { id: user.id },
 		data: { lastLoginAt: /* @__PURE__ */ new Date() }
 	});
-	const token = await createSession(user.id);
+	const token = await createSession(user.id, {
+		ipAddress,
+		userAgent
+	});
 	await recordAudit({
 		userId: user.id,
 		actorName: user.name,
@@ -1888,9 +2020,10 @@ async function loginUser(input, ipAddress) {
 		details: `${adminMode ? "Administrator" : "User"} signed in from ${ipAddress || "local"}`,
 		ipAddress
 	});
-	const { passwordHash: _, sin: _sin, ...safeUser } = user;
+	const { passwordHash: _, sin: _sin, twoFactorSecret: _tfs, twoFactorRecoveryCodes: _tfr, twoFactorLastCounter: _tflc, ...safeUser } = user;
 	const expiresAtMs = Date.now() + 864e5;
 	return {
+		requiresTwoFactor: false,
 		token,
 		user: safeUser,
 		expiresAt: new Date(expiresAtMs).toISOString(),
@@ -1934,6 +2067,7 @@ async function listUsers(params, _includeSyncPayload = false) {
 			employeeNumber: true,
 			hourlyRateCents: true,
 			vacationPayPct: true,
+			twoFactorEnabled: true,
 			preferences: true,
 			lastLoginAt: true,
 			createdAt: true,
@@ -1955,6 +2089,7 @@ async function getUser(id) {
 			phone: true,
 			bench: true,
 			bio: true,
+			twoFactorEnabled: true,
 			preferences: true,
 			lastLoginAt: true,
 			createdAt: true,
@@ -2044,10 +2179,12 @@ async function updateUser(id, input, actor) {
 			phone: true,
 			bench: true,
 			bio: true,
+			twoFactorEnabled: true,
 			preferences: true,
 			updatedAt: true
 		}
 	});
+	if (data.status === "DISABLED" || data.role && data.role !== existing.role) await Promise.all([prisma.session.deleteMany({ where: { userId: id } }), prisma.twoFactorChallenge.deleteMany({ where: { userId: id } })]).catch(() => {});
 	const actions = [];
 	if (data.role && data.role !== existing.role) actions.push(`role changed to ${data.role}`);
 	if (data.status && data.status !== existing.status) actions.push(`status changed to ${data.status}`);
@@ -2274,7 +2411,7 @@ async function createBackup(reason = "manual") {
 			prisma.payrollPeriod.findMany(),
 			prisma.paystub.findMany()
 		]);
-		const safeUsers = users.map(({ passwordHash: _ph, sin, ...u }) => {
+		const safeUsers = users.map(({ passwordHash: _ph, sin, twoFactorSecret: _tfs, twoFactorRecoveryCodes: _tfr, twoFactorLastCounter: _tflc, ...u }) => {
 			const digits = sin ? sin.replace(/\D/g, "") : "";
 			return {
 				...u,
@@ -2891,6 +3028,28 @@ var POSTGRES_SCHEMA_STATEMENTS = [
 	`CREATE INDEX IF NOT EXISTS "Ticket_deletedAt_status_idx" ON "Ticket"("deletedAt", "status")`,
 	`CREATE INDEX IF NOT EXISTS "Customer_archivedAt_updatedAt_idx" ON "Customer"("archivedAt", "updatedAt" DESC)`,
 	`CREATE INDEX IF NOT EXISTS "Payment_ticketId_createdAt_idx" ON "Payment"("ticketId", "createdAt")`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "twoFactorEnabled" BOOLEAN NOT NULL DEFAULT false`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "twoFactorSecret" TEXT`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "twoFactorRecoveryCodes" TEXT`,
+	`ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "twoFactorLastCounter" INTEGER`,
+	`ALTER TABLE "Session" ADD COLUMN IF NOT EXISTS "ipAddress" TEXT`,
+	`ALTER TABLE "Session" ADD COLUMN IF NOT EXISTS "userAgent" TEXT`,
+	`ALTER TABLE "Session" ADD COLUMN IF NOT EXISTS "lastActiveAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP`,
+	`ALTER TABLE "AuditLog" ADD COLUMN IF NOT EXISTS "prevHash" TEXT`,
+	`ALTER TABLE "AuditLog" ADD COLUMN IF NOT EXISTS "entryHash" TEXT`,
+	`CREATE TABLE IF NOT EXISTS "TwoFactorChallenge" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "tokenHash" TEXT NOT NULL UNIQUE,
+    "userId" TEXT NOT NULL,
+    "adminMode" BOOLEAN NOT NULL DEFAULT false,
+    "ipAddress" TEXT,
+    "userAgent" TEXT,
+    "expiresAt" TIMESTAMP(3) NOT NULL,
+    "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT "TwoFactorChallenge_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  )`,
+	`CREATE INDEX IF NOT EXISTS "TwoFactorChallenge_userId_idx" ON "TwoFactorChallenge"("userId")`,
+	`CREATE INDEX IF NOT EXISTS "TwoFactorChallenge_expiresAt_idx" ON "TwoFactorChallenge"("expiresAt")`,
 	`ALTER TABLE "public"."AuditLog" ENABLE ROW LEVEL SECURITY`,
 	`ALTER TABLE "public"."Customer" ENABLE ROW LEVEL SECURITY`,
 	`ALTER TABLE "public"."Device" ENABLE ROW LEVEL SECURITY`,
@@ -2909,6 +3068,7 @@ var POSTGRES_SCHEMA_STATEMENTS = [
 	`ALTER TABLE "public"."TicketEvent" ENABLE ROW LEVEL SECURITY`,
 	`ALTER TABLE "public"."TicketItem" ENABLE ROW LEVEL SECURITY`,
 	`ALTER TABLE "public"."TimeOffRequest" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."TwoFactorChallenge" ENABLE ROW LEVEL SECURITY`,
 	`ALTER TABLE "public"."User" ENABLE ROW LEVEL SECURITY`,
 	`ALTER TABLE "public"."WageRate" ENABLE ROW LEVEL SECURITY`,
 	`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated`,
@@ -2948,7 +3108,17 @@ async function ensureDatabaseSchema() {
 		"ALTER TABLE \"ScheduledShift\" ADD COLUMN \"recurrenceRule\" TEXT DEFAULT 'NONE';",
 		"ALTER TABLE \"ScheduledShift\" ADD COLUMN \"isPublished\" INTEGER NOT NULL DEFAULT 1;",
 		"ALTER TABLE \"Customer\" ADD COLUMN \"archivedAt\" DATETIME;",
-		"ALTER TABLE \"Ticket\" ADD COLUMN \"isWarranty\" INTEGER NOT NULL DEFAULT 0;"
+		"ALTER TABLE \"Ticket\" ADD COLUMN \"isWarranty\" INTEGER NOT NULL DEFAULT 0;",
+		"ALTER TABLE \"User\" ADD COLUMN \"twoFactorEnabled\" INTEGER NOT NULL DEFAULT 0;",
+		"ALTER TABLE \"User\" ADD COLUMN \"twoFactorSecret\" TEXT;",
+		"ALTER TABLE \"User\" ADD COLUMN \"twoFactorRecoveryCodes\" TEXT;",
+		"ALTER TABLE \"User\" ADD COLUMN \"twoFactorLastCounter\" INTEGER;",
+		"ALTER TABLE \"Session\" ADD COLUMN \"ipAddress\" TEXT;",
+		"ALTER TABLE \"Session\" ADD COLUMN \"userAgent\" TEXT;",
+		"ALTER TABLE \"Session\" ADD COLUMN \"lastActiveAt\" DATETIME DEFAULT CURRENT_TIMESTAMP;",
+		"ALTER TABLE \"AuditLog\" ADD COLUMN \"prevHash\" TEXT;",
+		"ALTER TABLE \"AuditLog\" ADD COLUMN \"entryHash\" TEXT;",
+		`CREATE TABLE IF NOT EXISTS "TwoFactorChallenge" ("id" TEXT NOT NULL PRIMARY KEY, "tokenHash" TEXT NOT NULL UNIQUE, "userId" TEXT NOT NULL, "adminMode" INTEGER NOT NULL DEFAULT 0, "ipAddress" TEXT, "userAgent" TEXT, "expiresAt" DATETIME NOT NULL, "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, CONSTRAINT "TwoFactorChallenge_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE);`
 	]) try {
 		await prisma.$executeRawUnsafe(alter);
 	} catch {}
@@ -3938,7 +4108,6 @@ async function exportAttendanceCsv(filters) {
 		include: { user: true },
 		orderBy: { clockIn: "desc" }
 	});
-	const esc = (v) => `"${String(v ?? "").replace(/"/g, "\"\"")}"`;
 	const rows = [[
 		"Shift ID",
 		"Employee Name",
@@ -3971,7 +4140,7 @@ async function exportAttendanceCsv(filters) {
 		s.originalClockIn ? s.originalClockIn.toISOString() : "",
 		s.originalClockOut ? s.originalClockOut.toISOString() : ""
 	]);
-	return rows.map((r) => r.map(esc).join(",")).join("\n");
+	return rows.map((r) => r.map(csvCell).join(",")).join("\n");
 }
 async function getUserWageHistory(userId) {
 	const user = await prisma.user.findUnique({
@@ -4387,7 +4556,6 @@ async function finalizePayrollPeriod(periodId, adminUser) {
 }
 async function exportPayrollCsv(periodId) {
 	const period = await getPayrollPeriod(periodId);
-	const esc = (v) => `"${String(v ?? "").replace(/"/g, "\"\"")}"`;
 	const rows = [[
 		"Period #",
 		"Period Start",
@@ -4434,7 +4602,7 @@ async function exportPayrollCsv(periodId) {
 		(p.netPayCents / 100).toFixed(2),
 		p.status
 	]);
-	return rows.map((r) => r.map(esc).join(",")).join("\n");
+	return rows.map((r) => r.map(csvCell).join(",")).join("\n");
 }
 /**
 * Generate standard CRA compliant Canadian Paystub HTML for printing & PDF export
@@ -5420,10 +5588,10 @@ async function exportSchedulesCsv(filters) {
 	];
 	const rows = shifts.map((s) => [
 		s.id,
-		`"${(s.user?.name || "").replace(/"/g, "\"\"")}"`,
-		`"${(s.user?.employeeNumber || "").replace(/"/g, "\"\"")}"`,
-		`"${(s.roleOrStation || s.user?.role || "").replace(/"/g, "\"\"")}"`,
-		`"${(s.branchLocation || "Main Shop").replace(/"/g, "\"\"")}"`,
+		s.user?.name || "",
+		s.user?.employeeNumber || "",
+		s.roleOrStation || s.user?.role || "",
+		s.branchLocation || "Main Shop",
 		s.shiftDate.toISOString().slice(0, 10),
 		s.startTime,
 		s.endTime,
@@ -5431,10 +5599,779 @@ async function exportSchedulesCsv(filters) {
 		s.breakMinutes,
 		s.breakType,
 		s.status,
-		`"${(s.notes || "").replace(/"/g, "\"\"")}"`,
-		`"${(s.createdByName || "").replace(/"/g, "\"\"")}"`
+		s.notes || "",
+		s.createdByName || ""
 	]);
-	return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
+	return [headers.map(csvCell).join(","), ...rows.map((r) => r.map(csvCell).join(","))].join("\n");
+}
+// src/server/cryptoVault.ts
+var derivedKeyCache = /* @__PURE__ */ new Map();
+function getVaultKey(version) {
+	if (version === "v2") {
+		const raw = process.env.FIELD_ENCRYPTION_KEY?.trim();
+		if (!raw) throw new Error("FIELD_ENCRYPTION_KEY is required to decrypt v2 encrypted secrets.");
+		const cacheKey = `v2:${raw}`;
+		let buf = derivedKeyCache.get(cacheKey);
+		if (!buf) {
+			buf = crypto$1.scryptSync(raw, "fasofix-vault-v2", 32);
+			derivedKeyCache.set(cacheKey, buf);
+		}
+		return buf;
+	}
+	const raw = process.env.SESSION_SECRET?.trim() || "fasofix-pos-vault-v1-stable-key";
+	const cacheKey = `v1:${raw}`;
+	let buf = derivedKeyCache.get(cacheKey);
+	if (!buf) {
+		buf = crypto$1.scryptSync(raw, "fasofix-vault-v1", 32);
+		derivedKeyCache.set(cacheKey, buf);
+	}
+	return buf;
+}
+/**
+* Encrypt sensitive at-rest application secrets (e.g. TOTP shared keys) using AES-256-GCM.
+*/
+function encryptSecret(plaintext) {
+	const version = Boolean(process.env.FIELD_ENCRYPTION_KEY?.trim()) ? "v2" : "v1";
+	const key = getVaultKey(version);
+	const iv = crypto$1.randomBytes(12);
+	const cipher = crypto$1.createCipheriv("aes-256-gcm", key, iv);
+	const ciphertext = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
+	const tag = cipher.getAuthTag();
+	return `enc:${version}:${iv.toString("base64")}:${tag.toString("base64")}:${ciphertext.toString("base64")}`;
+}
+/**
+* Decrypt AES-256-GCM secrets produced by encryptSecret() (supports v1, v2, and legacy plaintext).
+*/
+function decryptSecret(stored) {
+	if (!stored) return "";
+	if (!stored.startsWith("enc:v1:") && !stored.startsWith("enc:v2:")) return stored;
+	const parts = stored.split(":");
+	if (parts.length !== 5) throw new Error("Malformed encrypted secret payload.");
+	const version = parts[1];
+	const iv = Buffer.from(parts[2], "base64");
+	const tag = Buffer.from(parts[3], "base64");
+	const ciphertext = Buffer.from(parts[4], "base64");
+	const key = getVaultKey(version);
+	const decipher = crypto$1.createDecipheriv("aes-256-gcm", key, iv);
+	decipher.setAuthTag(tag);
+	return Buffer.concat([decipher.update(ciphertext), decipher.final()]).toString("utf8");
+}
+// src/server/totp.ts
+var BASE32_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+var RECOVERY_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+/** Encode bytes as unpadded uppercase RFC 4648 Base32. */
+function base32Encode(buf) {
+	let bits = 0;
+	let value = 0;
+	let output = "";
+	for (const byte of buf) {
+		value = value << 8 | byte;
+		bits += 8;
+		while (bits >= 5) {
+			output += BASE32_ALPHABET[value >>> bits - 5 & 31];
+			bits -= 5;
+		}
+	}
+	if (bits > 0) output += BASE32_ALPHABET[value << 5 - bits & 31];
+	return output;
+}
+/** Decode RFC 4648 Base32 string (tolerant of spaces, hyphens, and case). */
+function base32Decode(str) {
+	const clean = str.toUpperCase().replace(/[^A-Z2-7]/g, "");
+	let bits = 0;
+	let value = 0;
+	const bytes = [];
+	for (const ch of clean) {
+		const idx = BASE32_ALPHABET.indexOf(ch);
+		if (idx === -1) continue;
+		value = value << 5 | idx;
+		bits += 5;
+		if (bits >= 8) {
+			bytes.push(value >>> bits - 8 & 255);
+			bits -= 8;
+		}
+	}
+	return Buffer.from(bytes);
+}
+/** Generate a 160-bit cryptographically random Base32 TOTP secret. */
+function generateTotpSecret() {
+	return base32Encode(crypto$1.randomBytes(20));
+}
+/** Compute an RFC 6238 6-digit TOTP code for the given counter step. */
+function generateTotpCode(secretBase32, counter) {
+	const key = base32Decode(secretBase32);
+	const msg = Buffer.alloc(8);
+	msg.writeBigUInt64BE(BigInt(counter), 0);
+	const hmac = crypto$1.createHmac("sha1", key).update(msg).digest();
+	const offset = hmac[hmac.length - 1] & 15;
+	const binCode = (hmac[offset] & 127) << 24 | (hmac[offset + 1] & 255) << 16 | (hmac[offset + 2] & 255) << 8 | hmac[offset + 3] & 255;
+	return String(binCode % 1e6).padStart(6, "0");
+}
+/**
+* Constant-time TOTP verification across +/- `window` 30-second steps.
+* Returns the matched counter index so callers can enforce single-use replay protection.
+*/
+function verifyTotpCode(secretBase32, rawCode, window = 1, nowMs = Date.now()) {
+	const normalized = String(rawCode || "").replace(/[\s-]/g, "");
+	if (!/^\d{6}$/.test(normalized)) return {
+		valid: false,
+		counter: -1
+	};
+	const currentCounter = Math.floor(nowMs / 1e3 / 30);
+	const inputBuf = Buffer.from(normalized, "utf8");
+	for (let delta = -window; delta <= window; delta++) {
+		const candidateCounter = currentCounter + delta;
+		if (candidateCounter < 0) continue;
+		const expectedBuf = Buffer.from(generateTotpCode(secretBase32, candidateCounter), "utf8");
+		if (expectedBuf.length === inputBuf.length && crypto$1.timingSafeEqual(expectedBuf, inputBuf)) return {
+			valid: true,
+			counter: candidateCounter
+		};
+	}
+	return {
+		valid: false,
+		counter: -1
+	};
+}
+function buildOtpauthUri(secretBase32, accountName, issuer = "Faso Fix POS") {
+	return `otpauth://totp/${`${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}`}?${new URLSearchParams({
+		secret: secretBase32,
+		issuer,
+		algorithm: "SHA1",
+		digits: "6",
+		period: "30"
+	}).toString()}`;
+}
+/** Render a local CSP-safe SVG data URL QR code (zero external network calls). */
+async function renderQrSvgDataUrl(otpauthUri) {
+	const svg = await QRCode.toString(otpauthUri, {
+		type: "svg",
+		width: 220,
+		margin: 2,
+		errorCorrectionLevel: "M"
+	});
+	return `data:image/svg+xml;base64,${Buffer.from(svg, "utf8").toString("base64")}`;
+}
+function normalizeRecoveryCode(raw) {
+	return String(raw || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+function hashRecoveryCode(normalized) {
+	return crypto$1.createHash("sha256").update(normalized).digest("hex");
+}
+function generateRecoveryCodes(count = 8) {
+	const plainCodes = [];
+	const hashedCodes = [];
+	for (let i = 0; i < count; i++) {
+		const bytes = crypto$1.randomBytes(8);
+		let raw = "";
+		for (let j = 0; j < 8; j++) raw += RECOVERY_ALPHABET[bytes[j] % 32];
+		plainCodes.push(`${raw.slice(0, 4)}-${raw.slice(4)}`);
+		hashedCodes.push(hashRecoveryCode(raw));
+	}
+	return {
+		plainCodes,
+		hashedCodes
+	};
+}
+function parseRecoveryHashes(hashedJson) {
+	if (!hashedJson) return [];
+	try {
+		const parsed = JSON.parse(hashedJson);
+		return Array.isArray(parsed) ? parsed.filter((x) => typeof x === "string") : [];
+	} catch {
+		return [];
+	}
+}
+function consumeRecoveryCode(rawCode, hashedJson) {
+	const hashes = parseRecoveryHashes(hashedJson);
+	const normalized = normalizeRecoveryCode(rawCode);
+	if (normalized.length < 8 || hashes.length === 0) return {
+		valid: false,
+		remainingJson: JSON.stringify(hashes),
+		remainingCount: hashes.length
+	};
+	const candidateBuf = Buffer.from(hashRecoveryCode(normalized), "hex");
+	let matchedIndex = -1;
+	for (let i = 0; i < hashes.length; i++) try {
+		const targetBuf = Buffer.from(hashes[i], "hex");
+		if (targetBuf.length === candidateBuf.length && crypto$1.timingSafeEqual(targetBuf, candidateBuf)) matchedIndex = i;
+	} catch {}
+	if (matchedIndex === -1) return {
+		valid: false,
+		remainingJson: JSON.stringify(hashes),
+		remainingCount: hashes.length
+	};
+	const next = hashes.filter((_, idx) => idx !== matchedIndex);
+	return {
+		valid: true,
+		remainingJson: JSON.stringify(next),
+		remainingCount: next.length
+	};
+}
+// src/server/securityService.ts
+function stripSensitiveUserFields(user) {
+	const { passwordHash: _ph, sin: _sin, twoFactorSecret: _tfs, twoFactorRecoveryCodes: _tfr, twoFactorLastCounter: _tflc, ...safe } = user;
+	return safe;
+}
+async function verifyTwoFactorLogin(challengeToken, code, ipAddress, userAgent) {
+	if (!challengeToken?.trim() || !code?.trim()) throw new HttpError(400, "Verification challenge token and authenticator code are required.");
+	const tokenHash = hashSessionToken(challengeToken.trim());
+	const challenge = await prisma.twoFactorChallenge.findUnique({
+		where: { tokenHash },
+		include: { user: true }
+	});
+	if (!challenge) throw new HttpError(401, "Invalid or expired 2FA session. Please sign in again.");
+	if (challenge.expiresAt.getTime() < Date.now()) {
+		await prisma.twoFactorChallenge.deleteMany({ where: { id: challenge.id } }).catch(() => {});
+		throw new HttpError(401, "2FA verification challenge expired. Please sign in again.");
+	}
+	const user = challenge.user;
+	if (user.status !== "ACTIVE") throw new HttpError(403, "This account has been deactivated. Contact an administrator.");
+	if (challenge.adminMode && user.role !== "ADMIN") throw new HttpError(403, "Access Denied: Administrator role required.");
+	if (!user.twoFactorEnabled || !user.twoFactorSecret) throw new HttpError(400, "Two-factor authentication is not enabled for this account.");
+	const totpCheck = verifyTotpCode(decryptSecret(user.twoFactorSecret), code, 1);
+	if (totpCheck.valid) {
+		if (user.twoFactorLastCounter !== null && totpCheck.counter <= user.twoFactorLastCounter) {
+			await recordAudit({
+				userId: user.id,
+				actorName: user.name,
+				action: "LOGIN_2FA_REPLAY_BLOCKED",
+				details: `Blocked replayed 2FA TOTP code for ${user.username}`,
+				ipAddress
+			});
+			throw new HttpError(401, "This verification code has already been used. Wait for the next 30-second code.");
+		}
+		await prisma.user.update({
+			where: { id: user.id },
+			data: {
+				twoFactorLastCounter: totpCheck.counter,
+				lastLoginAt: /* @__PURE__ */ new Date()
+			}
+		});
+	} else {
+		const recovery = consumeRecoveryCode(code, user.twoFactorRecoveryCodes);
+		if (!recovery.valid) {
+			await recordAudit({
+				userId: user.id,
+				actorName: user.username,
+				action: "LOGIN_2FA_FAILED",
+				details: `Invalid 2FA code attempt for ${user.username}`,
+				ipAddress
+			});
+			throw new HttpError(401, "Invalid authenticator or recovery code.");
+		}
+		await prisma.user.update({
+			where: { id: user.id },
+			data: {
+				twoFactorRecoveryCodes: recovery.remainingJson,
+				lastLoginAt: /* @__PURE__ */ new Date()
+			}
+		});
+		await recordAudit({
+			userId: user.id,
+			actorName: user.name,
+			action: "LOGIN_2FA_RECOVERY_USED",
+			details: `Signed in using a one-time recovery code (${recovery.remainingCount} remaining)`,
+			ipAddress
+		});
+	}
+	await prisma.twoFactorChallenge.deleteMany({ where: { id: challenge.id } }).catch(() => {});
+	const token = await createSession(user.id, {
+		ipAddress,
+		userAgent
+	});
+	await recordAudit({
+		userId: user.id,
+		actorName: user.name,
+		action: "LOGIN_2FA_SUCCESS",
+		details: `${challenge.adminMode ? "Administrator" : "User"} verified 2FA from ${parseUserAgent(userAgent)} (${ipAddress || "local"})`,
+		ipAddress
+	});
+	const expiresAtMs = Date.now() + SESSION_MAX_AGE_MS;
+	return {
+		requiresTwoFactor: false,
+		token,
+		user: stripSensitiveUserFields(user),
+		expiresAt: new Date(expiresAtMs).toISOString(),
+		expiresAtMs,
+		redirectTo: user.role === "ADMIN" && challenge.adminMode ? "admin" : "repairs"
+	};
+}
+async function getTwoFactorStatus(userId) {
+	const user = await prisma.user.findUnique({
+		where: { id: userId },
+		select: {
+			twoFactorEnabled: true,
+			twoFactorSecret: true,
+			twoFactorRecoveryCodes: true
+		}
+	});
+	if (!user) throw new HttpError(404, "User not found");
+	return {
+		enabled: Boolean(user.twoFactorEnabled),
+		hasPendingSetup: !user.twoFactorEnabled && Boolean(user.twoFactorSecret),
+		recoveryCodesRemaining: parseRecoveryHashes(user.twoFactorRecoveryCodes).length
+	};
+}
+async function beginTwoFactorSetup(userId) {
+	const user = await prisma.user.findUnique({
+		where: { id: userId },
+		select: {
+			id: true,
+			username: true,
+			email: true,
+			twoFactorEnabled: true
+		}
+	});
+	if (!user) throw new HttpError(404, "User not found");
+	const secret = generateTotpSecret();
+	const encrypted = encryptSecret(secret);
+	await prisma.user.update({
+		where: { id: userId },
+		data: {
+			twoFactorSecret: encrypted,
+			twoFactorLastCounter: null
+		}
+	});
+	const otpauthUri = buildOtpauthUri(secret, user.email || user.username, "Faso Fix POS");
+	return {
+		qrDataUrl: await renderQrSvgDataUrl(otpauthUri),
+		manualSecret: secret,
+		otpauthUri
+	};
+}
+async function confirmTwoFactorSetup(userId, code, actorName, ipAddress) {
+	const user = await prisma.user.findUnique({
+		where: { id: userId },
+		select: {
+			id: true,
+			username: true,
+			twoFactorSecret: true
+		}
+	});
+	if (!user || !user.twoFactorSecret) throw new HttpError(400, "Please initiate authenticator setup first.");
+	const check = verifyTotpCode(decryptSecret(user.twoFactorSecret), code, 1);
+	if (!check.valid) {
+		await recordAudit({
+			userId,
+			actorName,
+			action: "TWO_FACTOR_FAILED",
+			details: `Failed 2FA enrollment confirmation for ${user.username}`,
+			ipAddress
+		});
+		throw new HttpError(400, "Invalid 6-digit code. Check your authenticator clock and try again.");
+	}
+	const { plainCodes, hashedCodes } = generateRecoveryCodes(8);
+	await prisma.user.update({
+		where: { id: userId },
+		data: {
+			twoFactorEnabled: true,
+			twoFactorLastCounter: check.counter,
+			twoFactorRecoveryCodes: JSON.stringify(hashedCodes)
+		}
+	});
+	await recordAudit({
+		userId,
+		actorName,
+		action: "TWO_FACTOR_ENABLED",
+		details: `Enabled TOTP two-factor authentication for ${user.username}`,
+		ipAddress
+	});
+	return {
+		enabled: true,
+		recoveryCodes: plainCodes
+	};
+}
+async function disableTwoFactor(userId, currentPassword, code, actorName, currentToken, ipAddress) {
+	const user = await prisma.user.findUnique({ where: { id: userId } });
+	if (!user) throw new HttpError(404, "User not found");
+	if (!user.twoFactorEnabled || !user.twoFactorSecret) throw new HttpError(400, "Two-factor authentication is not enabled.");
+	if (!verifyPassword(currentPassword || "", user.passwordHash)) throw new HttpError(400, "Current password is incorrect.");
+	const totpCheck = verifyTotpCode(decryptSecret(user.twoFactorSecret), code, 1);
+	let validSecondFactor = totpCheck.valid && (user.twoFactorLastCounter === null || totpCheck.counter > user.twoFactorLastCounter);
+	if (!validSecondFactor) validSecondFactor = consumeRecoveryCode(code, user.twoFactorRecoveryCodes).valid;
+	if (!validSecondFactor) {
+		await recordAudit({
+			userId,
+			actorName,
+			action: "TWO_FACTOR_FAILED",
+			details: `Rejected attempt to disable 2FA for ${user.username}`,
+			ipAddress
+		});
+		throw new HttpError(400, "Valid authenticator or recovery code is required to disable 2FA.");
+	}
+	await prisma.user.update({
+		where: { id: userId },
+		data: {
+			twoFactorEnabled: false,
+			twoFactorSecret: null,
+			twoFactorRecoveryCodes: null,
+			twoFactorLastCounter: null
+		}
+	});
+	await Promise.all([prisma.session.deleteMany({ where: {
+		userId,
+		...currentToken ? { token: { notIn: [hashSessionToken(currentToken), currentToken] } } : {}
+	} }), prisma.twoFactorChallenge.deleteMany({ where: { userId } })]).catch(() => {});
+	await recordAudit({
+		userId,
+		actorName,
+		action: "TWO_FACTOR_DISABLED",
+		details: `Disabled 2FA for ${user.username} and signed out other devices`,
+		ipAddress
+	});
+	return { enabled: false };
+}
+async function regenerateRecoveryCodes(userId, currentPassword, code, actorName, ipAddress) {
+	const user = await prisma.user.findUnique({ where: { id: userId } });
+	if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) throw new HttpError(400, "Two-factor authentication is not enabled.");
+	if (!verifyPassword(currentPassword || "", user.passwordHash)) throw new HttpError(400, "Current password is incorrect.");
+	const check = verifyTotpCode(decryptSecret(user.twoFactorSecret), code, 1);
+	if (!check.valid || user.twoFactorLastCounter !== null && check.counter <= user.twoFactorLastCounter) throw new HttpError(400, "Valid fresh 6-digit authenticator code is required.");
+	const { plainCodes, hashedCodes } = generateRecoveryCodes(8);
+	await prisma.user.update({
+		where: { id: userId },
+		data: {
+			twoFactorLastCounter: check.counter,
+			twoFactorRecoveryCodes: JSON.stringify(hashedCodes)
+		}
+	});
+	await recordAudit({
+		userId,
+		actorName,
+		action: "TWO_FACTOR_RECOVERY_ROTATED",
+		details: `Regenerated 2FA recovery codes for ${user.username}`,
+		ipAddress
+	});
+	return { recoveryCodes: plainCodes };
+}
+async function adminResetUserTwoFactor(targetUserId, actor, ipAddress) {
+	const user = await prisma.user.findUnique({ where: { id: targetUserId } });
+	if (!user) throw new HttpError(404, "User not found");
+	await prisma.user.update({
+		where: { id: targetUserId },
+		data: {
+			twoFactorEnabled: false,
+			twoFactorSecret: null,
+			twoFactorRecoveryCodes: null,
+			twoFactorLastCounter: null
+		}
+	});
+	await Promise.all([prisma.session.deleteMany({ where: { userId: targetUserId } }), prisma.twoFactorChallenge.deleteMany({ where: { userId: targetUserId } })]).catch(() => {});
+	await recordAudit({
+		userId: actor.id,
+		actorName: actor.name,
+		action: "TWO_FACTOR_ADMIN_RESET",
+		details: `Administrator ${actor.name} reset 2FA & terminated sessions for ${user.username}`,
+		ipAddress
+	});
+	return { ok: true };
+}
+async function listUserSessions(userId, currentToken) {
+	const currentHash = currentToken ? hashSessionToken(currentToken) : null;
+	return (await prisma.session.findMany({
+		where: {
+			userId,
+			expiresAt: { gt: /* @__PURE__ */ new Date() }
+		},
+		orderBy: { lastActiveAt: "desc" },
+		select: {
+			id: true,
+			token: true,
+			ipAddress: true,
+			userAgent: true,
+			lastActiveAt: true,
+			expiresAt: true,
+			createdAt: true
+		}
+	})).map((s) => ({
+		id: s.id,
+		device: parseUserAgent(s.userAgent),
+		ipAddress: s.ipAddress || "Local / Unknown",
+		lastActiveAt: s.lastActiveAt,
+		expiresAt: s.expiresAt,
+		createdAt: s.createdAt,
+		isCurrent: Boolean(currentHash && (s.token === currentHash || s.token === currentToken))
+	}));
+}
+async function revokeUserSession(userId, sessionId, actorName, ipAddress) {
+	const target = await prisma.session.findFirst({ where: {
+		id: sessionId,
+		userId
+	} });
+	if (!target) throw new HttpError(404, "Session not found");
+	await prisma.session.delete({ where: { id: sessionId } });
+	await recordAudit({
+		userId,
+		actorName,
+		action: "SESSION_REVOKED",
+		details: `User signed out remote session ${sessionId.slice(0, 8)} (${parseUserAgent(target.userAgent)})`,
+		ipAddress
+	});
+	return { ok: true };
+}
+async function revokeOtherUserSessions(userId, currentToken, actorName, ipAddress) {
+	const result = await prisma.session.deleteMany({ where: {
+		userId,
+		...currentToken ? { token: { notIn: [hashSessionToken(currentToken), currentToken] } } : {}
+	} });
+	await recordAudit({
+		userId,
+		actorName,
+		action: "SESSIONS_REVOKED_OTHER",
+		details: `Signed out ${result.count} other device session(s)`,
+		ipAddress
+	});
+	return { revokedCount: result.count };
+}
+async function listAllActiveSessions(currentToken) {
+	const currentHash = currentToken ? hashSessionToken(currentToken) : null;
+	return (await prisma.session.findMany({
+		where: { expiresAt: { gt: /* @__PURE__ */ new Date() } },
+		orderBy: { lastActiveAt: "desc" },
+		take: 100,
+		include: { user: { select: {
+			id: true,
+			username: true,
+			name: true,
+			role: true,
+			twoFactorEnabled: true
+		} } }
+	})).map((s) => ({
+		id: s.id,
+		user: s.user,
+		device: parseUserAgent(s.userAgent),
+		ipAddress: s.ipAddress || "Local / Unknown",
+		lastActiveAt: s.lastActiveAt,
+		expiresAt: s.expiresAt,
+		createdAt: s.createdAt,
+		isCurrent: Boolean(currentHash && (s.token === currentHash || s.token === currentToken))
+	}));
+}
+async function adminRevokeSessionById(sessionId, actor, ipAddress) {
+	const target = await prisma.session.findUnique({
+		where: { id: sessionId },
+		include: { user: { select: { username: true } } }
+	});
+	if (!target) throw new HttpError(404, "Session not found");
+	await prisma.session.delete({ where: { id: sessionId } });
+	await recordAudit({
+		userId: actor.id,
+		actorName: actor.name,
+		action: "ADMIN_SESSION_REVOKED",
+		details: `Admin revoked session ${sessionId.slice(0, 8)} for ${target.user.username}`,
+		ipAddress
+	});
+	return { ok: true };
+}
+async function adminRevokeUserSessions(targetUserId, actor, ipAddress) {
+	const target = await prisma.user.findUnique({
+		where: { id: targetUserId },
+		select: { username: true }
+	});
+	if (!target) throw new HttpError(404, "User not found");
+	const res = await prisma.session.deleteMany({ where: { userId: targetUserId } });
+	await prisma.twoFactorChallenge.deleteMany({ where: { userId: targetUserId } }).catch(() => {});
+	await recordAudit({
+		userId: actor.id,
+		actorName: actor.name,
+		action: "ADMIN_USER_FORCE_LOGOUT",
+		details: `Admin terminated ${res.count} session(s) for ${target.username}`,
+		ipAddress
+	});
+	return { revokedCount: res.count };
+}
+async function verifyTerminalUnlock(userId, password, code, ipAddress) {
+	if (!password) throw new HttpError(400, "Password is required to unlock this terminal.");
+	const user = await prisma.user.findUnique({ where: { id: userId } });
+	if (!user || user.status !== "ACTIVE") throw new HttpError(401, "Session is no longer active.");
+	if (!verifyPassword(password, user.passwordHash)) {
+		await recordAudit({
+			userId,
+			actorName: user.username,
+			action: "UNLOCK_FAILED",
+			details: `Invalid password on locked terminal unlock attempt for ${user.username}`,
+			ipAddress
+		});
+		throw new HttpError(401, "Incorrect password.");
+	}
+	if (user.twoFactorEnabled && user.twoFactorSecret) {
+		const rawCode = (code || "").trim();
+		if (!rawCode) throw new HttpError(401, "Authenticator or recovery code is required to unlock.");
+		const totpCheck = verifyTotpCode(decryptSecret(user.twoFactorSecret), rawCode, 1);
+		if (totpCheck.valid) {
+			if (user.twoFactorLastCounter !== null && totpCheck.counter <= user.twoFactorLastCounter) throw new HttpError(401, "This verification code has already been used. Wait for the next code.");
+			await prisma.user.update({
+				where: { id: userId },
+				data: { twoFactorLastCounter: totpCheck.counter }
+			});
+		} else {
+			const recovery = consumeRecoveryCode(rawCode, user.twoFactorRecoveryCodes);
+			if (!recovery.valid) {
+				await recordAudit({
+					userId,
+					actorName: user.username,
+					action: "UNLOCK_FAILED",
+					details: `Invalid 2FA code on locked terminal unlock attempt for ${user.username}`,
+					ipAddress
+				});
+				throw new HttpError(401, "Invalid authenticator or recovery code.");
+			}
+			await prisma.user.update({
+				where: { id: userId },
+				data: { twoFactorRecoveryCodes: recovery.remainingJson }
+			});
+		}
+	}
+	return { unlocked: true };
+}
+async function getAdminSecurityPosture() {
+	const since24h = /* @__PURE__ */ new Date(Date.now() - 864e5);
+	const [users, activeSessionsCount, auditChain, failedLogins24h, recentAlerts, rlsRows] = await Promise.all([
+		prisma.user.findMany({
+			where: { status: "ACTIVE" },
+			select: {
+				id: true,
+				username: true,
+				role: true,
+				passwordHash: true,
+				twoFactorEnabled: true
+			}
+		}),
+		prisma.session.count({ where: { expiresAt: { gt: /* @__PURE__ */ new Date() } } }),
+		verifyAuditLogChain(200),
+		prisma.auditLog.count({ where: {
+			action: { in: [
+				"LOGIN_FAILED",
+				"LOGIN_2FA_FAILED",
+				"UNLOCK_FAILED"
+			] },
+			createdAt: { gte: since24h }
+		} }),
+		prisma.auditLog.findMany({
+			where: { action: { in: [
+				"LOGIN_FAILED",
+				"LOGIN_2FA_FAILED",
+				"LOGIN_2FA_REPLAY_BLOCKED",
+				"ADMIN_ACCESS_REJECTED",
+				"UNLOCK_FAILED",
+				"TWO_FACTOR_FAILED",
+				"ADMIN_USER_FORCE_LOGOUT"
+			] } },
+			orderBy: { createdAt: "desc" },
+			take: 15,
+			select: {
+				id: true,
+				actorName: true,
+				action: true,
+				details: true,
+				ipAddress: true,
+				createdAt: true
+			}
+		}),
+		isPostgres ? prisma.$queryRawUnsafe(`SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`) : Promise.resolve([])
+	]);
+	const twoFactorEnabledCount = users.filter((u) => u.twoFactorEnabled).length;
+	const adminUsers = users.filter((u) => u.role === "ADMIN");
+	const adminTwoFactorCount = adminUsers.filter((u) => u.twoFactorEnabled).length;
+	const knownDefaultPasswords = ["Admin@FasoFix2026!", "Tech@FasoFix2026!"];
+	const defaultPasswordAccounts = users.filter((u) => knownDefaultPasswords.some((pw) => verifyPassword(pw, u.passwordHash))).map((u) => u.username);
+	const rlsTotal = rlsRows.length;
+	const rlsProtected = rlsRows.filter((r) => r.rowsecurity).length;
+	const databaseUrlConfigured = Boolean(process.env.DATABASE_URL?.trim());
+	const fieldEncryptionKeyConfigured = Boolean(process.env.FIELD_ENCRYPTION_KEY?.trim());
+	const controls = [
+		{
+			id: "rls",
+			label: "PostgreSQL Row-Level Security (All Tables)",
+			ok: isPostgres ? rlsTotal > 0 && rlsProtected === rlsTotal : true,
+			detail: isPostgres ? `${rlsProtected}/${rlsTotal} tables locked` : "SQLite local mode"
+		},
+		{
+			id: "hashed-sessions",
+			label: "SHA-256 Hashed HttpOnly SameSite=Strict Cookies",
+			ok: true,
+			detail: `${activeSessionsCount} active session(s)`
+		},
+		{
+			id: "csrf",
+			label: "Origin & Custom-Header CSRF Defense",
+			ok: true,
+			detail: "Enforced on cookie mutations"
+		},
+		{
+			id: "csp",
+			label: "Strict Zero-Inline-Script CSP + HSTS",
+			ok: true,
+			detail: "script-src 'self' + HSTS preload"
+		},
+		{
+			id: "audit-chain",
+			label: "Tamper-Evident Audit Log SHA-256 Chain",
+			ok: auditChain.intact,
+			detail: `${auditChain.checked} entries verified, ${auditChain.tamperedCount} tampered`
+		},
+		{
+			id: "brute-force",
+			label: "Persistent DB Brute-Force Lockout & Rate Limiting",
+			ok: true,
+			detail: `${failedLogins24h} blocked/failed event(s) in 24h`
+		},
+		{
+			id: "csv-xss",
+			label: "CSV Formula Injection & Stored HTML XSS Guards",
+			ok: true,
+			detail: "CWE-1236 & escaped HTML outputs"
+		},
+		{
+			id: "totp-2fa",
+			label: "TOTP Authenticator 2FA Enrollment",
+			ok: adminTwoFactorCount > 0,
+			detail: `${twoFactorEnabledCount}/${users.length} active staff enrolled`
+		},
+		{
+			id: "default-passwords",
+			label: "All Staff Rotated Off Bootstrap Passwords",
+			ok: defaultPasswordAccounts.length === 0,
+			detail: defaultPasswordAccounts.length === 0 ? "All unique credentials" : `Still using default password: ${defaultPasswordAccounts.join(", ")}`
+		},
+		{
+			id: "env-db",
+			label: "Dedicated Production DATABASE_URL Configured",
+			ok: databaseUrlConfigured,
+			detail: databaseUrlConfigured ? "Configured in env" : "Using fallback URL until rotated"
+		},
+		{
+			id: "env-vault",
+			label: "Dedicated FIELD_ENCRYPTION_KEY Configured",
+			ok: fieldEncryptionKeyConfigured,
+			detail: fieldEncryptionKeyConfigured ? "v2 vault key active" : "Using v1 app-scoped key"
+		}
+	];
+	return {
+		provider: isPostgres ? "postgresql" : "sqlite",
+		rls: {
+			total: rlsTotal,
+			enabled: rlsProtected,
+			allEnabled: rlsTotal > 0 && rlsProtected === rlsTotal
+		},
+		auditChain,
+		users: {
+			totalActive: users.length,
+			twoFactorEnabled: twoFactorEnabledCount,
+			adminTotal: adminUsers.length,
+			adminTwoFactorEnabled: adminTwoFactorCount,
+			defaultPasswordAccounts
+		},
+		activeSessionsCount,
+		failedLogins24h,
+		env: {
+			databaseUrlConfigured,
+			fieldEncryptionKeyConfigured
+		},
+		controls,
+		recentAlerts
+	};
 }
 // src/utils/auth.ts
 try {
@@ -5873,7 +6810,13 @@ app.use(cors({
 		"X-Idempotency-Key"
 	]
 }));
-app.use(express.json({ limit: "5mb" }));
+var largeJsonParser = express.json({ limit: "5mb" });
+var defaultJsonParser = express.json({ limit: "256kb" });
+app.use((req, res, next) => {
+	const pathStr = req.path || "";
+	if (pathStr === "/api/tickets" || /^\/api\/tickets\/[^/]+$/.test(pathStr) || /^\/api\/tickets\/[^/]+\/photos$/.test(pathStr)) return largeJsonParser(req, res, next);
+	return defaultJsonParser(req, res, next);
+});
 app.use((_req, res, next) => {
 	res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
 	res.setHeader("Pragma", "no-cache");
@@ -5883,7 +6826,42 @@ app.use((_req, res, next) => {
 	res.setHeader("X-Frame-Options", "DENY");
 	res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
 	res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), interest-cohort=()");
+	res.setHeader("Cross-Origin-Opener-Policy", "same-origin-allow-popups");
+	res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+	res.setHeader("X-Permitted-Cross-Domain-Policies", "none");
+	res.setHeader("X-DNS-Prefetch-Control", "off");
 	res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
+	next();
+});
+var apiBurstBuckets = /* @__PURE__ */ new Map();
+var API_BURST_WINDOW_MS = 6e4;
+var API_BURST_MAX_REQ = 600;
+app.use("/api", (req, res, next) => {
+	const ip = getClientIp(req);
+	if (process.env.NODE_ENV === "test" && (ip === "127.0.0.1" || ip === "::1" || ip === "::ffff:127.0.0.1")) return next();
+	const now = Date.now();
+	let bucket = apiBurstBuckets.get(ip);
+	if (!bucket || bucket.resetAt <= now) {
+		bucket = {
+			count: 1,
+			resetAt: now + API_BURST_WINDOW_MS
+		};
+		apiBurstBuckets.set(ip, bucket);
+		if (apiBurstBuckets.size > 5e3) {
+			const oldest = apiBurstBuckets.keys().next().value;
+			if (oldest) apiBurstBuckets.delete(oldest);
+		}
+		return next();
+	}
+	bucket.count++;
+	if (bucket.count > API_BURST_MAX_REQ) {
+		const retryAfterSec = Math.max(1, Math.ceil((bucket.resetAt - now) / 1e3));
+		res.setHeader("Retry-After", String(retryAfterSec));
+		return res.status(429).json({
+			success: false,
+			error: "Too many requests. Please slow down."
+		});
+	}
 	next();
 });
 app.use(async (req, _res, next) => {
@@ -6030,33 +7008,38 @@ function getClientIp(req) {
 var LOGIN_WINDOW_MS = 9e5;
 var LOGIN_MAX_FAILS = 5;
 var LOGIN_IP_MAX_FAILS = 30;
-app.post("/api/auth/login", wrap(async (req, res) => {
-	const ip = getClientIp(req);
-	const who = String(req.body?.usernameOrEmail || "").trim().toLowerCase().slice(0, 80) || "unknown";
+async function checkDbAttemptLimit(ip, actor, action) {
 	const cutoff = /* @__PURE__ */ new Date(Date.now() - LOGIN_WINDOW_MS);
 	const [userFailCount, ipFailCount] = await Promise.all([prisma.auditLog.count({ where: {
-		action: "LOGIN_FAILED",
+		action,
 		ipAddress: ip,
-		actorName: who,
+		actorName: actor,
 		createdAt: { gte: cutoff }
 	} }), prisma.auditLog.count({ where: {
-		action: "LOGIN_FAILED",
+		action,
 		ipAddress: ip,
 		createdAt: { gte: cutoff }
 	} })]);
-	if (userFailCount >= LOGIN_MAX_FAILS || ipFailCount >= LOGIN_IP_MAX_FAILS) return res.status(429).json({
-		success: false,
-		error: "Too many failed attempts. Please wait 15 minutes and try again."
-	});
+	if (userFailCount >= LOGIN_MAX_FAILS || ipFailCount >= LOGIN_IP_MAX_FAILS) throw new HttpError(429, "Too many failed attempts. Please wait 15 minutes and try again.");
+}
+app.post("/api/auth/login", wrap(async (req, res) => {
+	const ip = getClientIp(req);
+	const ua = typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : void 0;
+	const who = String(req.body?.usernameOrEmail || "").trim().toLowerCase().slice(0, 80) || "unknown";
+	await checkDbAttemptLimit(ip, who, "LOGIN_FAILED");
 	try {
-		const result = await loginUser(req.body, ip);
-		if (req.token && req.token !== result.token) await destroySession(req.token).catch(() => {});
+		const result = await loginUser(req.body, ip, ua);
 		await prisma.auditLog.deleteMany({ where: {
 			action: "LOGIN_FAILED",
 			ipAddress: ip,
 			actorName: who
 		} }).catch(() => {});
-		setSessionCookie(req, res, result.token);
+		if (result.requiresTwoFactor) return res.json({
+			success: true,
+			...result
+		});
+		if (req.token && result.token && req.token !== result.token) await destroySession(req.token).catch(() => {});
+		if (result.token) setSessionCookie(req, res, result.token);
 		res.json({
 			success: true,
 			...result
@@ -6067,6 +7050,35 @@ app.post("/api/auth/login", wrap(async (req, res) => {
 			actorName: who,
 			ipAddress: ip,
 			details: `Failed login attempt for ${who}`
+		});
+		throw err;
+	}
+}));
+app.post("/api/auth/login/verify-2fa", wrap(async (req, res) => {
+	const ip = getClientIp(req);
+	const ua = typeof req.headers["user-agent"] === "string" ? req.headers["user-agent"] : void 0;
+	const challengeToken = String(req.body?.challengeToken || "");
+	const code = String(req.body?.code || "");
+	const actorKey = challengeToken ? hashSessionToken(challengeToken).slice(0, 16) : "2fa";
+	await checkDbAttemptLimit(ip, actorKey, "LOGIN_2FA_CHALLENGE_FAIL");
+	try {
+		const result = await verifyTwoFactorLogin(challengeToken, code, ip, ua);
+		await prisma.auditLog.deleteMany({ where: {
+			action: "LOGIN_2FA_CHALLENGE_FAIL",
+			ipAddress: ip
+		} }).catch(() => {});
+		if (req.token && result.token && req.token !== result.token) await destroySession(req.token).catch(() => {});
+		setSessionCookie(req, res, result.token);
+		res.json({
+			success: true,
+			...result
+		});
+	} catch (err) {
+		if (err instanceof HttpError && err.status === 401) await recordAudit({
+			action: "LOGIN_2FA_CHALLENGE_FAIL",
+			actorName: actorKey,
+			ipAddress: ip,
+			details: "Failed 2FA verification challenge attempt"
 		});
 		throw err;
 	}
@@ -6112,14 +7124,113 @@ app.put("/api/auth/profile", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.put("/api/auth/password", requireAuth, wrap(async (req, res) => {
-	const result = await changeUserPassword(req.user.id, req.body, req.user.name, req.token);
-	res.json(result);
+	const ip = getClientIp(req);
+	await checkDbAttemptLimit(ip, req.user.username, "PASSWORD_FAILED");
+	try {
+		const result = await changeUserPassword(req.user.id, req.body, req.user.name, req.token);
+		await prisma.auditLog.deleteMany({ where: {
+			action: "PASSWORD_FAILED",
+			ipAddress: ip,
+			actorName: req.user.username
+		} }).catch(() => {});
+		res.json(result);
+	} catch (err) {
+		if (err instanceof HttpError && err.status === 400) await recordAudit({
+			userId: req.user.id,
+			actorName: req.user.username,
+			action: "PASSWORD_FAILED",
+			ipAddress: ip,
+			details: `Failed password change attempt for ${req.user.username}`
+		});
+		throw err;
+	}
 }));
 app.put("/api/auth/preferences", requireAuth, wrap(async (req, res) => {
 	const updated = await updateUserPreferences(req.user.id, req.body.preferences || req.body);
 	res.json({
 		success: true,
 		preferences: updated.preferences
+	});
+}));
+app.get("/api/auth/2fa/status", requireAuth, wrap(async (req, res) => {
+	const data = await getTwoFactorStatus(req.user.id);
+	res.json({
+		success: true,
+		data
+	});
+}));
+app.post("/api/auth/2fa/setup", requireAuth, wrap(async (req, res) => {
+	const data = await beginTwoFactorSetup(req.user.id);
+	res.json({
+		success: true,
+		data
+	});
+}));
+app.post("/api/auth/2fa/confirm", requireAuth, wrap(async (req, res) => {
+	const ip = getClientIp(req);
+	await checkDbAttemptLimit(ip, req.user.name, "TWO_FACTOR_FAILED");
+	const data = await confirmTwoFactorSetup(req.user.id, String(req.body?.code || ""), req.user.name, ip);
+	await prisma.auditLog.deleteMany({ where: {
+		action: "TWO_FACTOR_FAILED",
+		ipAddress: ip,
+		actorName: req.user.name
+	} }).catch(() => {});
+	res.json({
+		success: true,
+		data
+	});
+}));
+app.post("/api/auth/2fa/disable", requireAuth, wrap(async (req, res) => {
+	const ip = getClientIp(req);
+	await checkDbAttemptLimit(ip, req.user.name, "TWO_FACTOR_FAILED");
+	const data = await disableTwoFactor(req.user.id, String(req.body?.currentPassword || ""), String(req.body?.code || ""), req.user.name, req.token, ip);
+	res.json({
+		success: true,
+		data
+	});
+}));
+app.post("/api/auth/2fa/recovery", requireAuth, wrap(async (req, res) => {
+	const ip = getClientIp(req);
+	await checkDbAttemptLimit(ip, req.user.name, "TWO_FACTOR_FAILED");
+	const data = await regenerateRecoveryCodes(req.user.id, String(req.body?.currentPassword || ""), String(req.body?.code || ""), req.user.name, ip);
+	res.json({
+		success: true,
+		data
+	});
+}));
+app.get("/api/auth/sessions", requireAuth, wrap(async (req, res) => {
+	const sessions = await listUserSessions(req.user.id, req.token);
+	res.json({
+		success: true,
+		data: sessions
+	});
+}));
+app.delete("/api/auth/sessions/other", requireAuth, wrap(async (req, res) => {
+	const result = await revokeOtherUserSessions(req.user.id, req.token, req.user.name, getClientIp(req));
+	res.json({
+		success: true,
+		data: result
+	});
+}));
+app.delete("/api/auth/sessions/:id", requireAuth, wrap(async (req, res) => {
+	const result = await revokeUserSession(req.user.id, getParam(req, "id"), req.user.name, getClientIp(req));
+	res.json({
+		success: true,
+		data: result
+	});
+}));
+app.post("/api/auth/verify-unlock", requireAuth, wrap(async (req, res) => {
+	const ip = getClientIp(req);
+	await checkDbAttemptLimit(ip, req.user.username, "UNLOCK_FAILED");
+	const result = await verifyTerminalUnlock(req.user.id, String(req.body?.password || ""), req.body?.code !== void 0 ? String(req.body.code) : void 0, ip);
+	await prisma.auditLog.deleteMany({ where: {
+		action: "UNLOCK_FAILED",
+		ipAddress: ip,
+		actorName: req.user.username
+	} }).catch(() => {});
+	res.json({
+		success: true,
+		...result
 	});
 }));
 app.get("/api/admin/overview", requireAdmin, wrap(async (_req, res) => {
@@ -6235,6 +7346,50 @@ app.get("/api/admin/audit-logs", requireAdmin, wrap(async (req, res) => {
 		totalPages: result.totalPages,
 		hasMore: result.hasMore,
 		data: result.items
+	});
+}));
+app.get("/api/admin/security/posture", requireAdmin, wrap(async (_req, res) => {
+	const posture = await getAdminSecurityPosture();
+	res.json({
+		success: true,
+		data: posture
+	});
+}));
+app.get("/api/admin/sessions", requireAdmin, wrap(async (req, res) => {
+	const sessions = await listAllActiveSessions(req.token);
+	res.json({
+		success: true,
+		data: sessions
+	});
+}));
+app.delete("/api/admin/sessions/:id", requireAdmin, wrap(async (req, res) => {
+	const result = await adminRevokeSessionById(getParam(req, "id"), {
+		id: req.user.id,
+		name: req.user.name
+	}, getClientIp(req));
+	res.json({
+		success: true,
+		data: result
+	});
+}));
+app.post("/api/admin/users/:id/revoke-sessions", requireAdmin, wrap(async (req, res) => {
+	const result = await adminRevokeUserSessions(getParam(req, "id"), {
+		id: req.user.id,
+		name: req.user.name
+	}, getClientIp(req));
+	res.json({
+		success: true,
+		data: result
+	});
+}));
+app.post("/api/admin/users/:id/reset-2fa", requireAdmin, wrap(async (req, res) => {
+	const result = await adminResetUserTwoFactor(getParam(req, "id"), {
+		id: req.user.id,
+		name: req.user.name
+	}, getClientIp(req));
+	res.json({
+		success: true,
+		data: result
 	});
 }));
 app.get("/api/dashboard", requireAuth, wrap(async (_req, res) => {
@@ -6679,9 +7834,16 @@ app.delete("/api/inventory/:id", requireAdmin, wrap(async (req, res) => {
 		data: result
 	});
 }));
-app.get("/api/export/tickets", requireAuth, wrap(async (_req, res) => {
+app.get("/api/export/tickets", requireAuth, wrap(async (req, res) => {
 	const csv = await exportTicketsCsv();
-	res.setHeader("Content-Type", "text/csv");
+	await recordAudit({
+		userId: req.user.id,
+		actorName: req.user.name,
+		action: "EXPORT_TICKETS_CSV",
+		details: "Exported work orders CSV report",
+		ipAddress: getClientIp(req)
+	});
+	res.setHeader("Content-Type", "text/csv; charset=utf-8");
 	res.setHeader("Content-Disposition", "attachment; filename=\"FasoFix-WorkOrders.csv\"");
 	res.send(csv);
 }));
@@ -7192,6 +8354,10 @@ if (fs.existsSync(distPath)) {
 	});
 }
 app.use((err, _req, res, _next) => {
+	if (err?.type === "entity.too.large" || err?.status === 413) return res.status(413).json({
+		success: false,
+		error: "Request payload too large for this endpoint."
+	});
 	if (err instanceof HttpError) return res.status(err.status).json({
 		success: false,
 		error: err.message,

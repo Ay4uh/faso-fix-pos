@@ -24,11 +24,52 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
+  const [pendingUserLabel, setPendingUserLabel] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (challengeToken) {
+      if (!twoFactorCode.trim()) {
+        setErrorMessage('Enter your 6-digit authenticator code or recovery code.');
+        posAudio.playWarningBeep();
+        return;
+      }
+      setIsLoading(true);
+      setErrorMessage(null);
+      try {
+        const res = await fetch('/api/auth/login/verify-2fa', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'FasoFixPOS',
+          },
+          body: JSON.stringify({
+            challengeToken,
+            code: twoFactorCode.trim(),
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data?.error || 'Two-factor verification failed.');
+        }
+        markSessionActive(data.expiresAtMs);
+        posAudio.playSuccessChime();
+        const targetView: 'repairs' | 'admin' = data.user.role === 'ADMIN' && isAdminMode ? 'admin' : 'repairs';
+        onLoginSuccess(data.user, targetView);
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Verification failed.');
+        posAudio.playWarningBeep();
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     if (!usernameOrEmail.trim() || !password) {
       setErrorMessage('Please enter both your username/email and password.');
       posAudio.playWarningBeep();
@@ -68,6 +109,14 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
 
       if (!res.ok) {
         throw new Error(data?.error || 'Authentication failed. Please verify credentials.');
+      }
+
+      if (data.requiresTwoFactor && data.challengeToken) {
+        setChallengeToken(data.challengeToken);
+        setPendingUserLabel(data.user?.name || usernameOrEmail.trim());
+        setTwoFactorCode('');
+        setErrorMessage(null);
+        return;
       }
 
       markSessionActive(data.expiresAtMs);
@@ -198,56 +247,93 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
               </div>
             )}
 
-            {/* Username / Email Field */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">
-                Username or Email
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <User className="w-4 h-4" />
+            {!challengeToken ? (
+              <>
+                {/* Username / Email Field */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">
+                    Username or Email
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                      <User className="w-4 h-4" />
+                    </div>
+                    <input
+                      type="text"
+                      required
+                      autoFocus
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      value={usernameOrEmail}
+                      onChange={(e) => setUsernameOrEmail(e.target.value)}
+                      placeholder={isAdminMode ? 'admin or admin@fasofix.ca' : 'Username or Email (e.g. ayush or email@gmail.com)'}
+                      className="w-full pl-10 pr-3.5 py-3 sm:py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
+                    />
+                  </div>
                 </div>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  autoCapitalize="none"
-                  autoCorrect="off"
-                  value={usernameOrEmail}
-                  onChange={(e) => setUsernameOrEmail(e.target.value)}
-                  placeholder={isAdminMode ? 'admin or admin@fasofix.ca' : 'Username or Email (e.g. ayush or email@gmail.com)'}
-                  className="w-full pl-10 pr-3.5 py-3 sm:py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
-                />
-              </div>
-            </div>
 
-            {/* Password Field with Show/Hide */}
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold text-slate-700">
-                Password
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
-                  <Lock className="w-4 h-4" />
+                {/* Password Field with Show/Hide */}
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">
+                    Password
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <input
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="••••••••••••"
+                      className="w-full pl-10 pr-10 py-3 sm:py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition cursor-pointer"
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••••••"
-                  className="w-full pl-10 pr-10 py-3 sm:py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition font-mono"
-                />
+              </>
+            ) : (
+              <div className="space-y-3">
+                <div className="p-3 bg-indigo-50 border border-indigo-200 rounded-2xl text-xs text-indigo-900">
+                  <p className="font-bold">Two-Factor Verification Required</p>
+                  <p className="text-[11px] text-indigo-700 mt-0.5">
+                    Enter the 6-digit code from your authenticator app or an 8-character recovery code for{' '}
+                    <strong>{pendingUserLabel}</strong>.
+                  </p>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-bold text-slate-700">Authenticator or Recovery Code</label>
+                  <input
+                    type="text"
+                    autoFocus
+                    required
+                    value={twoFactorCode}
+                    onChange={(e) => setTwoFactorCode(e.target.value)}
+                    placeholder="123456 or ABCD-EFGH"
+                    className="w-full px-3.5 py-3 sm:py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-base sm:text-sm tracking-widest text-center font-mono text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
+                  />
+                </div>
                 <button
                   type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-slate-400 hover:text-slate-600 transition cursor-pointer"
-                  title={showPassword ? 'Hide password' : 'Show password'}
+                  onClick={() => {
+                    setChallengeToken(null);
+                    setTwoFactorCode('');
+                    setErrorMessage(null);
+                  }}
+                  className="text-xs font-semibold text-slate-500 hover:text-slate-800 cursor-pointer"
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  &larr; Back to Sign In
                 </button>
               </div>
-            </div>
+            )}
 
             {/* Submit Button */}
             <button
@@ -262,11 +348,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
               {isLoading ? (
                 <>
                   <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Verifying Credentials...</span>
+                  <span>{challengeToken ? 'Verifying 2FA Code...' : 'Verifying Credentials...'}</span>
                 </>
               ) : (
                 <>
-                  <span>{isAdminMode ? 'Sign In as Administrator' : 'Sign In'}</span>
+                  <span>
+                    {challengeToken
+                      ? 'Verify & Sign In'
+                      : isAdminMode
+                      ? 'Sign In as Administrator'
+                      : 'Sign In'}
+                  </span>
                   <ArrowRight className="w-4 h-4" />
                 </>
               )}

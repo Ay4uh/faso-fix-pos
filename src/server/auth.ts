@@ -50,14 +50,39 @@ export function generateToken(): string {
  */
 export const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours (86,400,000 ms)
 
+/** Derive a concise human-readable device/browser summary from a User-Agent header. */
+export function parseUserAgent(ua?: string | null): string {
+  const s = (ua || '').trim();
+  if (!s) return 'Unknown Client';
+  let browser = 'Browser';
+  if (/Edg\//i.test(s)) browser = 'Edge';
+  else if (/Chrome\//i.test(s) && !/Chromium/i.test(s)) browser = 'Chrome';
+  else if (/Firefox\//i.test(s)) browser = 'Firefox';
+  else if (/Safari\//i.test(s) && !/Chrome\//i.test(s)) browser = 'Safari';
+  else if (/node|undici|curl|Postman/i.test(s)) browser = 'API Client';
+
+  let os = '';
+  if (/iPhone|iPad/i.test(s)) os = 'iOS';
+  else if (/Android/i.test(s)) os = 'Android';
+  else if (/Mac OS X|Macintosh/i.test(s)) os = 'macOS';
+  else if (/Windows/i.test(s)) os = 'Windows';
+  else if (/Linux/i.test(s)) os = 'Linux';
+
+  return os ? `${browser} on ${os}` : browser;
+}
+
 /**
  * Create a persistent session for a user valid for a strict maximum of 24 hours.
  * Returns the raw bearer/cookie token while storing only its SHA-256 hash in the database.
  */
-export async function createSession(userId: string): Promise<string> {
+export async function createSession(
+  userId: string,
+  meta?: { ipAddress?: string | null; userAgent?: string | null }
+): Promise<string> {
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_MS); // Strictly 24 hours
   const rawToken = generateToken();
   const tokenHash = hashSessionToken(rawToken);
+  const now = new Date();
 
   let persisted = false;
   let lastErr: unknown = null;
@@ -67,6 +92,9 @@ export async function createSession(userId: string): Promise<string> {
         data: {
           token: tokenHash,
           userId,
+          ipAddress: meta?.ipAddress ? String(meta.ipAddress).slice(0, 100) : null,
+          userAgent: meta?.userAgent ? String(meta.userAgent).slice(0, 200) : null,
+          lastActiveAt: now,
           expiresAt,
         },
       });
@@ -129,6 +157,7 @@ export async function authenticateSession(
           bio: true,
           bench: true,
           preferences: true,
+          twoFactorEnabled: true,
           lastLoginAt: true,
           createdAt: true,
         },
@@ -144,14 +173,80 @@ export async function authenticateSession(
     if (session.user.status !== 'ACTIVE') {
       return null;
     }
+    // Throttled fire-and-forget activity heartbeat (at most once every 5 minutes) to preserve zero-latency reads
+    if (Date.now() - session.lastActiveAt.getTime() > 5 * 60_000) {
+      prisma.session
+        .update({ where: { id: session.id }, data: { lastActiveAt: new Date() } })
+        .catch(() => {});
+    }
     return session.user;
   }
 
   return null;
 }
 
+export function computeAuditHash(fields: {
+  prevHash: string;
+  userId?: string | null;
+  actorName: string;
+  action: string;
+  details: string;
+  ipAddress?: string | null;
+  createdAt: Date;
+}): string {
+  const payload = [
+    fields.prevHash,
+    fields.userId || '',
+    fields.actorName,
+    fields.action,
+    fields.details,
+    fields.ipAddress || '',
+    fields.createdAt.toISOString(),
+  ].join('|');
+  return crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
+}
+
 /**
- * Record an immutable audit log entry.
+ * Verify cryptographic integrity of hash-chained AuditLog entries.
+ */
+export async function verifyAuditLogChain(limit = 200): Promise<{
+  checked: number;
+  intact: boolean;
+  tamperedCount: number;
+  tamperedIds: string[];
+}> {
+  const rows = await prisma.auditLog.findMany({
+    where: { entryHash: { not: null } },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    take: limit,
+  });
+
+  const tamperedIds: string[] = [];
+  for (const row of rows) {
+    const expected = computeAuditHash({
+      prevHash: row.prevHash || 'GENESIS',
+      userId: row.userId,
+      actorName: row.actorName,
+      action: row.action,
+      details: row.details,
+      ipAddress: row.ipAddress,
+      createdAt: row.createdAt,
+    });
+    if (expected !== row.entryHash) {
+      tamperedIds.push(row.id);
+    }
+  }
+
+  return {
+    checked: rows.length,
+    intact: tamperedIds.length === 0,
+    tamperedCount: tamperedIds.length,
+    tamperedIds,
+  };
+}
+
+/**
+ * Record an immutable hash-chained audit log entry.
  */
 export async function recordAudit(params: {
   userId?: string | null;
@@ -161,6 +256,23 @@ export async function recordAudit(params: {
   ipAddress?: string | null;
 }) {
   try {
+    const latest = await prisma.auditLog.findFirst({
+      where: { entryHash: { not: null } },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { entryHash: true },
+    });
+    const prevHash = latest?.entryHash || 'GENESIS';
+    const createdAt = new Date();
+    const entryHash = computeAuditHash({
+      prevHash,
+      userId: params.userId || null,
+      actorName: params.actorName,
+      action: params.action,
+      details: params.details,
+      ipAddress: params.ipAddress || null,
+      createdAt,
+    });
+
     return await prisma.auditLog.create({
       data: {
         userId: params.userId || null,
@@ -168,6 +280,9 @@ export async function recordAudit(params: {
         action: params.action,
         details: params.details,
         ipAddress: params.ipAddress || null,
+        prevHash,
+        entryHash,
+        createdAt,
       },
     });
   } catch (err) {

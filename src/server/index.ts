@@ -49,12 +49,13 @@ import {
   listAuditLogsPaginated,
   getAdminOverview,
 } from './service';
-import { authenticateSession, destroySession, ensureAdminProvisioning, recordAudit } from './auth';
+import { authenticateSession, destroySession, ensureAdminProvisioning, hashSessionToken, recordAudit } from './auth';
 import { configureSqlite, createBackup, listBackups, resolveBackup, startBackupSchedule } from './backup';
 import { ensureDatabaseSchema, ensureInitialInventory } from './initDb';
 import * as payrollService from './payrollService';
 import * as scheduleService from './scheduleService';
 import * as notificationService from './notificationService';
+import * as securityService from './securityService';
 import { prisma } from './prisma';
 import { buildReceiptHtml, buildBenchSlipHtml, buildLetterInvoiceHtml } from '../utils/receipt';
 
@@ -72,6 +73,7 @@ declare global {
         bench: string | null;
         bio: string | null;
         preferences: string;
+        twoFactorEnabled: boolean;
         lastLoginAt: Date | null;
         createdAt: Date;
       };
@@ -171,7 +173,19 @@ app.use(
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Idempotency-Key'],
   })
 );
-app.use(express.json({ limit: '5mb' }));
+const largeJsonParser = express.json({ limit: '5mb' });
+const defaultJsonParser = express.json({ limit: '256kb' });
+app.use((req: Request, res: Response, next: NextFunction) => {
+  const pathStr = req.path || '';
+  if (
+    pathStr === '/api/tickets' ||
+    /^\/api\/tickets\/[^/]+$/.test(pathStr) ||
+    /^\/api\/tickets\/[^/]+\/photos$/.test(pathStr)
+  ) {
+    return largeJsonParser(req, res, next);
+  }
+  return defaultJsonParser(req, res, next);
+});
 
 // Prevent any browser or CDN edge caching of dynamic POS API responses and enforce security headers
 app.use((_req: Request, res: Response, next: NextFunction) => {
@@ -183,7 +197,40 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), interest-cohort=()');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin-allow-popups');
+  res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
+  res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+  res.setHeader('X-DNS-Prefetch-Control', 'off');
   res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
+  next();
+});
+
+// Sliding-window API burst rate limiter (600 req/min per IP)
+const apiBurstBuckets = new Map<string, { count: number; resetAt: number }>();
+const API_BURST_WINDOW_MS = 60_000;
+const API_BURST_MAX_REQ = 600;
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  const ip = getClientIp(req);
+  if (process.env.NODE_ENV === 'test' && (ip === '127.0.0.1' || ip === '::1' || ip === '::ffff:127.0.0.1')) {
+    return next();
+  }
+  const now = Date.now();
+  let bucket = apiBurstBuckets.get(ip);
+  if (!bucket || bucket.resetAt <= now) {
+    bucket = { count: 1, resetAt: now + API_BURST_WINDOW_MS };
+    apiBurstBuckets.set(ip, bucket);
+    if (apiBurstBuckets.size > 5000) {
+      const oldest = apiBurstBuckets.keys().next().value;
+      if (oldest) apiBurstBuckets.delete(oldest);
+    }
+    return next();
+  }
+  bucket.count++;
+  if (bucket.count > API_BURST_MAX_REQ) {
+    const retryAfterSec = Math.max(1, Math.ceil((bucket.resetAt - now) / 1000));
+    res.setHeader('Retry-After', String(retryAfterSec));
+    return res.status(429).json({ success: false, error: 'Too many requests. Please slow down.' });
+  }
   next();
 });
 
@@ -391,37 +438,46 @@ const LOGIN_WINDOW_MS = 15 * 60_000;
 const LOGIN_MAX_FAILS = 5;
 const LOGIN_IP_MAX_FAILS = 30;
 
-app.post('/api/auth/login', wrap(async (req, res) => {
-  const ip = getClientIp(req);
-  const who = String(req.body?.usernameOrEmail || '').trim().toLowerCase().slice(0, 80) || 'unknown';
+async function checkDbAttemptLimit(ip: string, actor: string, action: string): Promise<void> {
   const cutoff = new Date(Date.now() - LOGIN_WINDOW_MS);
-
   const [userFailCount, ipFailCount] = await Promise.all([
     prisma.auditLog.count({
-      where: { action: 'LOGIN_FAILED', ipAddress: ip, actorName: who, createdAt: { gte: cutoff } },
+      where: { action, ipAddress: ip, actorName: actor, createdAt: { gte: cutoff } },
     }),
     prisma.auditLog.count({
-      where: { action: 'LOGIN_FAILED', ipAddress: ip, createdAt: { gte: cutoff } },
+      where: { action, ipAddress: ip, createdAt: { gte: cutoff } },
     }),
   ]);
 
   if (userFailCount >= LOGIN_MAX_FAILS || ipFailCount >= LOGIN_IP_MAX_FAILS) {
-    return res.status(429).json({
-      success: false,
-      error: 'Too many failed attempts. Please wait 15 minutes and try again.',
-    });
+    throw new HttpError(429, 'Too many failed attempts. Please wait 15 minutes and try again.');
   }
+}
+
+app.post('/api/auth/login', wrap(async (req, res) => {
+  const ip = getClientIp(req);
+  const ua = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined;
+  const who = String(req.body?.usernameOrEmail || '').trim().toLowerCase().slice(0, 80) || 'unknown';
+
+  await checkDbAttemptLimit(ip, who, 'LOGIN_FAILED');
 
   try {
-    const result = await loginUser(req.body, ip);
-    // Rotate out any prior session token on re-login / role elevation
-    if (req.token && req.token !== result.token) {
-      await destroySession(req.token).catch(() => {});
-    }
+    const result = await loginUser(req.body, ip, ua);
     await prisma.auditLog
       .deleteMany({ where: { action: 'LOGIN_FAILED', ipAddress: ip, actorName: who } })
       .catch(() => {});
-    setSessionCookie(req, res, result.token);
+
+    if (result.requiresTwoFactor) {
+      return res.json({ success: true, ...result });
+    }
+
+    // Rotate out any prior session token on re-login / role elevation
+    if (req.token && result.token && req.token !== result.token) {
+      await destroySession(req.token).catch(() => {});
+    }
+    if (result.token) {
+      setSessionCookie(req, res, result.token);
+    }
     res.json({ success: true, ...result });
   } catch (err) {
     if (err instanceof HttpError && err.status === 401) {
@@ -430,6 +486,39 @@ app.post('/api/auth/login', wrap(async (req, res) => {
         actorName: who,
         ipAddress: ip,
         details: `Failed login attempt for ${who}`,
+      });
+    }
+    throw err;
+  }
+}));
+
+app.post('/api/auth/login/verify-2fa', wrap(async (req, res) => {
+  const ip = getClientIp(req);
+  const ua = typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined;
+  const challengeToken = String(req.body?.challengeToken || '');
+  const code = String(req.body?.code || '');
+  const actorKey = challengeToken ? hashSessionToken(challengeToken).slice(0, 16) : '2fa';
+
+  await checkDbAttemptLimit(ip, actorKey, 'LOGIN_2FA_CHALLENGE_FAIL');
+
+  try {
+    const result = await securityService.verifyTwoFactorLogin(challengeToken, code, ip, ua);
+    await prisma.auditLog
+      .deleteMany({ where: { action: 'LOGIN_2FA_CHALLENGE_FAIL', ipAddress: ip } })
+      .catch(() => {});
+
+    if (req.token && result.token && req.token !== result.token) {
+      await destroySession(req.token).catch(() => {});
+    }
+    setSessionCookie(req, res, result.token);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 401) {
+      await recordAudit({
+        action: 'LOGIN_2FA_CHALLENGE_FAIL',
+        actorName: actorKey,
+        ipAddress: ip,
+        details: 'Failed 2FA verification challenge attempt',
       });
     }
     throw err;
@@ -468,13 +557,115 @@ app.put('/api/auth/profile', requireAuth, wrap(async (req, res) => {
 }));
 
 app.put('/api/auth/password', requireAuth, wrap(async (req, res) => {
-  const result = await changeUserPassword(req.user!.id, req.body, req.user!.name, req.token);
-  res.json(result);
+  const ip = getClientIp(req);
+  await checkDbAttemptLimit(ip, req.user!.username, 'PASSWORD_FAILED');
+  try {
+    const result = await changeUserPassword(req.user!.id, req.body, req.user!.name, req.token);
+    await prisma.auditLog
+      .deleteMany({ where: { action: 'PASSWORD_FAILED', ipAddress: ip, actorName: req.user!.username } })
+      .catch(() => {});
+    res.json(result);
+  } catch (err) {
+    if (err instanceof HttpError && err.status === 400) {
+      await recordAudit({
+        userId: req.user!.id,
+        actorName: req.user!.username,
+        action: 'PASSWORD_FAILED',
+        ipAddress: ip,
+        details: `Failed password change attempt for ${req.user!.username}`,
+      });
+    }
+    throw err;
+  }
 }));
 
 app.put('/api/auth/preferences', requireAuth, wrap(async (req, res) => {
   const updated = await updateUserPreferences(req.user!.id, req.body.preferences || req.body);
   res.json({ success: true, preferences: updated.preferences });
+}));
+
+// Two-Factor Authentication (TOTP) & Active Device Session Endpoints
+app.get('/api/auth/2fa/status', requireAuth, wrap(async (req, res) => {
+  const data = await securityService.getTwoFactorStatus(req.user!.id);
+  res.json({ success: true, data });
+}));
+
+app.post('/api/auth/2fa/setup', requireAuth, wrap(async (req, res) => {
+  const data = await securityService.beginTwoFactorSetup(req.user!.id);
+  res.json({ success: true, data });
+}));
+
+app.post('/api/auth/2fa/confirm', requireAuth, wrap(async (req, res) => {
+  const ip = getClientIp(req);
+  await checkDbAttemptLimit(ip, req.user!.name, 'TWO_FACTOR_FAILED');
+  const data = await securityService.confirmTwoFactorSetup(req.user!.id, String(req.body?.code || ''), req.user!.name, ip);
+  await prisma.auditLog.deleteMany({ where: { action: 'TWO_FACTOR_FAILED', ipAddress: ip, actorName: req.user!.name } }).catch(() => {});
+  res.json({ success: true, data });
+}));
+
+app.post('/api/auth/2fa/disable', requireAuth, wrap(async (req, res) => {
+  const ip = getClientIp(req);
+  await checkDbAttemptLimit(ip, req.user!.name, 'TWO_FACTOR_FAILED');
+  const data = await securityService.disableTwoFactor(
+    req.user!.id,
+    String(req.body?.currentPassword || ''),
+    String(req.body?.code || ''),
+    req.user!.name,
+    req.token,
+    ip
+  );
+  res.json({ success: true, data });
+}));
+
+app.post('/api/auth/2fa/recovery', requireAuth, wrap(async (req, res) => {
+  const ip = getClientIp(req);
+  await checkDbAttemptLimit(ip, req.user!.name, 'TWO_FACTOR_FAILED');
+  const data = await securityService.regenerateRecoveryCodes(
+    req.user!.id,
+    String(req.body?.currentPassword || ''),
+    String(req.body?.code || ''),
+    req.user!.name,
+    ip
+  );
+  res.json({ success: true, data });
+}));
+
+app.get('/api/auth/sessions', requireAuth, wrap(async (req, res) => {
+  const sessions = await securityService.listUserSessions(req.user!.id, req.token);
+  res.json({ success: true, data: sessions });
+}));
+
+app.delete('/api/auth/sessions/other', requireAuth, wrap(async (req, res) => {
+  const result = await securityService.revokeOtherUserSessions(
+    req.user!.id,
+    req.token,
+    req.user!.name,
+    getClientIp(req)
+  );
+  res.json({ success: true, data: result });
+}));
+
+app.delete('/api/auth/sessions/:id', requireAuth, wrap(async (req, res) => {
+  const result = await securityService.revokeUserSession(
+    req.user!.id,
+    getParam(req, 'id'),
+    req.user!.name,
+    getClientIp(req)
+  );
+  res.json({ success: true, data: result });
+}));
+
+app.post('/api/auth/verify-unlock', requireAuth, wrap(async (req, res) => {
+  const ip = getClientIp(req);
+  await checkDbAttemptLimit(ip, req.user!.username, 'UNLOCK_FAILED');
+  const result = await securityService.verifyTerminalUnlock(
+    req.user!.id,
+    String(req.body?.password || ''),
+    req.body?.code !== undefined ? String(req.body.code) : undefined,
+    ip
+  );
+  await prisma.auditLog.deleteMany({ where: { action: 'UNLOCK_FAILED', ipAddress: ip, actorName: req.user!.username } }).catch(() => {});
+  res.json({ success: true, ...result });
 }));
 
 // ---------------------------------------------------------------------------
@@ -564,6 +755,43 @@ app.get('/api/admin/audit-logs', requireAdmin, wrap(async (req, res) => {
     hasMore: result.hasMore,
     data: result.items,
   });
+}));
+
+app.get('/api/admin/security/posture', requireAdmin, wrap(async (_req, res) => {
+  const posture = await securityService.getAdminSecurityPosture();
+  res.json({ success: true, data: posture });
+}));
+
+app.get('/api/admin/sessions', requireAdmin, wrap(async (req, res) => {
+  const sessions = await securityService.listAllActiveSessions(req.token);
+  res.json({ success: true, data: sessions });
+}));
+
+app.delete('/api/admin/sessions/:id', requireAdmin, wrap(async (req, res) => {
+  const result = await securityService.adminRevokeSessionById(
+    getParam(req, 'id'),
+    { id: req.user!.id, name: req.user!.name },
+    getClientIp(req)
+  );
+  res.json({ success: true, data: result });
+}));
+
+app.post('/api/admin/users/:id/revoke-sessions', requireAdmin, wrap(async (req, res) => {
+  const result = await securityService.adminRevokeUserSessions(
+    getParam(req, 'id'),
+    { id: req.user!.id, name: req.user!.name },
+    getClientIp(req)
+  );
+  res.json({ success: true, data: result });
+}));
+
+app.post('/api/admin/users/:id/reset-2fa', requireAdmin, wrap(async (req, res) => {
+  const result = await securityService.adminResetUserTwoFactor(
+    getParam(req, 'id'),
+    { id: req.user!.id, name: req.user!.name },
+    getClientIp(req)
+  );
+  res.json({ success: true, data: result });
 }));
 
 // ---------------------------------------------------------------------------
@@ -966,9 +1194,16 @@ app.delete('/api/inventory/:id', requireAdmin, wrap(async (req, res) => {
 // Export
 // ---------------------------------------------------------------------------
 
-app.get('/api/export/tickets', requireAuth, wrap(async (_req, res) => {
+app.get('/api/export/tickets', requireAuth, wrap(async (req, res) => {
   const csv = await exportTicketsCsv();
-  res.setHeader('Content-Type', 'text/csv');
+  await recordAudit({
+    userId: req.user!.id,
+    actorName: req.user!.name,
+    action: 'EXPORT_TICKETS_CSV',
+    details: 'Exported work orders CSV report',
+    ipAddress: getClientIp(req),
+  });
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="FasoFix-WorkOrders.csv"');
   res.send(csv);
 }));
@@ -1463,6 +1698,12 @@ if (fs.existsSync(distPath)) {
 // ---------------------------------------------------------------------------
 
 app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
+  if (err?.type === 'entity.too.large' || err?.status === 413) {
+    return res.status(413).json({
+      success: false,
+      error: 'Request payload too large for this endpoint.',
+    });
+  }
   if (err instanceof HttpError) {
     return res.status(err.status).json({
       success: false,

@@ -24,6 +24,10 @@ import {
   CheckCircle2,
   ArrowRight,
   ShieldAlert,
+  ShieldCheck,
+  Copy,
+  RefreshCw,
+  Smartphone,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth, hasActiveSession } from '../utils/auth';
@@ -81,6 +85,25 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
 
+  // Two-Factor Authentication & Active Sessions State
+  const [twoFactorStatus, setTwoFactorStatus] = useState<{
+    enabled: boolean;
+    hasPendingSetup?: boolean;
+    recoveryCodesRemaining: number;
+  }>({
+    enabled: Boolean(currentUser?.twoFactorEnabled),
+    recoveryCodesRemaining: 0,
+  });
+  const [setupData, setSetupData] = useState<{ qrDataUrl: string; manualSecret: string } | null>(null);
+  const [confirmCode, setConfirmCode] = useState('');
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [manageMode, setManageMode] = useState<'none' | 'disable' | 'regen'>('none');
+  const [managePassword, setManagePassword] = useState('');
+  const [manageCode, setManageCode] = useState('');
+  const [twoFactorBusy, setTwoFactorBusy] = useState(false);
+  const [sessionsList, setSessionsList] = useState<any[]>([]);
+  const [sessionsLoading, setSessionsLoading] = useState(false);
+
   // User Preferences & Notification Toggles
   let initialPrefs: UserPreferences = {
     soundFX: true,
@@ -89,6 +112,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     emailAlerts: true,
     highPriorityAudio: true,
     lowStockAlerts: true,
+    autoLockMinutes: 0,
   };
   try {
     if (currentUser?.preferences) {
@@ -102,6 +126,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [emailAlertsEnabled, setEmailAlertsEnabled] = useState(initialPrefs.emailAlerts);
   const [highPriorityAudioEnabled, setHighPriorityAudioEnabled] = useState(initialPrefs.highPriorityAudio);
   const [lowStockAlertsEnabled, setLowStockAlertsEnabled] = useState(initialPrefs.lowStockAlerts);
+  const [autoLockMinutes, setAutoLockMinutes] = useState<number>(initialPrefs.autoLockMinutes || 0);
 
   // Sync state if currentUser changes
   useEffect(() => {
@@ -111,6 +136,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setUserPhone(currentUser.phone || '');
       setUserBench(currentUser.bench || 'Bench #01');
       setUserBio(currentUser.bio || '');
+      setTwoFactorStatus((prev) => ({ ...prev, enabled: Boolean(currentUser.twoFactorEnabled) }));
 
       try {
         const p = JSON.parse(currentUser.preferences || '{}');
@@ -120,9 +146,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         if (p.emailAlerts !== undefined) setEmailAlertsEnabled(p.emailAlerts);
         if (p.highPriorityAudio !== undefined) setHighPriorityAudioEnabled(p.highPriorityAudio);
         if (p.lowStockAlerts !== undefined) setLowStockAlertsEnabled(p.lowStockAlerts);
+        if (p.autoLockMinutes !== undefined) setAutoLockMinutes(Number(p.autoLockMinutes) || 0);
       } catch {}
     }
   }, [currentUser]);
+
+  const loadSecurityData = async () => {
+    if (!currentUser || !hasActiveSession()) return;
+    setSessionsLoading(true);
+    try {
+      const [tfRes, sessRes] = await Promise.all([
+        fetchWithAuth('/api/auth/2fa/status'),
+        fetchWithAuth('/api/auth/sessions'),
+      ]);
+      if (tfRes.ok) {
+        const tfJson = await tfRes.json();
+        if (tfJson.data) setTwoFactorStatus(tfJson.data);
+      }
+      if (sessRes.ok) {
+        const sessJson = await sessRes.json();
+        setSessionsList(sessJson.data || []);
+      }
+    } catch {} finally {
+      setSessionsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'security') {
+      loadSecurityData();
+    }
+  }, [activeTab]);
 
   const fetchSettings = async () => {
     try {
@@ -255,6 +309,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       emailAlerts: emailAlertsEnabled,
       highPriorityAudio: highPriorityAudioEnabled,
       lowStockAlerts: lowStockAlertsEnabled,
+      autoLockMinutes,
       ...newPrefs,
     };
 
@@ -268,13 +323,17 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (newPrefs.emailAlerts !== undefined) setEmailAlertsEnabled(newPrefs.emailAlerts);
     if (newPrefs.highPriorityAudio !== undefined) setHighPriorityAudioEnabled(newPrefs.highPriorityAudio);
     if (newPrefs.lowStockAlerts !== undefined) setLowStockAlertsEnabled(newPrefs.lowStockAlerts);
+    if (newPrefs.autoLockMinutes !== undefined) setAutoLockMinutes(newPrefs.autoLockMinutes);
 
     if (currentUser && hasActiveSession()) {
       try {
-        await fetchWithAuth('/api/auth/preferences', {
+        const res = await fetchWithAuth('/api/auth/preferences', {
           method: 'PUT',
           body: JSON.stringify({ preferences: JSON.stringify(updated) }),
         });
+        if (res.ok && onUserUpdated) {
+          onUserUpdated({ ...currentUser, preferences: JSON.stringify(updated) });
+        }
         triggerToast('Preferences saved');
       } catch (err) {
         console.error(err);
@@ -282,6 +341,107 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     } else {
       triggerToast('Preferences updated locally');
     }
+  };
+
+  const handleStartTwoFactorSetup = async () => {
+    setTwoFactorBusy(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetchWithAuth('/api/auth/2fa/setup', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Could not start 2FA setup');
+      setSetupData(json.data);
+      setConfirmCode('');
+    } catch (err: any) {
+      setErrorMessage(err.message);
+      posAudio.playWarningBeep();
+    } finally {
+      setTwoFactorBusy(false);
+    }
+  };
+
+  const handleConfirmTwoFactorSetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTwoFactorBusy(true);
+    setErrorMessage(null);
+    try {
+      const res = await fetchWithAuth('/api/auth/2fa/confirm', {
+        method: 'POST',
+        body: JSON.stringify({ code: confirmCode.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Verification failed');
+      setSetupData(null);
+      setConfirmCode('');
+      setRecoveryCodes(json.data.recoveryCodes || []);
+      setTwoFactorStatus({ enabled: true, recoveryCodesRemaining: (json.data.recoveryCodes || []).length });
+      if (currentUser && onUserUpdated) {
+        onUserUpdated({ ...currentUser, twoFactorEnabled: true });
+      }
+      posAudio.playSuccessChime();
+      triggerToast('Two-Factor Authentication enabled');
+    } catch (err: any) {
+      setErrorMessage(err.message);
+      posAudio.playWarningBeep();
+    } finally {
+      setTwoFactorBusy(false);
+    }
+  };
+
+  const handleManageTwoFactor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setTwoFactorBusy(true);
+    setErrorMessage(null);
+    try {
+      const endpoint = manageMode === 'regen' ? '/api/auth/2fa/recovery' : '/api/auth/2fa/disable';
+      const res = await fetchWithAuth(endpoint, {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword: managePassword, code: manageCode.trim() }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Request failed');
+      if (manageMode === 'regen') {
+        setRecoveryCodes(json.data.recoveryCodes || []);
+        setTwoFactorStatus((s) => ({ ...s, recoveryCodesRemaining: (json.data.recoveryCodes || []).length }));
+        triggerToast('Fresh recovery codes generated');
+      } else {
+        setTwoFactorStatus({ enabled: false, recoveryCodesRemaining: 0 });
+        setRecoveryCodes(null);
+        if (currentUser && onUserUpdated) {
+          onUserUpdated({ ...currentUser, twoFactorEnabled: false });
+        }
+        triggerToast('Two-Factor Authentication disabled');
+      }
+      setManageMode('none');
+      setManagePassword('');
+      setManageCode('');
+      posAudio.playSuccessChime();
+    } catch (err: any) {
+      setErrorMessage(err.message);
+      posAudio.playWarningBeep();
+    } finally {
+      setTwoFactorBusy(false);
+    }
+  };
+
+  const handleRevokeSession = async (sessionId: string) => {
+    try {
+      const res = await fetchWithAuth(`/api/auth/sessions/${encodeURIComponent(sessionId)}`, { method: 'DELETE' });
+      if (res.ok) {
+        triggerToast('Remote session signed out');
+        loadSecurityData();
+      }
+    } catch {}
+  };
+
+  const handleRevokeOtherSessions = async () => {
+    try {
+      const res = await fetchWithAuth('/api/auth/sessions/other', { method: 'DELETE' });
+      if (res.ok) {
+        triggerToast('Signed out all other devices');
+        loadSecurityData();
+      }
+    } catch {}
   };
 
   // 4. SAVE SYSTEM / SHOP CONFIGURATION (ADMIN ONLY / DB PERSISTENCE)
@@ -602,6 +762,37 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     placeholder="Enter new strong password"
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 transition"
                   />
+                  {newPassword.length > 0 && (() => {
+                    const checks = [
+                      { label: '8+ chars', ok: newPassword.length >= 8 },
+                      { label: 'Upper', ok: /[A-Z]/.test(newPassword) },
+                      { label: 'Lower', ok: /[a-z]/.test(newPassword) },
+                      { label: 'Number', ok: /\d/.test(newPassword) },
+                      { label: 'Symbol/12+', ok: newPassword.length >= 12 || /[^A-Za-z0-9]/.test(newPassword) },
+                    ];
+                    const score = checks.filter((c) => c.ok).length;
+                    const barColor =
+                      score <= 2 ? 'bg-rose-500' : score <= 4 ? 'bg-amber-500' : 'bg-emerald-500';
+                    return (
+                      <div className="pt-1.5 space-y-1.5">
+                        <div className="h-1.5 w-full bg-slate-200 rounded-full overflow-hidden">
+                          <div className={`h-full transition-all ${barColor}`} style={{ width: `${(score / 5) * 100}%` }} />
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 text-[10px]">
+                          {checks.map((c) => (
+                            <span
+                              key={c.label}
+                              className={`px-1.5 py-0.5 rounded font-semibold ${
+                                c.ok ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'
+                              }`}
+                            >
+                              {c.ok ? '✓' : '·'} {c.label}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 <div className="space-y-1">
@@ -629,17 +820,278 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 </div>
               </form>
 
-              {/* Active Session Info Box */}
-              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2 text-xs">
-                <div className="font-bold text-slate-800 flex items-center gap-1.5">
-                  <Shield className="w-4 h-4 text-emerald-600" />
-                  Active Security Session
+              {/* Two-Factor Authentication (TOTP Authenticator App) */}
+              <div className="p-4 sm:p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-2">
+                      <ShieldCheck className={`w-4 h-4 ${twoFactorStatus.enabled ? 'text-emerald-600' : 'text-indigo-600'}`} />
+                      <span className="text-xs font-bold text-slate-900">Two-Factor Authentication (Authenticator App)</span>
+                      <span
+                        className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                          twoFactorStatus.enabled
+                            ? 'bg-emerald-100 text-emerald-800'
+                            : 'bg-slate-200 text-slate-600'
+                        }`}
+                      >
+                        {twoFactorStatus.enabled ? 'ENABLED' : 'OFF'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-slate-500">
+                      Protect your account with a 6-digit TOTP authenticator code (Google Authenticator, 1Password, Apple Passwords) and single-use recovery codes.
+                    </p>
+                  </div>
+
+                  {!twoFactorStatus.enabled && !setupData && (
+                    <button
+                      type="button"
+                      disabled={twoFactorBusy}
+                      onClick={handleStartTwoFactorSetup}
+                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer shrink-0 disabled:opacity-50"
+                    >
+                      Enable 2FA
+                    </button>
+                  )}
+
+                  {twoFactorStatus.enabled && manageMode === 'none' && (
+                    <div className="flex flex-wrap gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setManageMode('regen')}
+                        className="px-3 py-1.5 bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 rounded-xl text-[11px] font-bold cursor-pointer"
+                      >
+                        New Recovery Codes ({twoFactorStatus.recoveryCodesRemaining} left)
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setManageMode('disable')}
+                        className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-[11px] font-bold cursor-pointer"
+                      >
+                        Disable 2FA
+                      </button>
+                    </div>
+                  )}
                 </div>
-                <p className="text-slate-500 text-[11px] leading-relaxed">
-                  Your session is authenticated via persistent cryptographic token stored locally. Session tokens strictly expire after 24 hours across all roles.
-                </p>
-                <div className="text-[11px] font-mono text-slate-400">
-                  Status: <span className="text-emerald-600 font-bold">Authenticated &bull; TLS / Local Session Active</span>
+
+                {setupData && (
+                  <form onSubmit={handleConfirmTwoFactorSetup} className="bg-white p-4 rounded-xl border border-indigo-200 space-y-4">
+                    <div className="flex flex-col sm:flex-row gap-4 items-center">
+                      <img
+                        src={setupData.qrDataUrl}
+                        alt="Authenticator QR Code"
+                        className="w-40 h-40 rounded-lg border border-slate-200 bg-white p-1 shrink-0"
+                      />
+                      <div className="space-y-2.5 flex-1 min-w-0 text-xs">
+                        <p className="font-bold text-slate-900">1. Scan this QR code in your authenticator app</p>
+                        <div className="space-y-1">
+                          <span className="text-[11px] text-slate-500">Or enter manual key:</span>
+                          <div className="flex items-center gap-2">
+                            <code className="px-2.5 py-1.5 bg-slate-100 rounded-lg font-mono text-[11px] text-slate-800 break-all">
+                              {setupData.manualSecret}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                navigator.clipboard?.writeText(setupData.manualSecret).catch(() => {});
+                                triggerToast('Secret key copied');
+                              }}
+                              className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 text-slate-600 cursor-pointer shrink-0"
+                              title="Copy manual key"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          <label className="text-[11px] font-bold text-slate-700">2. Enter 6-digit confirmation code</label>
+                          <div className="flex flex-wrap gap-2">
+                            <input
+                              type="text"
+                              required
+                              maxLength={8}
+                              value={confirmCode}
+                              onChange={(e) => setConfirmCode(e.target.value)}
+                              placeholder="123456"
+                              className="w-36 px-3 py-2 text-xs font-mono tracking-widest text-center bg-slate-50 border border-slate-200 rounded-xl"
+                            />
+                            <button
+                              type="submit"
+                              disabled={twoFactorBusy}
+                              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold cursor-pointer disabled:opacity-50"
+                            >
+                              Confirm &amp; Activate
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setSetupData(null)}
+                              className="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold cursor-pointer"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </form>
+                )}
+
+                {manageMode !== 'none' && (
+                  <form onSubmit={handleManageTwoFactor} className="bg-white p-4 rounded-xl border border-slate-200 space-y-3 max-w-md text-xs">
+                    <div className="font-bold text-slate-900">
+                      {manageMode === 'disable' ? 'Confirm Identity to Disable 2FA' : 'Generate Fresh Recovery Codes'}
+                    </div>
+                    <input
+                      type="password"
+                      required
+                      value={managePassword}
+                      onChange={(e) => setManagePassword(e.target.value)}
+                      placeholder="Current account password"
+                      className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl"
+                    />
+                    <input
+                      type="text"
+                      required
+                      value={manageCode}
+                      onChange={(e) => setManageCode(e.target.value)}
+                      placeholder="6-digit authenticator code"
+                      className="w-full px-3 py-2 text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl"
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="submit"
+                        disabled={twoFactorBusy}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold cursor-pointer"
+                      >
+                        {manageMode === 'disable' ? 'Disable 2FA' : 'Generate Codes'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setManageMode('none');
+                          setManagePassword('');
+                          setManageCode('');
+                        }}
+                        className="px-3 py-2 border border-slate-200 text-slate-600 rounded-xl text-xs font-semibold cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {recoveryCodes && recoveryCodes.length > 0 && (
+                  <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 space-y-2.5 text-xs">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-amber-950">Save These One-Time Backup Recovery Codes</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          navigator.clipboard?.writeText(recoveryCodes.join('\n')).catch(() => {});
+                          triggerToast('Recovery codes copied');
+                        }}
+                        className="px-2.5 py-1 bg-white border border-amber-300 rounded-lg text-[11px] font-bold text-amber-900 inline-flex items-center gap-1 cursor-pointer"
+                      >
+                        <Copy className="w-3 h-3" />
+                        <span>Copy All</span>
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-amber-900">
+                      Each code works once if you ever lose your phone. Keep them offline — they will not be shown again.
+                    </p>
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
+                      {recoveryCodes.map((rc) => (
+                        <div key={rc} className="bg-white px-2.5 py-1.5 rounded-lg border border-amber-200 text-center font-bold text-slate-800">
+                          {rc}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Shared Counter Auto-Lock Setting */}
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+                <div className="space-y-0.5">
+                  <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                    <Lock className="w-4 h-4 text-indigo-600" />
+                    <span>Shared Counter Inactivity Lock</span>
+                  </div>
+                  <p className="text-[11px] text-slate-500">
+                    Automatically lock this screen on inactivity so counter staff must unlock with their password before viewing work orders.
+                  </p>
+                </div>
+                <select
+                  value={autoLockMinutes}
+                  onChange={(e) => handleSavePreferences({ autoLockMinutes: Number(e.target.value) })}
+                  className="px-3 py-2 bg-white border border-slate-200 rounded-xl text-xs font-bold text-slate-700 cursor-pointer shrink-0"
+                >
+                  <option value={0}>Off (Manual Lock Only)</option>
+                  <option value={5}>Lock after 5 minutes</option>
+                  <option value={15}>Lock after 15 minutes</option>
+                  <option value={30}>Lock after 30 minutes</option>
+                </select>
+              </div>
+
+              {/* Active Devices & Sessions */}
+              <div className="p-4 sm:p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-3 text-xs">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                    <Smartphone className="w-4 h-4 text-emerald-600" />
+                    <span>Active Devices &amp; Sessions ({sessionsList.length})</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={loadSecurityData}
+                      className="px-2.5 py-1 bg-white hover:bg-slate-100 border border-slate-200 rounded-lg text-[11px] font-semibold text-slate-600 inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      <RefreshCw className={`w-3 h-3 ${sessionsLoading ? 'animate-spin' : ''}`} />
+                      <span>Refresh</span>
+                    </button>
+                    {sessionsList.filter((s) => !s.isCurrent).length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleRevokeOtherSessions}
+                        className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg text-[11px] font-bold text-rose-700 cursor-pointer"
+                      >
+                        Sign Out Other Devices
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="divide-y divide-slate-200 bg-white rounded-xl border border-slate-200 overflow-hidden">
+                  {sessionsList.length === 0 ? (
+                    <div className="p-4 text-[11px] text-slate-500">
+                      {sessionsLoading ? 'Loading active devices...' : 'Current HttpOnly cookie session is active (24h strict max TTL).'}
+                    </div>
+                  ) : (
+                    sessionsList.map((s) => (
+                      <div key={s.id} className="px-4 py-3 flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-bold text-slate-800 flex items-center gap-1.5">
+                            <span>{s.device}</span>
+                            {s.isCurrent && (
+                              <span className="px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800 text-[9px] font-bold">
+                                THIS DEVICE
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-500 font-mono">
+                            {s.ipAddress} &bull; Active {new Date(s.lastActiveAt).toLocaleString()}
+                          </div>
+                        </div>
+                        {!s.isCurrent && (
+                          <button
+                            type="button"
+                            onClick={() => handleRevokeSession(s.id)}
+                            className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 text-[11px] font-bold cursor-pointer shrink-0"
+                          >
+                            Revoke
+                          </button>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             </div>

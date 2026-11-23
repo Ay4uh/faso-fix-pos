@@ -66,13 +66,15 @@ export async function createBackup(reason = 'manual'): Promise<BackupInfo> {
       prisma.payrollPeriod.findMany(),
       prisma.paystub.findMany(),
     ]);
-    const safeUsers = users.map(({ passwordHash: _ph, sin, ...u }) => {
-      const digits = sin ? sin.replace(/\D/g, '') : '';
-      return {
-        ...u,
-        sin: digits.length >= 3 ? `***-***-${digits.slice(-3)}` : null,
-      };
-    });
+    const safeUsers = users.map(
+      ({ passwordHash: _ph, sin, twoFactorSecret: _tfs, twoFactorRecoveryCodes: _tfr, twoFactorLastCounter: _tflc, ...u }) => {
+        const digits = sin ? sin.replace(/\D/g, '') : '';
+        return {
+          ...u,
+          sin: digits.length >= 3 ? `***-***-${digits.slice(-3)}` : null,
+        };
+      }
+    );
 
     const snapshot = {
       timestamp: new Date().toISOString(),

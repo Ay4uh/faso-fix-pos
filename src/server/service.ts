@@ -2,6 +2,7 @@ import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma, isPostgres } from './prisma';
 import { computeTotals, digitsOnly } from './money';
+import { csvCell } from './csvSafe';
 import {
   addItemSchema,
   createTicketSchema,
@@ -25,6 +26,7 @@ import {
   verifyPassword,
   verifyDummyPassword,
   hashSessionToken,
+  generateToken,
   createSession,
   destroySession,
   recordAudit,
@@ -806,6 +808,9 @@ export async function updateNote(ticketId: string, noteId: string, message: stri
       where: { id: noteId, ticketId },
     });
     if (!existing) throw new HttpError(404, 'Note not found');
+    if (existing.kind !== 'CUSTOMER_NOTE' && existing.kind !== 'INTERNAL_NOTE') {
+      throw new HttpError(403, 'System, status, item, and payment timeline events are immutable and cannot be altered.');
+    }
     await tx.ticketEvent.update({
       where: { id: noteId },
       data: { message: message.trim() },
@@ -821,6 +826,9 @@ export async function deleteNote(ticketId: string, noteId: string) {
       where: { id: noteId, ticketId },
     });
     if (!existing) throw new HttpError(404, 'Note not found');
+    if (existing.kind !== 'CUSTOMER_NOTE' && existing.kind !== 'INTERNAL_NOTE') {
+      throw new HttpError(403, 'System, status, item, and payment timeline events are immutable and cannot be deleted.');
+    }
     await tx.ticketEvent.delete({
       where: { id: noteId },
     });
@@ -1539,7 +1547,6 @@ export async function getSalesLaborAnalytics(startDateStr?: string, endDateStr?:
 
 export async function exportTicketsCsv() {
   const tickets = await prisma.ticket.findMany({ where: { deletedAt: null }, include: ticketInclude, orderBy: { ticketNumber: 'asc' } });
-  const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const rows = [
     ['WO #', 'Created', 'Status', 'Customer', 'Phone', 'Email', 'Device', 'Serial/IMEI', 'Fault', 'Due', 'Completed', 'Total', 'Paid', 'Balance'],
   ];
@@ -1562,14 +1569,14 @@ export async function exportTicketsCsv() {
       (totals.balanceCents / 100).toFixed(2),
     ]);
   }
-  return rows.map((r) => r.map(esc).join(',')).join('\n') + '\n';
+  return rows.map((r) => r.map(csvCell).join(',')).join('\n') + '\n';
 }
 
 // ---------------------------------------------------------------------------
 // Authentication & User Management
 // ---------------------------------------------------------------------------
 
-export async function loginUser(input: unknown, ipAddress?: string) {
+export async function loginUser(input: unknown, ipAddress?: string, userAgent?: string) {
   const { usernameOrEmail, password, adminMode } = loginSchema.parse(input);
 
   const user = await prisma.user.findFirst({
@@ -1608,13 +1615,48 @@ export async function loginUser(input: unknown, ipAddress?: string) {
     throw new HttpError(403, 'Access Denied: Administrator role required. Standard technicians must use Technician Login.');
   }
 
+  // Require second-factor TOTP verification before minting any session when 2FA is enabled
+  if (user.twoFactorEnabled && user.twoFactorSecret) {
+    const challengeToken = generateToken();
+    const challengeExpiresAt = new Date(Date.now() + 5 * 60_000);
+    await prisma.twoFactorChallenge.create({
+      data: {
+        tokenHash: hashSessionToken(challengeToken),
+        userId: user.id,
+        adminMode,
+        ipAddress: ipAddress ? ipAddress.slice(0, 100) : null,
+        userAgent: userAgent ? userAgent.slice(0, 200) : null,
+        expiresAt: challengeExpiresAt,
+      },
+    });
+    await recordAudit({
+      userId: user.id,
+      actorName: user.name,
+      action: 'LOGIN_2FA_CHALLENGE',
+      details: `Issued 2FA challenge for ${user.username}`,
+      ipAddress,
+    });
+    return {
+      requiresTwoFactor: true,
+      challengeToken,
+      expiresAtMs: challengeExpiresAt.getTime(),
+      user: {
+        id: user.id,
+        username: user.username,
+        name: user.name,
+        role: user.role,
+        twoFactorEnabled: true,
+      },
+    };
+  }
+
   // Update last login
   await prisma.user.update({
     where: { id: user.id },
     data: { lastLoginAt: new Date() },
   });
 
-  const token = await createSession(user.id);
+  const token = await createSession(user.id, { ipAddress, userAgent });
 
   await recordAudit({
     userId: user.id,
@@ -1624,14 +1666,22 @@ export async function loginUser(input: unknown, ipAddress?: string) {
     ipAddress,
   });
 
-  const { passwordHash: _, sin: _sin, ...safeUser } = user;
+  const {
+    passwordHash: _,
+    sin: _sin,
+    twoFactorSecret: _tfs,
+    twoFactorRecoveryCodes: _tfr,
+    twoFactorLastCounter: _tflc,
+    ...safeUser
+  } = user;
   const expiresAtMs = Date.now() + 24 * 60 * 60 * 1000;
-  return { 
-    token, 
-    user: safeUser, 
+  return {
+    requiresTwoFactor: false,
+    token,
+    user: safeUser,
     expiresAt: new Date(expiresAtMs).toISOString(),
     expiresAtMs,
-    redirectTo: (user.role === 'ADMIN' && adminMode) ? 'admin' : 'repairs' 
+    redirectTo: user.role === 'ADMIN' && adminMode ? 'admin' : 'repairs',
   };
 }
 
@@ -1685,6 +1735,7 @@ export async function listUsers(
       employeeNumber: true,
       hourlyRateCents: true,
       vacationPayPct: true,
+      twoFactorEnabled: true,
       preferences: true,
       lastLoginAt: true,
       createdAt: true,
@@ -1707,6 +1758,7 @@ export async function getUser(id: string) {
       phone: true,
       bench: true,
       bio: true,
+      twoFactorEnabled: true,
       preferences: true,
       lastLoginAt: true,
       createdAt: true,
@@ -1829,10 +1881,19 @@ export async function updateUser(id: string, input: unknown, actor: { id: string
       phone: true,
       bench: true,
       bio: true,
+      twoFactorEnabled: true,
       preferences: true,
       updatedAt: true,
     },
   });
+
+  // Immediately terminate active sessions & pending 2FA challenges upon account disable or role change
+  if (data.status === 'DISABLED' || (data.role && data.role !== existing.role)) {
+    await Promise.all([
+      prisma.session.deleteMany({ where: { userId: id } }),
+      prisma.twoFactorChallenge.deleteMany({ where: { userId: id } }),
+    ]).catch(() => {});
+  }
 
   const actions: string[] = [];
   if (data.role && data.role !== existing.role) actions.push(`role changed to ${data.role}`);

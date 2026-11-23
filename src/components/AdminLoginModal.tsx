@@ -18,6 +18,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [challengeToken, setChallengeToken] = useState<string | null>(null);
+  const [twoFactorCode, setTwoFactorCode] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -25,6 +27,8 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     if (!isOpen) {
       setUsernameOrEmail('');
       setPassword('');
+      setChallengeToken(null);
+      setTwoFactorCode('');
       setErrorMessage(null);
       setShowPassword(false);
     }
@@ -34,6 +38,43 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (challengeToken) {
+      if (!twoFactorCode.trim()) {
+        setErrorMessage('Enter your 6-digit authenticator code or recovery code.');
+        return;
+      }
+      setIsLoading(true);
+      setErrorMessage(null);
+      try {
+        const res = await fetch('/api/auth/login/verify-2fa', {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'FasoFixPOS',
+          },
+          body: JSON.stringify({ challengeToken, code: twoFactorCode.trim() }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data?.error || 'Two-factor verification failed.');
+        markSessionActive(data.expiresAtMs);
+        try {
+          localStorage.setItem('apexfix_cached_user', JSON.stringify(data.user));
+        } catch {}
+        posAudio.playSuccessChime();
+        setChallengeToken(null);
+        setTwoFactorCode('');
+        onLoginSuccess(data.user);
+        onClose();
+      } catch (err: any) {
+        setErrorMessage(err.message || 'Verification failed');
+        posAudio.playWarningBeep();
+      } finally {
+        setIsLoading(false);
+      }
+      return;
+    }
+
     if (!usernameOrEmail.trim() || !password) {
       setErrorMessage('Please enter both your administrator username/email and password.');
       return;
@@ -72,6 +113,13 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
       if (!res.ok) {
         throw new Error(data?.error || 'Authentication failed. Please verify credentials.');
+      }
+
+      if (data.requiresTwoFactor && data.challengeToken) {
+        setChallengeToken(data.challengeToken);
+        setTwoFactorCode('');
+        setErrorMessage(null);
+        return;
       }
 
       markSessionActive(data.expiresAtMs);
@@ -135,47 +183,66 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
             </div>
           )}
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
-              <User className="w-3.5 h-3.5 text-slate-400" />
-              Administrator Username or Email
-            </label>
-            <input
-              type="text"
-              autoFocus
-              value={usernameOrEmail}
-              onChange={(e) => setUsernameOrEmail(e.target.value)}
-              placeholder="e.g. admin or admin@fasofix.ca"
-              className="w-full px-3.5 py-2.5 text-xs bg-slate-50/80 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition"
-              required
-            />
-          </div>
+          {!challengeToken ? (
+            <>
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 flex items-center gap-1">
+                  <User className="w-3.5 h-3.5 text-slate-400" />
+                  Administrator Username or Email
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={usernameOrEmail}
+                  onChange={(e) => setUsernameOrEmail(e.target.value)}
+                  placeholder="e.g. admin or admin@fasofix.ca"
+                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50/80 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition"
+                  required
+                />
+              </div>
 
-          <div className="space-y-1.5">
-            <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
-              <span className="flex items-center gap-1">
-                <Lock className="w-3.5 h-3.5 text-slate-400" />
-                Password
-              </span>
-            </label>
-            <div className="relative">
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold text-slate-700 flex items-center justify-between">
+                  <span className="flex items-center gap-1">
+                    <Lock className="w-3.5 h-3.5 text-slate-400" />
+                    Password
+                  </span>
+                </label>
+                <div className="relative">
+                  <input
+                    type={showPassword ? 'text' : 'password'}
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="Enter administrator password"
+                    className="w-full px-3.5 py-2.5 text-xs bg-slate-50/80 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 pr-10 transition font-mono"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword(!showPassword)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
+                  >
+                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-2.5">
+              <div className="p-3 bg-purple-50 border border-purple-200 rounded-xl text-xs text-purple-900">
+                Enter your 6-digit authenticator code or recovery code to complete Administrator elevation.
+              </div>
               <input
-                type={showPassword ? 'text' : 'password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter administrator password"
-                className="w-full px-3.5 py-2.5 text-xs bg-slate-50/80 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 pr-10 transition font-mono"
+                type="text"
+                autoFocus
                 required
+                value={twoFactorCode}
+                onChange={(e) => setTwoFactorCode(e.target.value)}
+                placeholder="123456 or ABCD-EFGH"
+                className="w-full px-3.5 py-2.5 text-sm tracking-widest text-center font-mono bg-slate-50 border border-slate-200 rounded-xl focus:bg-white"
               />
-              <button
-                type="button"
-                onClick={() => setShowPassword(!showPassword)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 cursor-pointer"
-              >
-                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-              </button>
             </div>
-          </div>
+          )}
 
           {/* Quick Default Admin Credentials Tip — dev only */}
           {import.meta.env.DEV && (
