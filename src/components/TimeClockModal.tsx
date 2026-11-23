@@ -295,7 +295,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
       } catch {}
 
       setNotes('');
-      await loadShifts();
+      await Promise.all([loadStatus(), loadShifts()]);
     } catch (err: any) {
       setErrorMsg(err.message || 'Error clocking in');
     } finally {
@@ -797,10 +797,28 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                 <ArrowLeft className="w-4 h-4" />
                 <span>Back to Time Clock</span>
               </button>
-              <span className="text-xs text-slate-500 font-medium">Recent Logged Shifts ({shifts.length})</span>
+              <div className="flex items-center space-x-2">
+                <span className="text-xs text-slate-500 font-medium">Recorded Shifts ({shifts.length})</span>
+              </div>
             </div>
 
-            <div className="max-h-[380px] overflow-y-auto rounded-xl border border-slate-200">
+            {/* Role-based permissions banner */}
+            <div className={`p-2.5 rounded-xl border text-xs flex items-center justify-between gap-2 ${
+              currentUser?.role === 'ADMIN'
+                ? 'bg-purple-50 border-purple-200 text-purple-900'
+                : 'bg-slate-50 border-slate-200 text-slate-600'
+            }`}>
+              <div className="flex items-center space-x-2">
+                <span className="text-sm">{currentUser?.role === 'ADMIN' ? '👑' : '🔒'}</span>
+                <span>
+                  {currentUser?.role === 'ADMIN'
+                    ? 'Administrator Access: You can manually adjust, add, or correct time entries with audit logs in the Admin Console.'
+                    : 'Technician View: Shift time periods and punches are permanent records. Only store administrators can modify time entries.'}
+                </span>
+              </div>
+            </div>
+
+            <div className="max-h-[380px] overflow-y-auto rounded-xl border border-slate-200 shadow-2xs">
               {shifts.length === 0 ? (
                 <div className="text-center py-10 text-slate-500 text-xs">No shifts recorded yet.</div>
               ) : (
@@ -808,46 +826,77 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                   <thead className="bg-slate-50 text-slate-600 uppercase text-[10px] font-bold sticky top-0 border-b border-slate-200">
                     <tr>
                       <th className="py-2.5 px-3">Date</th>
-                      <th className="py-2.5 px-3">Clock In</th>
-                      <th className="py-2.5 px-3">Clock Out</th>
+                      <th className="py-2.5 px-3">Clock In (Exact)</th>
+                      <th className="py-2.5 px-3">Clock Out (Exact)</th>
                       <th className="py-2.5 px-3 text-center">Breaks</th>
-                      <th className="py-2.5 px-3 text-right">Net Hours</th>
+                      <th className="py-2.5 px-3 text-right">Exact Duration</th>
+                      <th className="py-2.5 px-3 text-right">Hours</th>
                       <th className="py-2.5 px-3 text-center">Status</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 font-mono text-slate-700">
-                    {shifts.map((s) => (
-                      <tr key={s.id} className="hover:bg-slate-50 transition">
-                        <td className="py-2.5 px-3 font-sans font-semibold text-slate-900">
-                          {new Date(s.clockIn).toLocaleDateString('en-CA')}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-600">
-                          {new Date(s.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </td>
-                        <td className="py-2.5 px-3 text-slate-600">
-                          {s.clockOut
-                            ? new Date(s.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-                            : 'Active'}
-                        </td>
-                        <td className="py-2.5 px-3 text-center text-slate-500">{s.breakMinutes || 0}m</td>
-                        <td className="py-2.5 px-3 text-right font-bold text-slate-900">
-                          {((s.totalMinutes || 0) / 60).toFixed(2)}h
-                        </td>
-                        <td className="py-2.5 px-3 text-center">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase font-sans ${
-                              s.status === 'COMPLETED'
-                                ? 'bg-slate-100 text-slate-700 border border-slate-200'
-                                : s.status === 'ACTIVE'
-                                ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
-                                : 'bg-sky-100 text-sky-800 border border-sky-300'
-                            }`}
-                          >
-                            {s.status}
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
+                    {shifts.map((s) => {
+                      const clockInDate = new Date(s.clockIn);
+                      const clockOutDate = s.clockOut ? new Date(s.clockOut) : null;
+                      const durSec = clockOutDate
+                        ? Math.max(0, Math.floor((clockOutDate.getTime() - clockInDate.getTime()) / 1000) - (s.breakMinutes || 0) * 60)
+                        : Math.max(0, Math.floor((currentTime.getTime() - clockInDate.getTime()) / 1000) - (s.breakMinutes || 0) * 60);
+
+                      const hrs = Math.floor(durSec / 3600);
+                      const mins = Math.floor((durSec % 3600) / 60);
+                      const secs = durSec % 60;
+                      const pad = (n: number) => String(n).padStart(2, '0');
+                      const exactDurationStr = `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+                      const hoursDecimal = (durSec / 3600).toFixed(2);
+
+                      return (
+                        <tr key={s.id} className="hover:bg-slate-50 transition">
+                          <td className="py-2.5 px-3 font-sans font-semibold text-slate-900">
+                            {clockInDate.toLocaleDateString('en-CA')}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-700">
+                            {clockInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </td>
+                          <td className="py-2.5 px-3 text-slate-700">
+                            {clockOutDate ? (
+                              clockOutDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                            ) : (
+                              <span className="text-emerald-600 font-bold font-sans">Active</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-center text-slate-500">{s.breakMinutes || 0}m</td>
+                          <td className="py-2.5 px-3 text-right font-bold text-slate-900">
+                            {exactDurationStr}
+                          </td>
+                          <td className="py-2.5 px-3 text-right text-slate-600">
+                            {hoursDecimal}h
+                          </td>
+                          <td className="py-2.5 px-3 text-center">
+                            <div className="flex items-center justify-center gap-1">
+                              <span
+                                className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase font-sans ${
+                                  s.status === 'COMPLETED'
+                                    ? 'bg-slate-100 text-slate-700 border border-slate-200'
+                                    : s.status === 'ACTIVE'
+                                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-300'
+                                    : 'bg-sky-100 text-sky-800 border border-sky-300'
+                                }`}
+                              >
+                                {s.status}
+                              </span>
+                              {s.editedByAdminId && (
+                                <span
+                                  className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-purple-100 text-purple-800 uppercase font-sans"
+                                  title={`Edited by admin: ${s.editReason || 'Correction'}`}
+                                >
+                                  Audited
+                                </span>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               )}

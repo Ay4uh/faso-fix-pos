@@ -232,7 +232,7 @@ export async function clockOut(
     }
   }
 
-  // 3. Serverless failover: if active shift was started on another container and not in DB yet
+  // 3. Fallback: if active shift was started on another container and not in DB yet
   if (!shift && shiftData?.clockIn) {
     const user = await prisma.user.findUnique({
       where: { id: userId },
@@ -240,7 +240,7 @@ export async function clockOut(
     });
     if (user) {
       try {
-        if (shiftData.id) {
+        if (shiftData.id && !shiftData.id.startsWith('local-') && !shiftData.id.startsWith('shift_')) {
           shift = await prisma.shift.upsert({
             where: { id: shiftData.id },
             update: {},
@@ -312,9 +312,11 @@ export async function clockOut(
     }
   }
 
-  // Calculate payable minutes (only unpaid breakMinutes subtracted)
-  const grossMinutes = Math.max(0, Math.round((clockOutTime.getTime() - shift.clockIn.getTime()) / 60000));
-  const totalMinutes = Math.max(0, grossMinutes - shift.breakMinutes);
+  // Calculate payable seconds and minutes (ensuring every second worked counts)
+  const grossSeconds = Math.max(0, Math.floor((clockOutTime.getTime() - shift.clockIn.getTime()) / 1000));
+  const unpaidBreakSeconds = (shift.breakMinutes || 0) * 60;
+  const netSeconds = Math.max(0, grossSeconds - unpaidBreakSeconds);
+  const totalMinutes = netSeconds > 0 ? Math.max(1, Math.round(netSeconds / 60)) : 0;
 
   // Weekly overtime calculation (Ontario ESA: > 44 hours per week)
   const priorWeekMinutes = await getPriorWeeklyCompletedMinutes(userId, shift.clockIn, shift.id);
@@ -333,11 +335,15 @@ export async function clockOut(
     },
   });
 
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const exactDuration = `${pad(Math.floor(netSeconds / 3600))}:${pad(Math.floor((netSeconds % 3600) / 60))}:${pad(netSeconds % 60)}`;
+  const hoursDecimal = (netSeconds / 3600).toFixed(2);
+
   await recordAudit({
     userId,
     actorName: shift.user.name,
     action: 'CLOCK_OUT',
-    details: `Employee ${shift.user.name} clocked out. Total worked: ${(totalMinutes / 60).toFixed(2)}h (Regular: ${(regularMinutes / 60).toFixed(2)}h, Overtime: ${(overtimeMinutes / 60).toFixed(2)}h)`,
+    details: `Employee ${shift.user.name} clocked out. Duration: ${exactDuration} (${hoursDecimal}h, Regular: ${(regularMinutes / 60).toFixed(2)}h, Overtime: ${(overtimeMinutes / 60).toFixed(2)}h)`,
   });
 
   if (overtimeMinutes > 0) {
@@ -442,13 +448,25 @@ export async function getMyShifts(userId: string, options: { startDate?: string;
     take: options.limit || 50,
   });
 
-  return shifts.map((s) => ({
-    ...s,
-    totalHours: Number((s.totalMinutes / 60).toFixed(2)),
-    regularHours: Number((s.regularMinutes / 60).toFixed(2)),
-    overtimeHours: Number((s.overtimeMinutes / 60).toFixed(2)),
-    breakHours: Number((s.breakMinutes / 60).toFixed(2)),
-  }));
+  return shifts.map((s) => {
+    const startMs = new Date(s.clockIn).getTime();
+    const endMs = s.clockOut ? new Date(s.clockOut).getTime() : Date.now();
+    const unpaidSec = (s.breakMinutes || 0) * 60;
+    const workedSeconds = Math.max(0, Math.floor((endMs - startMs) / 1000) - unpaidSec);
+    const hrs = Math.floor(workedSeconds / 3600);
+    const mins = Math.floor((workedSeconds % 3600) / 60);
+    const secs = workedSeconds % 60;
+    const pad = (n: number) => String(n).padStart(2, '0');
+    return {
+      ...s,
+      totalSeconds: workedSeconds,
+      durationFormatted: `${pad(hrs)}:${pad(mins)}:${pad(secs)}`,
+      totalHours: Number((workedSeconds / 3600).toFixed(2)),
+      regularHours: Number((s.regularMinutes / 60).toFixed(2)),
+      overtimeHours: Number((s.overtimeMinutes / 60).toFixed(2)),
+      breakHours: Number((s.breakMinutes / 60).toFixed(2)),
+    };
+  });
 }
 
 export async function getMyPaystubs(userId: string) {
@@ -539,13 +557,25 @@ export async function getAttendanceOverview(filters: {
   const overtimeMinutes = shifts.reduce((acc, s) => acc + s.overtimeMinutes, 0);
 
   return {
-    shifts: shifts.map((s) => ({
-      ...s,
-      totalHours: Number((s.totalMinutes / 60).toFixed(2)),
-      regularHours: Number((s.regularMinutes / 60).toFixed(2)),
-      overtimeHours: Number((s.overtimeMinutes / 60).toFixed(2)),
-      breakHours: Number((s.breakMinutes / 60).toFixed(2)),
-    })),
+    shifts: shifts.map((s) => {
+      const startMs = new Date(s.clockIn).getTime();
+      const endMs = s.clockOut ? new Date(s.clockOut).getTime() : Date.now();
+      const unpaidSec = (s.breakMinutes || 0) * 60;
+      const workedSeconds = Math.max(0, Math.floor((endMs - startMs) / 1000) - unpaidSec);
+      const hrs = Math.floor(workedSeconds / 3600);
+      const mins = Math.floor((workedSeconds % 3600) / 60);
+      const secs = workedSeconds % 60;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      return {
+        ...s,
+        totalSeconds: workedSeconds,
+        durationFormatted: `${pad(hrs)}:${pad(mins)}:${pad(secs)}`,
+        totalHours: Number((workedSeconds / 3600).toFixed(2)),
+        regularHours: Number((s.regularMinutes / 60).toFixed(2)),
+        overtimeHours: Number((s.overtimeMinutes / 60).toFixed(2)),
+        breakHours: Number((s.breakMinutes / 60).toFixed(2)),
+      };
+    }),
     users,
     metrics: {
       totalShifts: shifts.length,

@@ -21,7 +21,7 @@
             registrations.forEach(function(reg) { reg.unregister(); });
           });
         }
-        var BUILD_ID = "2026-11-23-prod-no-inventory";
+        var BUILD_ID = "2026-11-23-prod-timeclock-seconds";
         var currentBuild = localStorage.getItem("faso_pos_build_id");
         if (currentBuild !== BUILD_ID) {
           localStorage.setItem("faso_pos_build_id", BUILD_ID);

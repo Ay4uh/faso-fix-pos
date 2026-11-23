@@ -151,11 +151,7 @@ export const Header: React.FC<HeaderProps> = ({
       const mins = Math.floor((diffSec % 3600) / 60);
       const secs = diffSec % 60;
       const pad = (n: number) => String(n).padStart(2, '0');
-      if (hrs > 0) {
-        setLiveElapsed(`${pad(hrs)}:${pad(mins)}:${pad(secs)}`);
-      } else {
-        setLiveElapsed(`${pad(mins)}:${pad(secs)}`);
-      }
+      setLiveElapsed(`${pad(hrs)}:${pad(mins)}:${pad(secs)}`);
     };
 
     updateTimer();

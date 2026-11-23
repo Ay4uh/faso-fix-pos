@@ -2013,17 +2013,42 @@ async function configureSqlite() {
 	await prisma.$queryRawUnsafe("PRAGMA busy_timeout = 5000;");
 	await prisma.$executeRawUnsafe("PRAGMA foreign_keys = ON;");
 }
-/** Consistent online snapshot using SQLite VACUUM INTO (safe while app is running). */
+/** Consistent online snapshot (safe while app is running). */
 async function createBackup(reason = "manual") {
-	if (!!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")))) return {
-		file: "cloud-postgresql-managed",
-		sizeBytes: 0,
-		createdAt: (/* @__PURE__ */ new Date()).toISOString()
-	};
+	const isPostgres = !!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")));
 	fs.mkdirSync(BACKUP_DIR, { recursive: true });
 	const file = `apexfix-${(/* @__PURE__ */ new Date()).toISOString().replace(/[:.]/g, "-")}-${reason.replace(/[^a-z0-9]/gi, "")}.db`;
 	const full = path.join(BACKUP_DIR, file);
-	await prisma.$executeRawUnsafe(`VACUUM INTO '${full.replace(/'/g, "''")}'`);
+	if (isPostgres) {
+		const [users, settings, tickets, customers, devices, shifts, audits] = await Promise.all([
+			prisma.user.findMany(),
+			prisma.setting.findMany(),
+			prisma.ticket.findMany({ include: {
+				items: true,
+				payments: true,
+				events: true
+			} }),
+			prisma.customer.findMany(),
+			prisma.device.findMany(),
+			prisma.shift.findMany(),
+			prisma.auditLog.findMany({ take: 500 })
+		]);
+		const snapshot = {
+			timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+			reason,
+			provider: "postgresql",
+			data: {
+				users,
+				settings,
+				tickets,
+				customers,
+				devices,
+				shifts,
+				audits
+			}
+		};
+		fs.writeFileSync(full, JSON.stringify(snapshot, null, 2), "utf-8");
+	} else await prisma.$executeRawUnsafe(`VACUUM INTO '${full.replace(/'/g, "''")}'`);
 	pruneBackups();
 	const st = fs.statSync(full);
 	return {
@@ -2033,11 +2058,6 @@ async function createBackup(reason = "manual") {
 	};
 }
 function listBackups() {
-	if (!!(process.env.DATABASE_URL && (process.env.DATABASE_URL.startsWith("postgres://") || process.env.DATABASE_URL.startsWith("postgresql://")))) return [{
-		file: "Supabase Automated Daily Backups (Active)",
-		sizeBytes: 0,
-		createdAt: (/* @__PURE__ */ new Date()).toISOString()
-	}];
 	if (!fs.existsSync(BACKUP_DIR)) return [];
 	return fs.readdirSync(BACKUP_DIR).filter((f) => /^apexfix-.*\.db$/.test(f)).map((f) => {
 		const st = fs.statSync(path.join(BACKUP_DIR, f));
@@ -3149,7 +3169,7 @@ async function clockOut(userId, notes, shiftData) {
 			where: { id: userId },
 			select: { name: true }
 		})) try {
-			if (shiftData.id) shift = await prisma.shift.upsert({
+			if (shiftData.id && !shiftData.id.startsWith("local-") && !shiftData.id.startsWith("shift_")) shift = await prisma.shift.upsert({
 				where: { id: shiftData.id },
 				update: {},
 				create: {
@@ -3205,8 +3225,10 @@ async function clockOut(userId, notes, shiftData) {
 			if (openBreak.type !== "PAID_REST") shift.breakMinutes += dur;
 		}
 	}
-	const grossMinutes = Math.max(0, Math.round((clockOutTime.getTime() - shift.clockIn.getTime()) / 6e4));
-	const totalMinutes = Math.max(0, grossMinutes - shift.breakMinutes);
+	const grossSeconds = Math.max(0, Math.floor((clockOutTime.getTime() - shift.clockIn.getTime()) / 1e3));
+	const unpaidBreakSeconds = (shift.breakMinutes || 0) * 60;
+	const netSeconds = Math.max(0, grossSeconds - unpaidBreakSeconds);
+	const totalMinutes = netSeconds > 0 ? Math.max(1, Math.round(netSeconds / 60)) : 0;
 	const { regularMinutes, overtimeMinutes } = calculateShiftHours(totalMinutes, await getPriorWeeklyCompletedMinutes(userId, shift.clockIn, shift.id));
 	const updated = await prisma.shift.update({
 		where: { id: shift.id },
@@ -3220,11 +3242,14 @@ async function clockOut(userId, notes, shiftData) {
 			notes: notes?.trim() || shift.notes
 		}
 	});
+	const pad = (n) => String(n).padStart(2, "0");
+	const exactDuration = `${pad(Math.floor(netSeconds / 3600))}:${pad(Math.floor(netSeconds % 3600 / 60))}:${pad(netSeconds % 60)}`;
+	const hoursDecimal = (netSeconds / 3600).toFixed(2);
 	await recordAudit({
 		userId,
 		actorName: shift.user.name,
 		action: "CLOCK_OUT",
-		details: `Employee ${shift.user.name} clocked out. Total worked: ${(totalMinutes / 60).toFixed(2)}h (Regular: ${(regularMinutes / 60).toFixed(2)}h, Overtime: ${(overtimeMinutes / 60).toFixed(2)}h)`
+		details: `Employee ${shift.user.name} clocked out. Duration: ${exactDuration} (${hoursDecimal}h, Regular: ${(regularMinutes / 60).toFixed(2)}h, Overtime: ${(overtimeMinutes / 60).toFixed(2)}h)`
 	});
 	if (overtimeMinutes > 0) await notifyAdmins({
 		type: "OVERTIME_ALERT",
@@ -3314,13 +3339,25 @@ async function getMyShifts(userId, options) {
 		include: { breaks: { orderBy: { startTime: "asc" } } },
 		orderBy: { clockIn: "desc" },
 		take: options.limit || 50
-	})).map((s) => ({
-		...s,
-		totalHours: Number((s.totalMinutes / 60).toFixed(2)),
-		regularHours: Number((s.regularMinutes / 60).toFixed(2)),
-		overtimeHours: Number((s.overtimeMinutes / 60).toFixed(2)),
-		breakHours: Number((s.breakMinutes / 60).toFixed(2))
-	}));
+	})).map((s) => {
+		const startMs = new Date(s.clockIn).getTime();
+		const endMs = s.clockOut ? new Date(s.clockOut).getTime() : Date.now();
+		const unpaidSec = (s.breakMinutes || 0) * 60;
+		const workedSeconds = Math.max(0, Math.floor((endMs - startMs) / 1e3) - unpaidSec);
+		const hrs = Math.floor(workedSeconds / 3600);
+		const mins = Math.floor(workedSeconds % 3600 / 60);
+		const secs = workedSeconds % 60;
+		const pad = (n) => String(n).padStart(2, "0");
+		return {
+			...s,
+			totalSeconds: workedSeconds,
+			durationFormatted: `${pad(hrs)}:${pad(mins)}:${pad(secs)}`,
+			totalHours: Number((workedSeconds / 3600).toFixed(2)),
+			regularHours: Number((s.regularMinutes / 60).toFixed(2)),
+			overtimeHours: Number((s.overtimeMinutes / 60).toFixed(2)),
+			breakHours: Number((s.breakMinutes / 60).toFixed(2))
+		};
+	});
 }
 async function getMyPaystubs(userId) {
 	return await prisma.paystub.findMany({
@@ -3392,13 +3429,25 @@ async function getAttendanceOverview(filters) {
 	const regularMinutes = shifts.reduce((acc, s) => acc + s.regularMinutes, 0);
 	const overtimeMinutes = shifts.reduce((acc, s) => acc + s.overtimeMinutes, 0);
 	return {
-		shifts: shifts.map((s) => ({
-			...s,
-			totalHours: Number((s.totalMinutes / 60).toFixed(2)),
-			regularHours: Number((s.regularMinutes / 60).toFixed(2)),
-			overtimeHours: Number((s.overtimeMinutes / 60).toFixed(2)),
-			breakHours: Number((s.breakMinutes / 60).toFixed(2))
-		})),
+		shifts: shifts.map((s) => {
+			const startMs = new Date(s.clockIn).getTime();
+			const endMs = s.clockOut ? new Date(s.clockOut).getTime() : Date.now();
+			const unpaidSec = (s.breakMinutes || 0) * 60;
+			const workedSeconds = Math.max(0, Math.floor((endMs - startMs) / 1e3) - unpaidSec);
+			const hrs = Math.floor(workedSeconds / 3600);
+			const mins = Math.floor(workedSeconds % 3600 / 60);
+			const secs = workedSeconds % 60;
+			const pad = (n) => String(n).padStart(2, "0");
+			return {
+				...s,
+				totalSeconds: workedSeconds,
+				durationFormatted: `${pad(hrs)}:${pad(mins)}:${pad(secs)}`,
+				totalHours: Number((workedSeconds / 3600).toFixed(2)),
+				regularHours: Number((s.regularMinutes / 60).toFixed(2)),
+				overtimeHours: Number((s.overtimeMinutes / 60).toFixed(2)),
+				breakHours: Number((s.breakMinutes / 60).toFixed(2))
+			};
+		}),
 		users,
 		metrics: {
 			totalShifts: shifts.length,

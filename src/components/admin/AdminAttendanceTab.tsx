@@ -437,7 +437,7 @@ export const AdminAttendanceTab: React.FC = () => {
                       <td className="py-3 px-4 text-slate-700">
                         {new Date(s.clockIn).toLocaleDateString('en-CA')}{' '}
                         <span className="text-slate-500">
-                          {new Date(s.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                          {new Date(s.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                         </span>
                       </td>
                       <td className="py-3 px-4 text-slate-700">
@@ -445,7 +445,7 @@ export const AdminAttendanceTab: React.FC = () => {
                           <>
                             {new Date(s.clockOut).toLocaleDateString('en-CA')}{' '}
                             <span className="text-slate-500">
-                              {new Date(s.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {new Date(s.clockOut).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                             </span>
                           </>
                         ) : (
@@ -461,7 +461,10 @@ export const AdminAttendanceTab: React.FC = () => {
                           <span className="text-slate-400">0.00h</span>
                         )}
                       </td>
-                      <td className="py-3 px-4 text-right font-bold text-indigo-700">{totalHours}h</td>
+                      <td className="py-3 px-4 text-right font-bold text-indigo-700">
+                        <div>{s.durationFormatted || `${totalHours}h`}</div>
+                        <div className="text-[10px] text-slate-400 font-normal">({totalHours}h)</div>
+                      </td>
                       <td className="py-3 px-4 text-center font-sans">
                         {s.editedByAdminId ? (
                           <div title={`Reason: ${s.editReason || 'Admin adjustment'}`}>

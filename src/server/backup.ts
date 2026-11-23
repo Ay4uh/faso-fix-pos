@@ -26,45 +26,45 @@ export interface BackupInfo {
   createdAt: string;
 }
 
-/** Consistent online snapshot using SQLite VACUUM INTO (safe while app is running). */
+/** Consistent online snapshot (safe while app is running). */
 export async function createBackup(reason = 'manual'): Promise<BackupInfo> {
   const isPostgres = !!(
     process.env.DATABASE_URL &&
     (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))
   );
-  if (isPostgres) {
-    return {
-      file: 'cloud-postgresql-managed',
-      sizeBytes: 0,
-      createdAt: new Date().toISOString(),
-    };
-  }
 
   fs.mkdirSync(BACKUP_DIR, { recursive: true });
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const file = `apexfix-${stamp}-${reason.replace(/[^a-z0-9]/gi, '')}.db`;
   const full = path.join(BACKUP_DIR, file);
-  await prisma.$executeRawUnsafe(`VACUUM INTO '${full.replace(/'/g, "''")}'`);
+
+  if (isPostgres) {
+    const [users, settings, tickets, customers, devices, shifts, audits] = await Promise.all([
+      prisma.user.findMany(),
+      prisma.setting.findMany(),
+      prisma.ticket.findMany({ include: { items: true, payments: true, events: true } }),
+      prisma.customer.findMany(),
+      prisma.device.findMany(),
+      prisma.shift.findMany(),
+      prisma.auditLog.findMany({ take: 500 }),
+    ]);
+    const snapshot = {
+      timestamp: new Date().toISOString(),
+      reason,
+      provider: 'postgresql',
+      data: { users, settings, tickets, customers, devices, shifts, audits },
+    };
+    fs.writeFileSync(full, JSON.stringify(snapshot, null, 2), 'utf-8');
+  } else {
+    await prisma.$executeRawUnsafe(`VACUUM INTO '${full.replace(/'/g, "''")}'`);
+  }
+
   pruneBackups();
   const st = fs.statSync(full);
   return { file, sizeBytes: st.size, createdAt: st.mtime.toISOString() };
 }
 
 export function listBackups(): BackupInfo[] {
-  const isPostgres = !!(
-    process.env.DATABASE_URL &&
-    (process.env.DATABASE_URL.startsWith('postgres://') || process.env.DATABASE_URL.startsWith('postgresql://'))
-  );
-  if (isPostgres) {
-    return [
-      {
-        file: 'Supabase Automated Daily Backups (Active)',
-        sizeBytes: 0,
-        createdAt: new Date().toISOString(),
-      },
-    ];
-  }
-
   if (!fs.existsSync(BACKUP_DIR)) return [];
   return fs
     .readdirSync(BACKUP_DIR)
