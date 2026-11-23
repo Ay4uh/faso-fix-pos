@@ -650,7 +650,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
 
           <div className="flex flex-wrap items-center gap-2">
             {/* View Mode Switcher Pills */}
-            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 max-w-full overflow-x-auto">
               <button
                 onClick={() => setCalendarView('week')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer ${
@@ -739,7 +739,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
 
         {/* Date Navigator Bar & Employee Filter */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-100">
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleNavPrev}
               className="p-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-slate-700 transition cursor-pointer"
@@ -847,8 +847,9 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
           VIEW 1: WEEKLY TIMETABLE GRID VIEW
          ======================================================== */}
       {calendarView === 'week' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-slate-600 text-xs font-bold">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-x-auto">
+          <div className="min-w-[680px]">
+            <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-slate-600 text-xs font-bold">
             {getWeekDates().map((d, i) => {
               const isToday = d.toDateString() === new Date().toDateString();
               const dateStr = toLocalDateStr(d);
@@ -1028,6 +1029,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                 </div>
               );
             })}
+            </div>
           </div>
         </div>
       )}
@@ -1036,8 +1038,9 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
           VIEW 2: FULL MONTH CALENDAR GRID
          ======================================================== */}
       {calendarView === 'month' && (
-        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
-          <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-slate-600 text-xs font-bold text-center py-2.5">
+        <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-x-auto">
+          <div className="min-w-[680px]">
+            <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 text-slate-600 text-xs font-bold text-center py-2.5">
             <div>Mon</div>
             <div>Tue</div>
             <div>Wed</div>
@@ -1164,6 +1167,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                 })}
               </div>
             ))}
+            </div>
           </div>
         </div>
       )}

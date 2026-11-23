@@ -463,12 +463,12 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   const firstName = currentUser?.name ? currentUser.name.split(' ')[0] : 'Staff';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
       {/* Light Clean Frame with TimeTrakGO Tablet Styling */}
-      <div className="relative w-full max-w-3xl bg-white text-slate-800 rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-4">
+      <div className="relative w-full max-w-3xl max-h-[92dvh] flex flex-col bg-white text-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-auto">
         
         {/* Top Header Bar - High-End Ocean Blue Tablet Header (Matching TimeTrakGO Reference) */}
-        <div className="flex items-center justify-between px-6 py-4 bg-[#0284c7] text-white">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 gap-2 bg-[#0284c7] text-white shrink-0">
           {/* Left: Brand & Title */}
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-lg bg-white/15 flex items-center justify-center text-white">
@@ -532,8 +532,9 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
         {/* ========================================================
             VIEW 1: CLEAN LIGHT 3-CARD PUNCH TERMINAL (Reference Image)
            ======================================================== */}
+        <div className="flex-1 overflow-y-auto">
         {activeTab === 'clock' && (
-          <div className="p-6 sm:p-8 space-y-6 bg-white">
+          <div className="p-4 sm:p-8 space-y-5 sm:space-y-6 bg-white">
             {/* Greeting & Shift Status Line */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-3 border-b border-slate-100">
               <p className="text-sm text-slate-700 font-medium">
@@ -747,7 +748,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
               </div>
 
               {/* Self-Service Navigation Action Pills */}
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setActiveTab('history')}
@@ -818,7 +819,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
               </div>
             </div>
 
-            <div className="max-h-[380px] overflow-y-auto rounded-xl border border-slate-200 shadow-2xs">
+            <div className="max-h-[380px] overflow-auto rounded-xl border border-slate-200 shadow-2xs">
               {shifts.length === 0 ? (
                 <div className="text-center py-10 text-slate-500 text-xs">No shifts recorded yet.</div>
               ) : (
@@ -1237,6 +1238,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
             </div>
           </div>
         )}
+        </div>
 
       </div>
 

@@ -89,7 +89,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-slate-50 via-white to-slate-100/80 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-800 select-none">
+    <div className="relative min-h-screen overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-100/80 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-800 select-none">
       {/* Soft Ambient Glows */}
       <div className="absolute top-12 left-1/2 -translate-x-1/2 w-96 h-96 bg-blue-100/60 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute bottom-10 right-10 w-80 h-80 bg-indigo-50/70 rounded-full blur-3xl pointer-events-none" />
@@ -215,7 +215,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
                   value={usernameOrEmail}
                   onChange={(e) => setUsernameOrEmail(e.target.value)}
                   placeholder={isAdminMode ? 'admin or admin@fasofix.ca' : 'Username or Email (e.g. ayush or email@gmail.com)'}
-                  className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
+                  className="w-full pl-10 pr-3.5 py-3 sm:py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
                 />
               </div>
             </div>
@@ -235,7 +235,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••••••"
-                  className="w-full pl-10 pr-10 py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition font-mono"
+                  className="w-full pl-10 pr-10 py-3 sm:py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition font-mono"
                 />
                 <button
                   type="button"

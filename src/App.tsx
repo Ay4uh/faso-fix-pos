@@ -897,7 +897,7 @@ export function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col font-sans">
+    <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col font-sans overflow-x-clip">
       {/* Top Loading Progress Line */}
       {isLoading && (
         <div className="fixed top-0 left-0 right-0 h-0.5 bg-indigo-600 z-50 animate-pulse" />
@@ -905,9 +905,9 @@ export function App() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-20 md:bottom-6 right-4 sm:right-6 z-50 bg-white text-slate-900 px-4 py-2.5 rounded-xl shadow-xl border border-slate-200 flex items-center gap-2 text-xs font-semibold animate-in slide-in-from-bottom-5">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          <span>{toastMessage}</span>
+        <div className="fixed bottom-20 md:bottom-6 left-4 right-4 sm:left-auto sm:right-6 z-50 bg-white text-slate-900 px-4 py-2.5 rounded-xl shadow-xl border border-slate-200 flex items-center gap-2 text-xs font-semibold animate-in slide-in-from-bottom-5">
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+          <span className="truncate">{toastMessage}</span>
         </div>
       )}
 

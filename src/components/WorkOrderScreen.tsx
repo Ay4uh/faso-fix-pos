@@ -750,24 +750,25 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      <div className="bg-slate-100 rounded-2xl w-full max-w-7xl h-[94vh] shadow-2xl border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 overflow-hidden sm:overflow-y-auto">
+      <div className="bg-slate-100 rounded-none sm:rounded-2xl w-full max-w-7xl h-[100dvh] sm:h-[94vh] shadow-2xl border-0 sm:border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* ========================================================
             TOP BAR
            ======================================================== */}
-        <header className="bg-white border-b border-slate-200 px-5 py-3 flex items-center justify-between shrink-0 shadow-xs">
-          <div className="flex items-center gap-3">
+        <header className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-2 shrink-0 shadow-xs">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5 min-w-0">
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors"
+              aria-label="Close Work Order"
+              className="h-9 w-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors shrink-0"
               title="Close Work Order"
             >
               <X className="w-5 h-5" />
             </button>
 
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-bold text-slate-400 tracking-wider">Service</span>
-              <h1 className="text-base font-extrabold text-slate-900 font-mono flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
+              <span className="hidden sm:inline text-[11px] font-bold text-slate-400 tracking-wider">Service</span>
+              <h1 className="text-sm sm:text-base font-extrabold text-slate-900 font-mono flex items-center gap-2 shrink-0">
                 WO #{ticket.ticketNumber}
               </h1>
               {getStatusBadge()}
@@ -783,7 +784,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 await onUpdateStatus(ticket.id, nextStatus);
                 onRefresh();
               }}
-              className="bg-slate-50 border border-slate-200 rounded-md text-xs font-bold px-2.5 py-1 text-slate-800 hover:bg-slate-100 cursor-pointer focus:outline-none"
+              className="bg-slate-50 border border-slate-200 rounded-md text-xs font-bold px-2.5 py-1.5 text-slate-800 hover:bg-slate-100 cursor-pointer focus:outline-none max-w-[160px] sm:max-w-none"
             >
               <option value="CHECKED_IN">1. Checked In</option>
               <option value="DIAGNOSING">2. Diagnosing</option>
@@ -799,7 +800,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               type="button"
               disabled={isTogglingWarranty}
               onClick={handleToggleWarranty}
-              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-xs font-bold border transition cursor-pointer ${
+              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-bold border transition cursor-pointer shrink-0 ${
                 ticket.isWarranty
                   ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
                   : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
@@ -807,12 +808,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               title="Toggle Warranty Coverage"
             >
               <Shield className="w-3.5 h-3.5" />
-              <span>{ticket.isWarranty ? 'Warranty Repair' : 'Mark Warranty'}</span>
+              <span className="hidden sm:inline">{ticket.isWarranty ? 'Warranty Repair' : 'Mark Warranty'}</span>
+              <span className="sm:hidden">Warranty</span>
             </button>
           </div>
 
           {/* Action CTAs */}
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {balanceOwing > 0 && ticket.status !== 'CANCELLED' && ticket.status !== 'DECLINED' ? (
               <button
                 onClick={() => {
@@ -820,7 +822,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   setPaymentIdempotencyKey(newPaymentKey());
                   setIsPaymentModalOpen(true);
                 }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
               >
                 <CreditCard className="w-3.5 h-3.5" />
                 <span>Pay Balance (${balanceOwing.toFixed(2)})</span>
@@ -843,7 +845,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
             <button
               onClick={() => printDeviceStickerLabel(ticket)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold border border-slate-200 transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold border border-slate-200 transition-colors cursor-pointer"
               title="Print 2x1 Adhesive Device Label"
             >
               <Tag className="w-3.5 h-3.5 text-indigo-600" />
@@ -852,7 +854,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
             <button
               onClick={() => onPrint(ticket)}
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
               title="Print Receipt"
             >
               <Printer className="w-3.5 h-3.5" />
@@ -861,7 +863,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
             <button
               onClick={() => setIsEmailModalOpen(true)}
-              className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              aria-label="Email Invoice"
+              className="p-2 sm:p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-slate-100 transition-colors cursor-pointer"
               title="Email Invoice"
             >
               <Mail className="w-4 h-4" />
@@ -871,7 +874,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             {currentUser?.role === 'ADMIN' && onDeleteTicket && (
               <button
                 onClick={() => setIsDeleteConfirmOpen(true)}
-                className="p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                aria-label="Delete Work Order"
+                className="p-2 sm:p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
                 title="Delete Work Order (Admin Only)"
               >
                 <Trash2 className="w-4 h-4" />
@@ -883,9 +887,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         {/* ========================================================
             MAIN WORKSPACE: Split 2-Column
            ======================================================== */}
-        <div className="flex-1 overflow-y-auto flex flex-col lg:flex-row">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col lg:flex-row">
           {/* LEFT PANEL */}
-          <div className="w-full lg:w-80 bg-white border-r border-slate-200 p-5 space-y-5 shrink-0 overflow-y-auto">
+          <div className="w-full lg:w-80 bg-white border-b lg:border-b-0 lg:border-r border-slate-200 p-4 sm:p-5 space-y-4 sm:space-y-5 shrink-0 lg:overflow-y-auto">
             {/* Customer Profile Box */}
             <div className="space-y-3">
               <div className="flex items-start justify-between">
@@ -1106,9 +1110,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           </div>
 
           {/* RIGHT PANEL */}
-          <div className="flex-1 p-5 space-y-5 overflow-y-auto">
+          <div className="flex-1 p-3.5 sm:p-5 space-y-4 sm:space-y-5 lg:overflow-y-auto min-w-0">
             {/* 1. CONSOLIDATED INTAKE DETAILS PANEL (Minimalistic & High Contrast) */}
-            <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
+            <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
                 <div className="flex items-center gap-2">
                   <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1.5">
@@ -1200,7 +1204,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
             {/* 2. REALIGNED BILLING FLOW: WORK ORDER LINE ITEMS (Immediately adjacent) */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-              <div className="p-4 border-b border-slate-100 flex items-center justify-between">
+              <div className="p-3.5 sm:p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
                   <Layers className="w-4 h-4 text-indigo-600" />
                   <h4 className="font-bold text-sm text-slate-900">
@@ -1476,8 +1480,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     </form>
 
                     {/* Filter Pills */}
-                    <div className="flex items-center justify-between pt-1">
-                      <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">View:</span>
                         {[
                           { id: 'ALL', label: 'All Notes' },
@@ -1505,7 +1509,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     </div>
 
                     {/* Filtered Notes List */}
-                    <table className="w-full text-left border-collapse">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
                           <th className="py-2 px-3">Audience / Type</th>
@@ -1620,7 +1625,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                           </tr>
                         )}
                       </tbody>
-                    </table>
+                      </table>
+                    </div>
                   </div>
                 )}
 
@@ -1663,11 +1669,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 {/* 3. PAYMENTS & RECEIPTS */}
                 {activeTab === 'payments' && (
                   <div className="space-y-4">
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <span className="font-bold text-xs text-slate-800">
                         Payment &amp; Transaction Ledger
                       </span>
-                      <div className="flex items-center gap-2">
+                      <div className="flex flex-wrap items-center gap-2">
                         {totals.paidCents > 0 && (
                           <button
                             type="button"
@@ -1696,50 +1702,52 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       </div>
                     </div>
 
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
-                          <th className="py-2 px-3">Date</th>
-                          <th className="py-2 px-3">Method</th>
-                          <th className="py-2 px-3">Amount</th>
-                          <th className="py-2 px-3">Note</th>
-                          <th className="py-2 px-3 text-right">Action</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {ticket.payments?.map((pmt) => (
-                          <tr key={pmt.id} className="hover:bg-slate-50">
-                            <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">
-                              {new Date(pmt.createdAt).toLocaleDateString()}
-                            </td>
-                            <td className="py-2 px-3 font-semibold text-slate-900">{pmt.method}</td>
-                            <td className={`py-2 px-3 font-mono font-bold ${pmt.amountCents < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
-                              {pmt.amountCents < 0 ? `-$${(Math.abs(pmt.amountCents) / 100).toFixed(2)}` : `+$${(pmt.amountCents / 100).toFixed(2)}`}
-                            </td>
-                            <td className="py-2 px-3 text-slate-500">{pmt.note || 'N/A'}</td>
-                            <td className="py-2 px-3 text-right whitespace-nowrap">
-                              <button
-                                type="button"
-                                disabled={isVoidingPaymentId === pmt.id}
-                                onClick={() => handleVoidPayment(pmt.id, pmt.amountCents)}
-                                className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer disabled:opacity-40"
-                                title="Void Payment"
-                              >
-                                <Trash2 className="w-3 h-3" />
-                                <span>{isVoidingPaymentId === pmt.id ? 'Voiding...' : 'Void'}</span>
-                              </button>
-                            </td>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
+                            <th className="py-2 px-3">Date</th>
+                            <th className="py-2 px-3">Method</th>
+                            <th className="py-2 px-3">Amount</th>
+                            <th className="py-2 px-3">Note</th>
+                            <th className="py-2 px-3 text-right">Action</th>
                           </tr>
-                        ))}
-                        {(!ticket.payments || ticket.payments.length === 0) && (
-                          <tr>
-                            <td colSpan={5} className="py-6 text-center text-slate-400 italic">
-                              No payments recorded yet.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {ticket.payments?.map((pmt) => (
+                            <tr key={pmt.id} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">
+                                {new Date(pmt.createdAt).toLocaleDateString()}
+                              </td>
+                              <td className="py-2 px-3 font-semibold text-slate-900">{pmt.method}</td>
+                              <td className={`py-2 px-3 font-mono font-bold ${pmt.amountCents < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                                {pmt.amountCents < 0 ? `-$${(Math.abs(pmt.amountCents) / 100).toFixed(2)}` : `+$${(pmt.amountCents / 100).toFixed(2)}`}
+                              </td>
+                              <td className="py-2 px-3 text-slate-500">{pmt.note || 'N/A'}</td>
+                              <td className="py-2 px-3 text-right whitespace-nowrap">
+                                <button
+                                  type="button"
+                                  disabled={isVoidingPaymentId === pmt.id}
+                                  onClick={() => handleVoidPayment(pmt.id, pmt.amountCents)}
+                                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer disabled:opacity-40"
+                                  title="Void Payment"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                  <span>{isVoidingPaymentId === pmt.id ? 'Voiding...' : 'Void'}</span>
+                                </button>
+                              </td>
+                            </tr>
+                          ))}
+                          {(!ticket.payments || ticket.payments.length === 0) && (
+                            <tr>
+                              <td colSpan={5} className="py-6 text-center text-slate-400 italic">
+                                No payments recorded yet.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
 
@@ -1775,41 +1783,43 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     <span className="font-bold text-xs text-slate-800">
                       Chronological Action History
                     </span>
-                    <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
-                          <th className="py-2 px-3">Timestamp</th>
-                          <th className="py-2 px-3">Type</th>
-                          <th className="py-2 px-3">Details</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {ticket.events?.map((ev) => (
-                          <tr key={ev.id} className="hover:bg-slate-50">
-                            <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap text-xs">
-                              {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                            </td>
-                            <td className="py-2 px-3">
-                              <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-slate-100 text-slate-700">
-                                {ev.kind}
-                              </span>
-                            </td>
-                            <td className="py-2 px-3 text-slate-700 text-xs">
-                              {ev.kind === 'PHOTO'
-                                ? (() => {
-                                    try {
-                                      const meta = JSON.parse(ev.message);
-                                      return `📷 Photo uploaded: ${meta.filename}${meta.caption ? ` — ${meta.caption}` : ''}`;
-                                    } catch {
-                                      return '📷 Device photo attached';
-                                    }
-                                  })()
-                                : ev.message}
-                            </td>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
+                            <th className="py-2 px-3">Timestamp</th>
+                            <th className="py-2 px-3">Type</th>
+                            <th className="py-2 px-3">Details</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {ticket.events?.map((ev) => (
+                            <tr key={ev.id} className="hover:bg-slate-50">
+                              <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap text-xs">
+                                {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="py-2 px-3">
+                                <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-slate-100 text-slate-700">
+                                  {ev.kind}
+                                </span>
+                              </td>
+                              <td className="py-2 px-3 text-slate-700 text-xs">
+                                {ev.kind === 'PHOTO'
+                                  ? (() => {
+                                      try {
+                                        const meta = JSON.parse(ev.message);
+                                        return `📷 Photo uploaded: ${meta.filename}${meta.caption ? ` — ${meta.caption}` : ''}`;
+                                      } catch {
+                                        return '📷 Device photo attached';
+                                      }
+                                    })()
+                                  : ev.message}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 )}
               </div>
@@ -1822,8 +1832,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           ATTACH PART / INVENTORY ITEM MODAL
          ======================================================== */}
       {isAddItemModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-md w-full max-h-[90dvh] overflow-y-auto my-auto p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <Plus className="w-4 h-4 text-indigo-600" />
@@ -1952,8 +1962,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           COLLECT PAYMENT MODAL
          ======================================================== */}
       {isPaymentModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-sm w-full max-h-[90dvh] overflow-y-auto my-auto p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-emerald-600" />
@@ -2105,8 +2115,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           ONE-CLICK PART DEPOSIT MODAL (Frictionless Invoicing)
          ======================================================== */}
       {isDepositModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-sm w-full max-h-[90dvh] overflow-y-auto my-auto p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <DollarSign className="w-4 h-4 text-indigo-600" />
@@ -2206,8 +2216,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           ADJUST DISCOUNT MODAL
          ======================================================== */}
       {isDiscountModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-sm w-full max-h-[90dvh] overflow-y-auto my-auto p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900">Adjust Discount</h3>
               <button
@@ -2258,8 +2268,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           EMAIL INVOICE MODAL
          ======================================================== */}
       {isEmailModalOpen && (
-        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-sm w-full max-h-[90dvh] overflow-y-auto my-auto p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
                 <Mail className="w-4 h-4 text-indigo-600" />
@@ -2317,8 +2327,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
       {/* Confirmation Modal for Admin Ticket Deletion */}
       {isDeleteConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-red-200">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
+          <div className="bg-white rounded-2xl p-5 sm:p-6 max-w-sm w-full max-h-[90dvh] overflow-y-auto my-auto space-y-4 shadow-2xl border border-red-200">
             <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
               <Trash2 className="w-6 h-6" />
             </div>

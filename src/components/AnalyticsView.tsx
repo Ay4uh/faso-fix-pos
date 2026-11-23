@@ -104,7 +104,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
 
           <div className="flex flex-wrap items-center gap-3">
             {/* Days Span Selector & CSV Export */}
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 max-w-full">
               <button
                 type="button"
                 onClick={handleExportTicketsCsv}
@@ -114,12 +114,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
                 <span>Export CSV</span>
               </button>
 
-              <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200 text-xs font-semibold">
+              <div className="flex items-center bg-slate-100 rounded-lg p-0.5 border border-slate-200 text-xs font-semibold overflow-x-auto max-w-full">
                 {[7, 30, 90].map((d) => (
                   <button
                     key={d}
                     onClick={() => setDays(d)}
-                    className={`px-3 py-1.5 rounded-md transition-all cursor-pointer ${
+                    className={`px-3 py-1.5 rounded-md transition-all cursor-pointer whitespace-nowrap ${
                       days === d
                         ? 'bg-white text-indigo-600 shadow-xs font-bold'
                         : 'text-slate-500 hover:text-slate-900'
@@ -131,7 +131,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({ tickets, stats }) 
               </div>
             </div>
 
-            <div className="flex items-center gap-4 bg-slate-50 p-3 rounded-xl border border-slate-200">
+            <div className="flex items-center justify-between sm:justify-start w-full sm:w-auto gap-4 bg-slate-50 p-3 rounded-xl border border-slate-200">
               <div>
                 <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Gross Volume</p>
                 <p className="text-lg font-bold font-mono text-emerald-600">

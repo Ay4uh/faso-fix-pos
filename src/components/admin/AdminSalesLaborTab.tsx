@@ -122,8 +122,8 @@ export const AdminSalesLaborTab: React.FC = () => {
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
-          <div className="bg-slate-100 p-1 rounded-xl flex items-center text-xs font-semibold">
+        <div className="flex flex-wrap items-center gap-2 max-w-full">
+          <div className="bg-slate-100 p-1 rounded-xl flex items-center text-xs font-semibold max-w-full overflow-x-auto">
             <button
               onClick={() => setTimeRange('TODAY')}
               className={`px-3 py-1.5 rounded-lg transition cursor-pointer ${

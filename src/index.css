@@ -5,6 +5,12 @@ body {
   margin: 0;
   padding: 0;
   background-color: #f8fafc;
+  -webkit-overflow-scrolling: touch;
+}
+
+button,
+a {
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Custom scrollbars */

@@ -446,8 +446,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               TAB 1: ACCOUNT & PROFILE
              ======================================================== */}
           {activeTab === 'account' && (
-            <div className="bg-white p-6 rounded-2xl border border-slate-200/90 shadow-xs space-y-5">
-              <div className="border-b border-slate-100 pb-3 flex items-center justify-between">
+            <div className="bg-white p-4 sm:p-6 rounded-2xl border border-slate-200/90 shadow-xs space-y-5">
+              <div className="border-b border-slate-100 pb-3 flex flex-wrap items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                     <User className="w-4 h-4 text-indigo-600" />

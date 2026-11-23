@@ -136,19 +136,19 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
         </div>
 
         {/* Customer Quick Selector & Search */}
-        <div className="flex items-center gap-2">
-          <div className="relative w-64">
+        <div className="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto min-w-0">
+          <div className="relative w-full sm:w-64">
             <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search clients..."
-              className="w-full pl-8 pr-3 py-1 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
+              className="w-full pl-8 pr-3 py-1.5 sm:py-1 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
             />
           </div>
 
-          <div className="flex items-center gap-1 overflow-x-auto max-w-xs">
+          <div className="flex items-center gap-1 overflow-x-auto w-full sm:max-w-xs pb-0.5 sm:pb-0">
             {filteredCustomers.map((c) => (
               <button
                 key={c.id}
@@ -190,7 +190,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           </div>
 
           {/* Hero Profile Header Card */}
-          <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200/80 p-6 shadow-xs">
+          <div className="relative overflow-hidden rounded-2xl bg-white border border-slate-200/80 p-4 sm:p-6 shadow-xs">
             <div className="absolute -right-16 -top-16 w-64 h-64 rounded-full bg-indigo-50/50 blur-3xl pointer-events-none" />
             <div className="relative flex flex-col lg:flex-row lg:items-center justify-between gap-6">
               <div className="flex flex-col sm:flex-row sm:items-center gap-5">
@@ -327,7 +327,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* Left Column (8 of 12 cols): Registered Devices & Real Work Orders */}
             <div className="lg:col-span-8 flex flex-col gap-6">
-              <div className="rounded-2xl bg-white border border-slate-200/80 shadow-xs p-6 flex flex-col gap-4">
+              <div className="rounded-2xl bg-white border border-slate-200/80 shadow-xs p-4 sm:p-6 flex flex-col gap-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <Smartphone className="w-5 h-5 text-indigo-600" />
@@ -430,7 +430,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
 
             {/* Right Column: Account Details */}
             <div className="lg:col-span-4 flex flex-col gap-6">
-              <div className="rounded-2xl bg-white border border-slate-200/80 shadow-xs p-6 flex flex-col gap-4">
+              <div className="rounded-2xl bg-white border border-slate-200/80 shadow-xs p-4 sm:p-6 flex flex-col gap-4">
                 <div className="flex items-center gap-1.5 pb-2 border-b border-slate-100">
                   <AlertTriangle className="w-4 h-4 text-amber-500" />
                   <h3 className="text-sm font-bold text-slate-900">
@@ -439,25 +439,25 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 </div>
 
                 <div className="space-y-2 text-xs text-slate-600">
-                  <div className="flex justify-between py-1 border-b border-slate-50">
-                    <span className="text-slate-400">Primary Phone:</span>
-                    <span className="font-mono font-bold text-slate-800">{activeCustomer.phone}</span>
+                  <div className="flex justify-between gap-2 py-1 border-b border-slate-50">
+                    <span className="text-slate-400 shrink-0">Primary Phone:</span>
+                    <span className="font-mono font-bold text-slate-800 truncate">{activeCustomer.phone}</span>
                   </div>
                   {activeCustomer.altPhone && (
-                    <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Alt Phone:</span>
+                    <div className="flex justify-between gap-2 py-1 border-b border-slate-50">
+                      <span className="text-slate-400 shrink-0">Alt Phone:</span>
                       <a
                         href={`tel:${activeCustomer.altPhone}`}
-                        className="font-mono font-bold text-indigo-600 hover:underline"
+                        className="font-mono font-bold text-indigo-600 hover:underline truncate"
                       >
                         {activeCustomer.altPhone}
                       </a>
                     </div>
                   )}
                   {activeCustomer.email && (
-                    <div className="flex justify-between py-1 border-b border-slate-50">
-                      <span className="text-slate-400">Email:</span>
-                      <span className="text-slate-800">{activeCustomer.email}</span>
+                    <div className="flex justify-between gap-2 py-1 border-b border-slate-50">
+                      <span className="text-slate-400 shrink-0">Email:</span>
+                      <span className="text-slate-800 truncate min-w-0">{activeCustomer.email}</span>
                     </div>
                   )}
                   <div className="flex justify-between py-1 border-b border-slate-50">
@@ -502,12 +502,12 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
             <strong className="text-slate-900">{pagination.totalPages}</strong> &bull;{' '}
             <strong className="text-slate-900">{pagination.total}</strong> total customers
           </span>
-          <div className="flex items-center space-x-2">
+          <div className="w-full sm:w-auto flex items-center gap-2">
             <button
               type="button"
               disabled={pagination.page <= 1}
               onClick={() => onPageChange(pagination.page - 1)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
+              className="flex-1 sm:flex-initial justify-center min-h-[38px] inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
               <span>Previous</span>
@@ -516,7 +516,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
               type="button"
               disabled={!pagination.hasMore}
               onClick={() => onPageChange(pagination.page + 1)}
-              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
+              className="flex-1 sm:flex-initial justify-center min-h-[38px] inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold transition cursor-pointer"
             >
               <span>Next</span>
               <ChevronRight className="w-3.5 h-3.5" />

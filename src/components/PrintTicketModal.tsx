@@ -116,22 +116,22 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
 
   return (
     <div data-print-root className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto print:static print:inset-auto print:block print:p-0 print:m-0 print:w-full print:bg-white print:overflow-visible print:backdrop-blur-none">
-      <div data-print-card className="bg-white rounded-2xl max-w-4xl w-full shadow-2xl border border-slate-200 overflow-hidden my-auto print:border-none print:shadow-none print:max-w-none print:rounded-none print:overflow-visible print:my-0">
+      <div data-print-card className="bg-white rounded-2xl max-w-4xl w-full max-h-[94dvh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden my-auto print:max-h-none print:block print:border-none print:shadow-none print:max-w-none print:rounded-none print:overflow-visible print:my-0">
         {/* Interactive Top Control Bar (Hidden during window.print) */}
-        <div className="px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 bg-slate-50 print:hidden">
-          <div className="flex items-center gap-2">
-            <span className="font-bold text-sm text-slate-900">Print Copy & Invoice</span>
-            <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-mono text-xs font-bold border border-indigo-200/80">
+        <div className="px-3 sm:px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 bg-slate-50 shrink-0 print:hidden">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="font-bold text-sm text-slate-900 truncate">Print Copy & Invoice</span>
+            <span className="px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 font-mono text-xs font-bold border border-indigo-200/80 shrink-0">
               #{ticket.ticketNumber}
             </span>
-            <span className="text-xs text-slate-500 hidden sm:inline">
+            <span className="text-xs text-slate-500 hidden sm:inline truncate">
               {ticket.customer.fullName} • {ticket.device?.name || 'Device'}
             </span>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 max-w-full">
             {/* Paper Format Switcher */}
-            <div className="inline-flex p-0.5 bg-slate-200/80 rounded-lg text-xs font-semibold">
+            <div className="inline-flex p-0.5 bg-slate-200/80 rounded-lg text-xs font-semibold max-w-full overflow-x-auto">
               <button
                 type="button"
                 onClick={() => setPaperFormat('letter')}
@@ -219,7 +219,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
 
         {/* ESC/POS Status Notification */}
         {escPosStatus && (
-          <div className="px-5 py-2 bg-slate-900 text-white text-xs font-semibold flex items-center justify-between">
+          <div className="px-5 py-2 bg-slate-900 text-white text-xs font-semibold flex items-center justify-between shrink-0 print:hidden">
             <span>{escPosStatus}</span>
             <button onClick={() => setEscPosStatus(null)} className="text-slate-400 hover:text-white">
               <X className="w-3.5 h-3.5" />
@@ -227,11 +227,12 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
           </div>
         )}
 
+        <div className="flex-1 overflow-y-auto overflow-x-auto print:overflow-visible">
         {/* ========================================================
             FORMAT 1: LETTER (8.5x11) FULL INVOICE & WORK ORDER (Stitch Screen a7773021)
            ======================================================== */}
         {paperFormat === 'letter' && (
-          <div className="p-6 sm:p-10 font-sans text-xs text-slate-800 space-y-6 print:p-0">
+          <div className="p-4 sm:p-10 font-sans text-xs text-slate-800 space-y-6 print:p-0">
             {/* Top Sheet Header & Shop Identity */}
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4 pb-4 border-b border-slate-200">
               <div className="flex items-start gap-3">
@@ -721,8 +722,8 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             FORMAT 2: COMPACT THERMAL BENCH SLIP (2"x1" or 4"x2" Sticker)
            ======================================================== */}
         {paperFormat === 'receipt' && (
-          <div className="p-6 flex justify-center bg-slate-100 print:bg-white print:p-0">
-            <div className="w-80 bg-white border border-slate-300 shadow-md p-4 rounded-xl font-mono text-xs space-y-2.5 print:border-none print:shadow-none print:w-full">
+          <div className="p-4 sm:p-6 flex justify-center bg-slate-100 print:bg-white print:p-0">
+            <div className="w-full max-w-[320px] bg-white border border-slate-300 shadow-md p-4 rounded-xl font-mono text-xs space-y-2.5 print:border-none print:shadow-none print:w-full print:max-w-none">
               <div className="flex items-center justify-between border-b border-dashed border-slate-300 pb-2">
                 <span className="font-bold font-sans text-xs">{shop.shopName || 'FASO FIX POS'}</span>
                 <span className="font-bold text-sm text-indigo-700">WO #{ticket.ticketNumber}</span>
@@ -767,8 +768,8 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             FORMAT 3: ADHESIVE DEVICE STICKER (2" x 1.25" / 54x32mm)
            ======================================================== */}
         {paperFormat === 'sticker' && (
-          <div className="p-8 flex flex-col items-center justify-center bg-slate-100 print:bg-white print:p-0">
-            <div className="w-[320px] bg-white border-2 border-slate-300 shadow-xl p-4 rounded-xl font-sans text-xs space-y-2 print:border-none print:shadow-none">
+          <div className="p-4 sm:p-8 flex flex-col items-center justify-center bg-slate-100 print:bg-white print:p-0">
+            <div className="w-full max-w-[320px] bg-white border-2 border-slate-300 shadow-xl p-4 rounded-xl font-sans text-xs space-y-2 print:border-none print:shadow-none">
               <div className="flex items-center justify-between border-b-2 border-slate-900 pb-1.5">
                 <span className="font-extrabold text-xs tracking-wider uppercase">FASO FIX</span>
                 <span className="font-mono font-black text-base text-indigo-700">WO #{ticket.ticketNumber}</span>
@@ -811,6 +812,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             </p>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
