@@ -1,4 +1,5 @@
 import app from './index';
+import { isPostgres } from './prisma';
 import { ensureDatabaseSchema, ensureInitialInventory } from './initDb';
 import { ensureAdminProvisioning } from './auth';
 import { configureSqlite } from './backup';
@@ -8,6 +9,12 @@ let initPromise: Promise<void> | null = null;
 
 async function initServerless() {
   if (initialized) return;
+  // On Vercel + Supabase PostgreSQL, schema & seed admin are already provisioned;
+  // skipping the 40-statement DDL boot check eliminates ~6s cold-start spikes under concurrency.
+  if (process.env.VERCEL && isPostgres) {
+    initialized = true;
+    return;
+  }
   if (!initPromise) {
     initPromise = (async () => {
       try {

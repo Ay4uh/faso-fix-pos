@@ -547,6 +547,10 @@ const POSTGRES_SCHEMA_STATEMENTS: string[] = [
   )`,
   `CREATE INDEX IF NOT EXISTS "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead")`,
   `CREATE INDEX IF NOT EXISTS "Notification_createdAt_idx" ON "Notification"("createdAt")`,
+  `CREATE INDEX IF NOT EXISTS "Ticket_deletedAt_ticketNumber_idx" ON "Ticket"("deletedAt", "ticketNumber" DESC)`,
+  `CREATE INDEX IF NOT EXISTS "Ticket_deletedAt_status_idx" ON "Ticket"("deletedAt", "status")`,
+  `CREATE INDEX IF NOT EXISTS "Customer_archivedAt_updatedAt_idx" ON "Customer"("archivedAt", "updatedAt" DESC)`,
+  `CREATE INDEX IF NOT EXISTS "Payment_ticketId_createdAt_idx" ON "Payment"("ticketId", "createdAt")`,
 ];
 
 async function ensurePostgresSchema() {

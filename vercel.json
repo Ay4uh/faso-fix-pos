@@ -1,5 +1,6 @@
 {
   "framework": "vite",
+  "regions": ["cle1"],
   "buildCommand": "node scripts/prepare-db.js && prisma generate && vite build && vite build --ssr src/server/serverless.ts --outDir api --emptyOutDir false && rm -f api/manifest.webmanifest api/sw.js",
   "outputDirectory": "dist",
   "functions": {

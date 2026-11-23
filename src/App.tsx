@@ -552,16 +552,20 @@ export function App() {
       custParams.set('pageSize', '25');
       if (customersSearch.trim()) custParams.set('search', customersSearch.trim());
 
+      const needTickets = !silent || currentTab === 'repairs';
+      const needStats = !silent || currentTab === 'repairs' || currentTab === 'analytics';
+      const needCustomers = (!silent && customers.length === 0) || currentTab === 'customers';
+
       const [ticketsRes, statsRes, customersRes] = await Promise.all([
-        fetchWithAuth(`/api/tickets?${params.toString()}`),
-        fetchWithAuth(`/api/stats?${selectedBench !== 'ALL' ? `bench=${selectedBench}` : ''}`),
-        fetchWithAuth(`/api/customers?${custParams.toString()}`),
+        needTickets ? fetchWithAuth(`/api/tickets?${params.toString()}`) : Promise.resolve(null),
+        needStats ? fetchWithAuth(`/api/stats?${selectedBench !== 'ALL' ? `bench=${selectedBench}` : ''}`) : Promise.resolve(null),
+        needCustomers ? fetchWithAuth(`/api/customers?${custParams.toString()}`) : Promise.resolve(null),
       ]);
 
       // Guard against stale response resolving after logout or re-login
       if (getToken() !== reqToken) return;
 
-      if (ticketsRes.ok) {
+      if (ticketsRes?.ok) {
         const data = await ticketsRes.json();
         const serverList: Ticket[] = data.data || [];
         const deletedIds = deletedTicketIdsRef.current;
@@ -600,12 +604,12 @@ export function App() {
         }
       }
 
-      if (statsRes.ok) {
+      if (statsRes?.ok) {
         const sData = await statsRes.json();
         setStats(sData.data || null);
       }
 
-      if (customersRes.ok) {
+      if (customersRes?.ok) {
         const cData = await customersRes.json();
         setCustomers(cData.data || []);
         if (cData.total !== undefined) {
@@ -635,10 +639,11 @@ export function App() {
     }
     fetchData();
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       fetchDataRef.current(true);
-    }, 6000);
+    }, 20000);
     return () => clearInterval(interval);
-  }, [currentUser?.id, activeFilter, searchQuery, selectedBench, selectedTicket?.id, ticketsPage, customersPage, customersSearch]);
+  }, [currentUser?.id, currentTab, activeFilter, searchQuery, selectedBench, selectedTicket?.id, ticketsPage, customersPage, customersSearch]);
 
   // Sync active tab with URL hash so refresh, deep URLs (/admin, #customers), and Back/Forward buttons work reliably
   useEffect(() => {

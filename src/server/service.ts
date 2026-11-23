@@ -74,6 +74,33 @@ function parseDate(v: string): Date {
   return /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T12:00:00`) : new Date(v);
 }
 
+const ticketListSelect = {
+  id: true,
+  ticketNumber: true,
+  customerId: true,
+  deviceId: true,
+  status: true,
+  priority: true,
+  faultDescription: true,
+  laborCents: true,
+  discountCents: true,
+  taxRateBps: true,
+  technician: true,
+  bench: true,
+  storageBin: true,
+  diagnostics: true,
+  dueDate: true,
+  completedAt: true,
+  deletedAt: true,
+  isWarranty: true,
+  createdAt: true,
+  updatedAt: true,
+  customer: true,
+  device: true,
+  items: { orderBy: { createdAt: 'asc' } },
+  payments: { orderBy: { createdAt: 'asc' } },
+} satisfies Prisma.TicketSelect;
+
 const ticketInclude = {
   customer: true,
   device: true,
@@ -83,22 +110,39 @@ const ticketInclude = {
 
 type TicketWithRelations = Prisma.TicketGetPayload<{ include: typeof ticketInclude }>;
 
-function withTotals<T extends TicketWithRelations>(t: T) {
+function withTotals<T extends Omit<TicketWithRelations, 'signature'> & { signature?: string | null }>(t: T) {
   let diagnostics: Record<string, 'PASS' | 'FAIL'> = {};
   try {
     diagnostics = JSON.parse(t.diagnostics || '{}');
   } catch {
     diagnostics = {};
   }
-  return { ...t, diagnostics, totals: computeTotals(t) };
+  return { ...t, signature: t.signature ?? null, diagnostics, totals: computeTotals(t) };
 }
 
 // ---------------------------------------------------------------------------
-// Settings
+// Settings (read-only lookup + single-flight coalescing under concurrency)
 // ---------------------------------------------------------------------------
 
+let settingsInFlight: Promise<Awaited<ReturnType<typeof prisma.setting.upsert>>> | null = null;
+
 export async function getSettings(tx: Tx | typeof prisma = prisma) {
-  return tx.setting.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
+  if (tx !== prisma) {
+    const existing = await tx.setting.findUnique({ where: { id: 1 } });
+    if (existing) return existing;
+    return tx.setting.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
+  }
+  if (settingsInFlight) return settingsInFlight;
+  settingsInFlight = (async () => {
+    try {
+      const existing = await prisma.setting.findUnique({ where: { id: 1 } });
+      if (existing) return existing;
+      return await prisma.setting.upsert({ where: { id: 1 }, update: {}, create: { id: 1 } });
+    } finally {
+      settingsInFlight = null;
+    }
+  })();
+  return settingsInFlight;
 }
 
 export async function updateSettings(input: unknown, actor?: { id?: string; name?: string }) {
@@ -227,7 +271,7 @@ export async function listTicketsPaginated(params: {
     prisma.ticket.count({ where }),
     prisma.ticket.findMany({
       where,
-      include: ticketInclude,
+      select: ticketListSelect,
       orderBy,
       skip,
       take: pageSize,
@@ -1006,74 +1050,87 @@ function startOfDay(d = new Date()) {
   return s;
 }
 
+let dashboardInFlight: Promise<any> | null = null;
+
 export async function getDashboard() {
-  const today = startOfDay();
-  const tomorrow = new Date(today.getTime() + 86_400_000);
-  const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+  if (dashboardInFlight) return dashboardInFlight;
 
-  const tickets = await prisma.ticket.findMany({
-    where: {
-      deletedAt: null,
-    },
-    select: {
-      status: true,
-      dueDate: true,
-      laborCents: true,
-      discountCents: true,
-      taxRateBps: true,
-      isWarranty: true,
-      items: { select: { quantity: true, unitPriceCents: true } },
-      payments: { select: { amountCents: true } },
-    },
-  });
-  const payments = await prisma.payment.findMany({
-    where: { createdAt: { gte: monthStart }, ticket: { deletedAt: null } },
-    select: { amountCents: true, createdAt: true },
-  });
-  const lowStock = await prisma.inventoryPart.count({ where: { stock: { lte: prisma.inventoryPart.fields.reorderPoint } } });
+  dashboardInFlight = (async () => {
+    try {
+      const today = startOfDay();
+      const tomorrow = new Date(today.getTime() + 86_400_000);
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
-  const open = tickets.filter((t) => OPEN_STATUSES.includes(t.status));
-  const count = (s: string) => tickets.filter((t) => t.status === s).length;
-  const awaitingPickupTickets = tickets.filter(
-    (t) =>
-      t.status === 'READY_FOR_PICKUP' ||
-      (t.status === 'COMPLETED' && computeTotals(t).balanceCents > 0)
-  );
+      const [tickets, payments, lowStock, customerCount] = await Promise.all([
+        prisma.ticket.findMany({
+          where: { deletedAt: null },
+          select: {
+            status: true,
+            dueDate: true,
+            laborCents: true,
+            discountCents: true,
+            taxRateBps: true,
+            isWarranty: true,
+            items: { select: { quantity: true, unitPriceCents: true } },
+            payments: { select: { amountCents: true } },
+          },
+        }),
+        prisma.payment.findMany({
+          where: { createdAt: { gte: monthStart }, ticket: { deletedAt: null } },
+          select: { amountCents: true, createdAt: true },
+        }),
+        prisma.inventoryPart.count({ where: { stock: { lte: prisma.inventoryPart.fields.reorderPoint } } }),
+        prisma.customer.count({ where: { archivedAt: null } }),
+      ]);
 
-  const checkedIn = count('PENDING') + count('CHECKED_IN');
-  const diagnosing = count('IN_PROGRESS') + count('DIAGNOSING');
-  const waitingOnApproval = count('WAITING_ON_APPROVAL');
-  const readyForPickup = count('READY_FOR_PICKUP');
-  const totalValueCents = Math.max(0, tickets.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0));
-  const avgTicketValueCents = tickets.length > 0 ? Math.round(totalValueCents / tickets.length) : 0;
+      const open = tickets.filter((t) => OPEN_STATUSES.includes(t.status));
+      const count = (s: string) => tickets.filter((t) => t.status === s).length;
+      const awaitingPickupTickets = tickets.filter(
+        (t) =>
+          t.status === 'READY_FOR_PICKUP' ||
+          (t.status === 'COMPLETED' && computeTotals(t).balanceCents > 0)
+      );
 
-  return {
-    totalTickets: tickets.length,
-    open: open.length,
-    checkedIn,
-    pending: checkedIn,
-    diagnosing,
-    inProgress: diagnosing,
-    waitingOnApproval,
-    waitingOnParts: count('WAITING_ON_PARTS'),
-    readyForPickup,
-    completed: count('COMPLETED'),
-    declined: count('DECLINED'),
-    cancelled: count('CANCELLED'),
-    warrantyTickets: tickets.filter((t) => t.isWarranty).length,
-    paidTickets: tickets.filter((t) => !t.isWarranty).length,
-    overdue: open.filter((t) => t.dueDate < today).length,
-    dueToday: open.filter((t) => t.dueDate >= today && t.dueDate < tomorrow).length,
-    openValueCents: Math.max(0, open.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0)),
-    totalValueCents,
-    avgTicketValueCents,
-    awaitingPickupCount: awaitingPickupTickets.length,
-    awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
-    collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
-    collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
-    customerCount: await prisma.customer.count({ where: { archivedAt: null } }),
-    lowStock,
-  };
+      const checkedIn = count('PENDING') + count('CHECKED_IN');
+      const diagnosing = count('IN_PROGRESS') + count('DIAGNOSING');
+      const waitingOnApproval = count('WAITING_ON_APPROVAL');
+      const readyForPickup = count('READY_FOR_PICKUP');
+      const totalValueCents = Math.max(0, tickets.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0));
+      const avgTicketValueCents = tickets.length > 0 ? Math.round(totalValueCents / tickets.length) : 0;
+
+      return {
+        totalTickets: tickets.length,
+        open: open.length,
+        checkedIn,
+        pending: checkedIn,
+        diagnosing,
+        inProgress: diagnosing,
+        waitingOnApproval,
+        waitingOnParts: count('WAITING_ON_PARTS'),
+        readyForPickup,
+        completed: count('COMPLETED'),
+        declined: count('DECLINED'),
+        cancelled: count('CANCELLED'),
+        warrantyTickets: tickets.filter((t) => t.isWarranty).length,
+        paidTickets: tickets.filter((t) => !t.isWarranty).length,
+        overdue: open.filter((t) => t.dueDate < today).length,
+        dueToday: open.filter((t) => t.dueDate >= today && t.dueDate < tomorrow).length,
+        openValueCents: Math.max(0, open.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0)),
+        totalValueCents,
+        avgTicketValueCents,
+        awaitingPickupCount: awaitingPickupTickets.length,
+        awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
+        collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
+        collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
+        customerCount,
+        lowStock,
+      };
+    } finally {
+      dashboardInFlight = null;
+    }
+  })();
+
+  return dashboardInFlight;
 }
 
 export async function getReport(days: number) {

@@ -7,12 +7,17 @@ export const SUPABASE_URL =
 
 const explicitUrl = process.env.DATABASE_URL;
 const isExplicitSqlite = !!(explicitUrl && explicitUrl.startsWith('file:'));
-const activeDbUrl = isExplicitSqlite ? explicitUrl : (explicitUrl || SUPABASE_URL);
+let activeDbUrl = isExplicitSqlite ? explicitUrl : (explicitUrl || SUPABASE_URL);
+
+export const isPostgres = !isExplicitSqlite;
+
+if (isPostgres && !activeDbUrl.includes('connection_limit=')) {
+  const sep = activeDbUrl.includes('?') ? '&' : '?';
+  activeDbUrl = `${activeDbUrl}${sep}connection_limit=5&pool_timeout=15`;
+}
 
 // Ensure process.env.DATABASE_URL matches the active connection for downstream services
 process.env.DATABASE_URL = activeDbUrl;
-
-export const isPostgres = !isExplicitSqlite;
 
 if (process.env.VERCEL && isExplicitSqlite) {
   const tmpDb = '/tmp/dev.db';

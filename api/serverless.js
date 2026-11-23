@@ -8,8 +8,12 @@ import { PrismaClient } from "@prisma/client";
 var explicitUrl = process.env.DATABASE_URL;
 var isExplicitSqlite = !!(explicitUrl && explicitUrl.startsWith("file:"));
 var activeDbUrl = isExplicitSqlite ? explicitUrl : explicitUrl || "postgresql://postgres.wlfrpafmlgadpupvublx:Fasofix%402026@aws-0-us-east-2.pooler.supabase.com:6543/postgres?sslmode=require&pgbouncer=true";
-process.env.DATABASE_URL = activeDbUrl;
 var isPostgres = !isExplicitSqlite;
+if (isPostgres && !activeDbUrl.includes("connection_limit=")) {
+	const sep = activeDbUrl.includes("?") ? "&" : "?";
+	activeDbUrl = `${activeDbUrl}${sep}connection_limit=5&pool_timeout=15`;
+}
+process.env.DATABASE_URL = activeDbUrl;
 if (process.env.VERCEL && isExplicitSqlite) {
 	const tmpDb = "/tmp/dev.db";
 	if (!fs.existsSync(tmpDb)) {
@@ -507,6 +511,32 @@ var ciContains = (q) => isPostgres ? {
 function parseDate(v) {
 	return /^\d{4}-\d{2}-\d{2}$/.test(v) ? /* @__PURE__ */ new Date(`${v}T12:00:00`) : new Date(v);
 }
+var ticketListSelect = {
+	id: true,
+	ticketNumber: true,
+	customerId: true,
+	deviceId: true,
+	status: true,
+	priority: true,
+	faultDescription: true,
+	laborCents: true,
+	discountCents: true,
+	taxRateBps: true,
+	technician: true,
+	bench: true,
+	storageBin: true,
+	diagnostics: true,
+	dueDate: true,
+	completedAt: true,
+	deletedAt: true,
+	isWarranty: true,
+	createdAt: true,
+	updatedAt: true,
+	customer: true,
+	device: true,
+	items: { orderBy: { createdAt: "asc" } },
+	payments: { orderBy: { createdAt: "asc" } }
+};
 var ticketInclude = {
 	customer: true,
 	device: true,
@@ -522,16 +552,37 @@ function withTotals(t) {
 	}
 	return {
 		...t,
+		signature: t.signature ?? null,
 		diagnostics,
 		totals: computeTotals(t)
 	};
 }
+var settingsInFlight = null;
 async function getSettings(tx = prisma) {
-	return tx.setting.upsert({
-		where: { id: 1 },
-		update: {},
-		create: { id: 1 }
-	});
+	if (tx !== prisma) {
+		const existing = await tx.setting.findUnique({ where: { id: 1 } });
+		if (existing) return existing;
+		return tx.setting.upsert({
+			where: { id: 1 },
+			update: {},
+			create: { id: 1 }
+		});
+	}
+	if (settingsInFlight) return settingsInFlight;
+	settingsInFlight = (async () => {
+		try {
+			const existing = await prisma.setting.findUnique({ where: { id: 1 } });
+			if (existing) return existing;
+			return await prisma.setting.upsert({
+				where: { id: 1 },
+				update: {},
+				create: { id: 1 }
+			});
+		} finally {
+			settingsInFlight = null;
+		}
+	})();
+	return settingsInFlight;
 }
 async function updateSettings(input, actor) {
 	const data = settingsSchema.parse(input);
@@ -637,7 +688,7 @@ async function listTicketsPaginated(params) {
 	const orderBy = params.sort === "dueDate" ? [{ dueDate: "asc" }, { ticketNumber: "desc" }] : view === "COMPLETED" ? [{ completedAt: "desc" }, { ticketNumber: "desc" }] : [{ ticketNumber: "desc" }];
 	const [total, tickets] = await Promise.all([prisma.ticket.count({ where }), prisma.ticket.findMany({
 		where,
-		include: ticketInclude,
+		select: ticketListSelect,
 		orderBy,
 		skip,
 		take: pageSize
@@ -1312,73 +1363,85 @@ function startOfDay(d = /* @__PURE__ */ new Date()) {
 	s.setHours(0, 0, 0, 0);
 	return s;
 }
+var dashboardInFlight = null;
 async function getDashboard() {
-	const today = startOfDay();
-	const tomorrow = new Date(today.getTime() + 864e5);
-	const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
-	const tickets = await prisma.ticket.findMany({
-		where: { deletedAt: null },
-		select: {
-			status: true,
-			dueDate: true,
-			laborCents: true,
-			discountCents: true,
-			taxRateBps: true,
-			isWarranty: true,
-			items: { select: {
-				quantity: true,
-				unitPriceCents: true
-			} },
-			payments: { select: { amountCents: true } }
+	if (dashboardInFlight) return dashboardInFlight;
+	dashboardInFlight = (async () => {
+		try {
+			const today = startOfDay();
+			const tomorrow = new Date(today.getTime() + 864e5);
+			const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+			const [tickets, payments, lowStock, customerCount] = await Promise.all([
+				prisma.ticket.findMany({
+					where: { deletedAt: null },
+					select: {
+						status: true,
+						dueDate: true,
+						laborCents: true,
+						discountCents: true,
+						taxRateBps: true,
+						isWarranty: true,
+						items: { select: {
+							quantity: true,
+							unitPriceCents: true
+						} },
+						payments: { select: { amountCents: true } }
+					}
+				}),
+				prisma.payment.findMany({
+					where: {
+						createdAt: { gte: monthStart },
+						ticket: { deletedAt: null }
+					},
+					select: {
+						amountCents: true,
+						createdAt: true
+					}
+				}),
+				prisma.inventoryPart.count({ where: { stock: { lte: prisma.inventoryPart.fields.reorderPoint } } }),
+				prisma.customer.count({ where: { archivedAt: null } })
+			]);
+			const open = tickets.filter((t) => OPEN_STATUSES.includes(t.status));
+			const count = (s) => tickets.filter((t) => t.status === s).length;
+			const awaitingPickupTickets = tickets.filter((t) => t.status === "READY_FOR_PICKUP" || t.status === "COMPLETED" && computeTotals(t).balanceCents > 0);
+			const checkedIn = count("PENDING") + count("CHECKED_IN");
+			const diagnosing = count("IN_PROGRESS") + count("DIAGNOSING");
+			const waitingOnApproval = count("WAITING_ON_APPROVAL");
+			const readyForPickup = count("READY_FOR_PICKUP");
+			const totalValueCents = Math.max(0, tickets.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0));
+			const avgTicketValueCents = tickets.length > 0 ? Math.round(totalValueCents / tickets.length) : 0;
+			return {
+				totalTickets: tickets.length,
+				open: open.length,
+				checkedIn,
+				pending: checkedIn,
+				diagnosing,
+				inProgress: diagnosing,
+				waitingOnApproval,
+				waitingOnParts: count("WAITING_ON_PARTS"),
+				readyForPickup,
+				completed: count("COMPLETED"),
+				declined: count("DECLINED"),
+				cancelled: count("CANCELLED"),
+				warrantyTickets: tickets.filter((t) => t.isWarranty).length,
+				paidTickets: tickets.filter((t) => !t.isWarranty).length,
+				overdue: open.filter((t) => t.dueDate < today).length,
+				dueToday: open.filter((t) => t.dueDate >= today && t.dueDate < tomorrow).length,
+				openValueCents: Math.max(0, open.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0)),
+				totalValueCents,
+				avgTicketValueCents,
+				awaitingPickupCount: awaitingPickupTickets.length,
+				awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
+				collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
+				collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
+				customerCount,
+				lowStock
+			};
+		} finally {
+			dashboardInFlight = null;
 		}
-	});
-	const payments = await prisma.payment.findMany({
-		where: {
-			createdAt: { gte: monthStart },
-			ticket: { deletedAt: null }
-		},
-		select: {
-			amountCents: true,
-			createdAt: true
-		}
-	});
-	const lowStock = await prisma.inventoryPart.count({ where: { stock: { lte: prisma.inventoryPart.fields.reorderPoint } } });
-	const open = tickets.filter((t) => OPEN_STATUSES.includes(t.status));
-	const count = (s) => tickets.filter((t) => t.status === s).length;
-	const awaitingPickupTickets = tickets.filter((t) => t.status === "READY_FOR_PICKUP" || t.status === "COMPLETED" && computeTotals(t).balanceCents > 0);
-	const checkedIn = count("PENDING") + count("CHECKED_IN");
-	const diagnosing = count("IN_PROGRESS") + count("DIAGNOSING");
-	const waitingOnApproval = count("WAITING_ON_APPROVAL");
-	const readyForPickup = count("READY_FOR_PICKUP");
-	const totalValueCents = Math.max(0, tickets.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0));
-	const avgTicketValueCents = tickets.length > 0 ? Math.round(totalValueCents / tickets.length) : 0;
-	return {
-		totalTickets: tickets.length,
-		open: open.length,
-		checkedIn,
-		pending: checkedIn,
-		diagnosing,
-		inProgress: diagnosing,
-		waitingOnApproval,
-		waitingOnParts: count("WAITING_ON_PARTS"),
-		readyForPickup,
-		completed: count("COMPLETED"),
-		declined: count("DECLINED"),
-		cancelled: count("CANCELLED"),
-		warrantyTickets: tickets.filter((t) => t.isWarranty).length,
-		paidTickets: tickets.filter((t) => !t.isWarranty).length,
-		overdue: open.filter((t) => t.dueDate < today).length,
-		dueToday: open.filter((t) => t.dueDate >= today && t.dueDate < tomorrow).length,
-		openValueCents: Math.max(0, open.reduce((s, t) => s + Math.max(0, computeTotals(t).totalCents), 0)),
-		totalValueCents,
-		avgTicketValueCents,
-		awaitingPickupCount: awaitingPickupTickets.length,
-		awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
-		collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
-		collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
-		customerCount: await prisma.customer.count({ where: { archivedAt: null } }),
-		lowStock
-	};
+	})();
+	return dashboardInFlight;
 }
 async function getReport(days) {
 	const span = Math.min(Math.max(Math.floor(days) || 30, 1), 365);
@@ -2914,7 +2977,11 @@ var POSTGRES_SCHEMA_STATEMENTS = [
     CONSTRAINT "Notification_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User" ("id") ON DELETE CASCADE ON UPDATE CASCADE
   )`,
 	`CREATE INDEX IF NOT EXISTS "Notification_userId_isRead_idx" ON "Notification"("userId", "isRead")`,
-	`CREATE INDEX IF NOT EXISTS "Notification_createdAt_idx" ON "Notification"("createdAt")`
+	`CREATE INDEX IF NOT EXISTS "Notification_createdAt_idx" ON "Notification"("createdAt")`,
+	`CREATE INDEX IF NOT EXISTS "Ticket_deletedAt_ticketNumber_idx" ON "Ticket"("deletedAt", "ticketNumber" DESC)`,
+	`CREATE INDEX IF NOT EXISTS "Ticket_deletedAt_status_idx" ON "Ticket"("deletedAt", "status")`,
+	`CREATE INDEX IF NOT EXISTS "Customer_archivedAt_updatedAt_idx" ON "Customer"("archivedAt", "updatedAt" DESC)`,
+	`CREATE INDEX IF NOT EXISTS "Payment_ticketId_createdAt_idx" ON "Payment"("ticketId", "createdAt")`
 ];
 async function ensurePostgresSchema() {
 	for (const sql of POSTGRES_SCHEMA_STATEMENTS) try {
@@ -7123,6 +7190,10 @@ var initialized = false;
 var initPromise = null;
 async function initServerless() {
 	if (initialized) return;
+	if (process.env.VERCEL && isPostgres) {
+		initialized = true;
+		return;
+	}
 	if (!initPromise) initPromise = (async () => {
 		try {
 			await configureSqlite();
