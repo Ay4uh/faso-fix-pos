@@ -136,9 +136,8 @@ export function App() {
       }
     },
     onScanItem: (sku) => {
-      setCurrentTab('inventory');
       setSearchQuery(sku);
-      showToast(`📦 Scanned Inventory SKU: ${sku}`);
+      showToast(`📦 Scanned Item SKU: ${sku}`);
     },
   });
 

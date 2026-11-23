@@ -5,7 +5,6 @@ import {
   Users,
   BarChart3,
   Settings,
-  Package,
   Shield,
   ShieldAlert,
   LogOut,
@@ -95,25 +94,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 font-semibold">
               {stats?.customerCount ?? 0}
             </span>
-          </button>
-
-          <button
-            onClick={() => setCurrentTab('inventory')}
-            className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              currentTab === 'inventory'
-                ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/90'
-                : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-            }`}
-          >
-            <div className="flex items-center space-x-3">
-              <Package className={`w-4 h-4 ${currentTab === 'inventory' ? 'text-indigo-600' : 'text-slate-500'}`} />
-              <span>Parts &amp; Stock</span>
-            </div>
-            {stats && stats.lowStock > 0 && (
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold border border-amber-200">
-                {stats.lowStock} Low
-              </span>
-            )}
           </button>
 
           <button

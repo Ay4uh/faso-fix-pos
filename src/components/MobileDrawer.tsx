@@ -4,7 +4,6 @@ import {
   LayoutDashboard,
   PlusCircle,
   Users,
-  Package,
   BarChart3,
   Settings,
   ShieldAlert,
@@ -147,25 +146,6 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
               <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold">
                 {stats?.customerCount ?? 0}
               </span>
-            </button>
-
-            <button
-              onClick={() => handleSelectTab('inventory')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer min-h-[44px] ${
-                currentTab === 'inventory'
-                  ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
-                  : 'text-slate-700 hover:bg-slate-50'
-              }`}
-            >
-              <div className="flex items-center space-x-3">
-                <Package className="w-4 h-4 text-slate-500" />
-                <span>Parts Inventory</span>
-              </div>
-              {stats && stats.lowStock > 0 ? (
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 font-bold">
-                  {stats.lowStock} Low
-                </span>
-              ) : null}
             </button>
 
             <button

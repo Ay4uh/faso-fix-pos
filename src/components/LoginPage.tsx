@@ -171,7 +171,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
                   </div>
                   <div>
                     <h2 className="text-xs font-bold text-slate-900">Staff Sign In</h2>
-                    <p className="text-[11px] text-indigo-700/80">Access work orders, parts inventory &amp; billing</p>
+                    <p className="text-[11px] text-indigo-700/80">Access work orders, customers &amp; billing</p>
                   </div>
                 </>
               )}

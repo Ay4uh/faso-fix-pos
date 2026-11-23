@@ -904,7 +904,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <span className="text-[11px] font-mono text-slate-500 font-semibold">Tier 2 &bull; Shop Floor</span>
               </div>
               <p className="text-xs text-slate-600 leading-relaxed">
-                Daily workbench operations: device check-in, repair diagnostic QA checkpoints, parts inventory stock tracking, customer notifications, and taking tender.
+                Daily workbench operations: device check-in, repair diagnostic QA checkpoints, customer notifications, and taking tender.
               </p>
               <ul className="text-xs text-slate-700 space-y-2 pt-2">
                 {[
