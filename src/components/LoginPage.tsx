@@ -10,10 +10,9 @@ import {
   ArrowRight,
   Cpu,
 } from 'lucide-react';
-import { setToken } from '../utils/auth';
+import { markSessionActive } from '../utils/auth';
 import { posAudio } from '../utils/audio';
 import { User as UserType } from '../types';
-import { getCachedRegisteredUsers } from '../utils/userSync';
 
 interface LoginPageProps {
   onLoginSuccess: (user: UserType, targetView: 'repairs' | 'admin') => void;
@@ -40,15 +39,17 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
     setErrorMessage(null);
 
     try {
-      const clientUsers = getCachedRegisteredUsers();
       const res = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'FasoFixPOS',
+        },
         body: JSON.stringify({
           usernameOrEmail: usernameOrEmail.trim(),
           password,
           adminMode: isAdminMode,
-          clientUsers,
         }),
       });
 
@@ -69,7 +70,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
         throw new Error(data?.error || 'Authentication failed. Please verify credentials.');
       }
 
-      setToken(data.token, data.expiresAtMs);
+      markSessionActive(data.expiresAtMs);
       posAudio.playSuccessChime();
       
       const targetView: 'repairs' | 'admin' = (data.user.role === 'ADMIN' && isAdminMode) ? 'admin' : 'repairs';

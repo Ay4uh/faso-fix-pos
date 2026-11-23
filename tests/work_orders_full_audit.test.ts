@@ -378,11 +378,17 @@ describe('Complete Work Orders & Database Audit Suite', () => {
     assert.equal(fullPay.json.data.totals.balanceCents, 0);
     assert.equal(fullPay.json.data.totals.paymentStatus, 'PAID');
 
-    // Void payment -> balance restored
+    // Tech void attempt rejected (403); Admin void restores balance (200)
     const pmtToVoid = fullPay.json.data.payments[1].id;
-    const voidRes = await call(`/api/tickets/${ticketId}/payments/${pmtToVoid}`, {
+    const techVoidRes = await call(`/api/tickets/${ticketId}/payments/${pmtToVoid}`, {
       method: 'DELETE',
       token: techToken,
+    });
+    assert.equal(techVoidRes.status, 403);
+
+    const voidRes = await call(`/api/tickets/${ticketId}/payments/${pmtToVoid}`, {
+      method: 'DELETE',
+      token: adminToken,
     });
     assert.equal(voidRes.status, 200);
     assert.equal(voidRes.json.data.totals.balanceCents, 27770);

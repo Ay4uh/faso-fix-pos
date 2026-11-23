@@ -1495,6 +1495,9 @@ export async function exportPayrollCsv(periodId: string) {
  * Generate standard CRA compliant Canadian Paystub HTML for printing & PDF export
  */
 export async function buildPaystubHtml(paystubId: string, isAdmin = false, currentUserId?: string) {
+  const escHtml = (s: unknown) =>
+    String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!));
+
   const paystub = await prisma.paystub.findUnique({
     where: { id: paystubId },
     include: {
@@ -1514,7 +1517,7 @@ export async function buildPaystubHtml(paystubId: string, isAdmin = false, curre
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Paystub - ${paystub.user.name} - Period #${paystub.payrollPeriod.periodNumber}</title>
+  <title>Paystub - ${escHtml(paystub.user.name)} - Period #${paystub.payrollPeriod.periodNumber}</title>
   <style>
     @page { size: letter; margin: 0.5in; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.4; padding: 20px; font-size: 13px; max-width: 800px; margin: 0 auto; }
@@ -1546,28 +1549,28 @@ export async function buildPaystubHtml(paystubId: string, isAdmin = false, curre
 <body>
   <div class="header">
     <div class="company">
-      <h1>${settings.shopName || 'Faso Fix POS'}</h1>
-      <p>${settings.address || 'Ontario, Canada'}</p>
-      <p>Tel: ${settings.phone || '647-740-0566'} • Email: ${settings.email || 'support@fasofix.ca'}</p>
+      <h1>${escHtml(settings.shopName || 'Faso Fix POS')}</h1>
+      <p>${escHtml(settings.address || 'Ontario, Canada')}</p>
+      <p>Tel: ${escHtml(settings.phone || '647-740-0566')} • Email: ${escHtml(settings.email || 'support@fasofix.ca')}</p>
     </div>
     <div class="title">
       <h2>EMPLOYEE EARNINGS STATEMENT</h2>
-      <p>Period #${paystub.payrollPeriod.periodNumber} • Status: ${paystub.status}</p>
+      <p>Period #${paystub.payrollPeriod.periodNumber} • Status: ${escHtml(paystub.status)}</p>
       <p>Issued: ${paystub.payrollPeriod.payDate.toISOString().slice(0, 10)}</p>
     </div>
   </div>
 
   <div class="meta-grid">
     <div class="meta-col">
-      <p><strong>Employee Name:</strong> ${paystub.user.name}</p>
-      <p><strong>Employee ID:</strong> ${paystub.user.employeeNumber || 'EMP-' + paystub.user.id.slice(0, 6)}</p>
-      <p><strong>Email:</strong> ${paystub.user.email}</p>
+      <p><strong>Employee Name:</strong> ${escHtml(paystub.user.name)}</p>
+      <p><strong>Employee ID:</strong> ${escHtml(paystub.user.employeeNumber || 'EMP-' + paystub.user.id.slice(0, 6))}</p>
+      <p><strong>Email:</strong> ${escHtml(paystub.user.email)}</p>
       <p><strong>Hourly Rate:</strong> ${money(paystub.hourlyRateCents)}/hr</p>
     </div>
     <div class="meta-col">
       <p><strong>Pay Period:</strong> ${paystub.payrollPeriod.startDate.toISOString().slice(0, 10)} to ${paystub.payrollPeriod.endDate.toISOString().slice(0, 10)}</p>
       <p><strong>Payment Date:</strong> ${paystub.payrollPeriod.payDate.toISOString().slice(0, 10)}</p>
-      <p><strong>Payment Method:</strong> ${paystub.paymentMethod.replace(/_/g, ' ')}</p>
+      <p><strong>Payment Method:</strong> ${escHtml(paystub.paymentMethod.replace(/_/g, ' '))}</p>
       <p><strong>Jurisdiction:</strong> Ontario (CRA T4127 Compliant)</p>
     </div>
   </div>

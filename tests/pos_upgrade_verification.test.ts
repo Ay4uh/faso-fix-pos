@@ -1,7 +1,7 @@
 import { test, describe, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { prisma } from '../src/server/prisma';
-import { createSession, verifySignedToken } from '../src/server/auth';
+import { authenticateSession, createSession, destroySession, hashSessionToken } from '../src/server/auth';
 import * as payrollService from '../src/server/payrollService';
 import * as scheduleService from '../src/server/scheduleService';
 import { calculatePayroll } from '../src/server/payrollMath';
@@ -48,28 +48,27 @@ describe('Faso Fix POS Complete Upgrade Verification Suite', () => {
   test('1. 24-Hour Session Expiration: Valid tokens accepted, expired tokens rejected', async () => {
     // Valid session token created now
     const validToken = await createSession(testTech.id);
-    const verifiedValid = verifySignedToken(validToken);
-    assert.ok(verifiedValid, 'Signed token should be verified');
-    assert.equal(verifiedValid.uid, testTech.id);
+    const verifiedValid = await authenticateSession(validToken);
+    assert.ok(verifiedValid, 'Opaque hashed session token should authenticate');
+    assert.equal(verifiedValid.id, testTech.id);
 
-    // Simulate an expired session token (25 hours ago)
-    const twentyFiveHoursAgo = Date.now() - 25 * 60 * 60 * 1000;
-    const expiredPayload = {
-      uid: testTech.id,
-      u: testTech.username,
-      r: testTech.role,
-      iat: twentyFiveHoursAgo,
-      exp: twentyFiveHoursAgo + 24 * 60 * 60 * 1000, // expired 1 hour ago
-    };
-    const b64 = Buffer.from(JSON.stringify(expiredPayload)).toString('base64url');
-    // Using fake signature
-    const expiredToken = `s.${b64}.fakesig`;
-    const verifiedExpired = verifySignedToken(expiredToken);
+    // Simulate an expired session record in DB
+    const expRaw = `expired_upgrade_${Date.now()}`;
+    await prisma.session.create({
+      data: {
+        token: hashSessionToken(expRaw),
+        userId: testTech.id,
+        expiresAt: new Date(Date.now() - 60 * 60 * 1000),
+      },
+    });
+    const verifiedExpired = await authenticateSession(expRaw);
     assert.equal(verifiedExpired, null, 'Expired session token must be rejected');
 
-    // Admin accounts must also be subject to session expiration
+    // Admin accounts must receive 64-char random hex opaque tokens (stored hashed)
     const adminToken = await createSession(testAdmin.id);
-    assert.ok(adminToken.startsWith('s.'), 'Admin must receive a signed 24h session token');
+    assert.equal(adminToken.length, 64, 'Admin must receive a 256-bit hex opaque session token');
+    await destroySession(validToken);
+    await destroySession(adminToken);
   });
 
   // -------------------------------------------------------------------------

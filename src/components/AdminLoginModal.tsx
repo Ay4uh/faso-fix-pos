@@ -1,9 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldAlert, Lock, User, Eye, EyeOff, X, KeyRound, AlertCircle, CheckCircle2 } from 'lucide-react';
-import { setToken } from '../utils/auth';
+import { markSessionActive } from '../utils/auth';
 import { posAudio } from '../utils/audio';
 import { User as UserType } from '../types';
-import { getCachedRegisteredUsers } from '../utils/userSync';
 
 interface AdminLoginModalProps {
   isOpen: boolean;
@@ -44,15 +43,17 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     setErrorMessage(null);
 
     try {
-      const clientUsers = getCachedRegisteredUsers();
       const res = await fetch('/api/auth/login', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        credentials: 'same-origin',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Requested-With': 'FasoFixPOS',
+        },
         body: JSON.stringify({
           usernameOrEmail: usernameOrEmail.trim(),
           password,
           adminMode: true,
-          clientUsers,
         }),
       });
 
@@ -73,7 +74,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
         throw new Error(data?.error || 'Authentication failed. Please verify credentials.');
       }
 
-      setToken(data.token, data.expiresAtMs);
+      markSessionActive(data.expiresAtMs);
       try {
         localStorage.setItem('apexfix_cached_user', JSON.stringify(data.user));
       } catch {}
@@ -93,7 +94,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
 
   const handleFillDemoAdmin = () => {
     setUsernameOrEmail('admin');
-    if (import.meta.env.DEV) setPassword('Admin@FasoFix2026!');
     setErrorMessage(null);
   };
 

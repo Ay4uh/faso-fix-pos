@@ -182,21 +182,26 @@ export const settingsSchema = z
   })
   .partial();
 
+const strongPassword = z
+  .string()
+  .min(8, 'Password must be at least 8 characters')
+  .max(128, 'Password cannot exceed 128 characters')
+  .refine(
+    (p) => /[A-Z]/.test(p) && /[a-z]/.test(p) && /\d/.test(p),
+    'Password must include uppercase, lowercase, and a number'
+  );
+
 export const loginSchema = z.object({
   usernameOrEmail: trimmed.min(1, 'Username or email is required').max(120),
   password: z.string().min(1, 'Password is required'),
   adminMode: z.boolean().optional().default(false),
-  clientUsers: z.array(z.object({
-    payload: z.string(),
-    signature: z.string(),
-  })).optional(),
 });
 
 export const userCreateSchema = z.object({
   username: trimmed.min(3, 'Username must be at least 3 characters').max(40).regex(/^[a-zA-Z0-9_.-]+$/, 'Username can only contain letters, numbers, dots, hyphens, and underscores'),
   email: trimmed.email('Valid email is required'),
   name: trimmed.min(2, 'Name must be at least 2 characters').max(100),
-  password: z.string().min(8, 'Password must be at least 8 characters'),
+  password: strongPassword,
   role: z.enum(['ADMIN', 'USER']).default('USER'),
   phone: optionalText,
   bench: optionalText,
@@ -216,7 +221,7 @@ export const userUpdateSchema = z.object({
 
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
-  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+  newPassword: strongPassword,
   confirmPassword: z.string().min(8, 'Confirm password must be at least 8 characters'),
 }).refine((data) => data.newPassword === data.confirmPassword, {
   message: 'New passwords do not match',
@@ -224,6 +229,6 @@ export const changePasswordSchema = z.object({
 });
 
 export const resetPasswordSchema = z.object({
-  newPassword: z.string().min(8, 'New password must be at least 8 characters'),
+  newPassword: strongPassword,
 });
 

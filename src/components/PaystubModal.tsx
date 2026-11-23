@@ -1,6 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { X, Printer, ShieldCheck, DollarSign } from 'lucide-react';
-import { getToken } from '../utils/auth';
+import { fetchWithAuth } from '../utils/auth';
 import { loadShop, ReceiptShop } from '../utils/receipt';
 
 interface PaystubModalProps {
@@ -27,15 +27,22 @@ export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) 
 
   if (!paystub) return null;
 
-  const handlePrint = () => {
-    // Open printable HTML view directly for crisp native vector printing
-    const token = getToken();
-    const q = token ? `?token=${encodeURIComponent(token)}` : '';
-    const printUrl = `/api/timeclock/my-paystubs/${paystub.id}/html${q}`;
-    const win = window.open(printUrl, '_blank', 'width=900,height=1000');
-    if (win) {
-      win.focus();
-    } else {
+  const handlePrint = async () => {
+    try {
+      const res = await fetchWithAuth(`/api/timeclock/my-paystubs/${paystub.id}/html`);
+      if (!res.ok) throw new Error('Failed to load paystub HTML');
+      const html = await res.text();
+      const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+      const blobUrl = URL.createObjectURL(blob);
+      const win = window.open(blobUrl, '_blank', 'width=900,height=1000');
+      if (win) {
+        win.focus();
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 120000);
+      } else {
+        URL.revokeObjectURL(blobUrl);
+        window.print();
+      }
+    } catch {
       window.print();
     }
   };

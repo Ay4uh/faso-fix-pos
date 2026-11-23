@@ -24,63 +24,20 @@ export function verifyPassword(password: string, combined: string): boolean {
   }
 }
 
-const SESSION_SIGNING_KEY = process.env.SESSION_SECRET || 'fasofix-cloud-session-secret-key-2026';
+const DUMMY_PASSWORD_HASH = hashPassword(crypto.randomBytes(24).toString('hex'));
 
-export function createSignedToken(userId: string, username: string, role: string, expiresAt: number): string {
-  const jti = crypto.randomBytes(8).toString('hex');
-  const payload = Buffer.from(JSON.stringify({ uid: userId, u: username, r: role, exp: expiresAt, jti })).toString('base64url');
-  const signature = crypto.createHmac('sha256', SESSION_SIGNING_KEY).update(payload).digest('base64url');
-  return `s.${payload}.${signature}`;
+/** Run constant-shape scrypt verification when an account does not exist to prevent timing enumeration. */
+export function verifyDummyPassword(password: string): void {
+  verifyPassword(password, DUMMY_PASSWORD_HASH);
 }
 
-export function verifySignedToken(token: string): { uid: string; u: string; r: string; exp: number } | null {
-  try {
-    if (!token.startsWith('s.')) return null;
-    const parts = token.slice(2).split('.');
-    if (parts.length !== 2) return null;
-    const [payload, signature] = parts;
-    const expected = crypto.createHmac('sha256', SESSION_SIGNING_KEY).update(payload).digest('base64url');
-    if (signature.length !== expected.length) return null;
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
-    const data = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-    if (!data.exp || data.exp < Date.now()) return null;
-    return data;
-  } catch {
-    return null;
-  }
-}
-
-export function createSignedUserPayload(user: {
-  id: string;
-  username: string;
-  email: string;
-  name: string;
-  passwordHash: string;
-  role: string;
-  status?: string;
-  phone?: string | null;
-  bench?: string | null;
-  bio?: string | null;
-  preferences?: string | null;
-}): { payload: string; signature: string } {
-  const payload = Buffer.from(JSON.stringify(user)).toString('base64url');
-  const signature = crypto.createHmac('sha256', SESSION_SIGNING_KEY).update(payload).digest('base64url');
-  return { payload, signature };
-}
-
-export function verifySignedUserPayload(payload: string, signature: string): any | null {
-  try {
-    const expected = crypto.createHmac('sha256', SESSION_SIGNING_KEY).update(payload).digest('base64url');
-    if (signature.length !== expected.length) return null;
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
-    return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
-  } catch {
-    return null;
-  }
+/** Hash bearer/cookie session tokens with SHA-256 before database persistence and revocation lookup. */
+export function hashSessionToken(rawToken: string): string {
+  return crypto.createHash('sha256').update(rawToken).digest('hex');
 }
 
 /**
- * Generate a cryptographically secure random session token.
+ * Generate a cryptographically secure 256-bit random session token.
  */
 export function generateToken(): string {
   return crypto.randomBytes(32).toString('hex');
@@ -95,16 +52,12 @@ export const SESSION_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours (86,400,000 m
 
 /**
  * Create a persistent session for a user valid for a strict maximum of 24 hours.
+ * Returns the raw bearer/cookie token while storing only its SHA-256 hash in the database.
  */
 export async function createSession(userId: string): Promise<string> {
-  const user = await prisma.user.findUnique({ where: { id: userId } });
   const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_MS); // Strictly 24 hours
-  const token = createSignedToken(
-    userId,
-    user?.username || '',
-    user?.role || 'USER',
-    expiresAt.getTime()
-  );
+  const rawToken = generateToken();
+  const tokenHash = hashSessionToken(rawToken);
 
   let persisted = false;
   let lastErr: unknown = null;
@@ -112,7 +65,7 @@ export async function createSession(userId: string): Promise<string> {
     try {
       await prisma.session.create({
         data: {
-          token,
+          token: tokenHash,
           userId,
           expiresAt,
         },
@@ -129,14 +82,24 @@ export async function createSession(userId: string): Promise<string> {
     throw new Error('Failed to persist session — please try signing in again.');
   }
 
-  return token;
+  return rawToken;
 }
 
+const MAX_REVOKED_CACHE = 2000;
 const revokedTokens = new Set<string>();
 
+function cacheRevokedHash(tokenHash: string) {
+  revokedTokens.add(tokenHash);
+  if (revokedTokens.size > MAX_REVOKED_CACHE) {
+    const oldest = revokedTokens.values().next().value;
+    if (oldest) revokedTokens.delete(oldest);
+  }
+}
+
 export async function destroySession(token: string): Promise<void> {
-  revokedTokens.add(token);
-  await prisma.session.delete({ where: { token } }).catch(() => {});
+  const tokenHash = hashSessionToken(token);
+  cacheRevokedHash(tokenHash);
+  await prisma.session.deleteMany({ where: { token: { in: [tokenHash, token] } } }).catch(() => {});
 }
 
 /**
@@ -146,16 +109,13 @@ export async function authenticateSession(
   token: string | undefined,
   _clientHeaders?: { userId?: string; userName?: string; userRole?: string }
 ) {
-  if (!token || revokedTokens.has(token)) return null;
+  if (!token) return null;
+  const tokenHash = hashSessionToken(token);
+  if (revokedTokens.has(tokenHash) || revokedTokens.has(token)) return null;
 
-  // Reject tampered or expired stateless signed tokens before hitting the database
-  if (token.startsWith('s.') && !verifySignedToken(token)) {
-    return null;
-  }
-
-  // Single-query session + user verification
-  const session = await prisma.session.findUnique({
-    where: { token },
+  // Single-query session + user verification (accepts hashed production tokens and legacy test rows)
+  const session = await prisma.session.findFirst({
+    where: { token: { in: [tokenHash, token] } },
     include: {
       user: {
         select: {
@@ -178,7 +138,7 @@ export async function authenticateSession(
 
   if (session) {
     if (session.expiresAt.getTime() < Date.now()) {
-      await prisma.session.delete({ where: { token } }).catch(() => {});
+      await prisma.session.deleteMany({ where: { id: session.id } }).catch(() => {});
       return null;
     }
     if (session.user.status !== 'ACTIVE') {
@@ -264,8 +224,7 @@ export async function ensureAdminProvisioning(): Promise<void> {
     console.log('[Faso Fix Security] Initial Administrator Account Provisioned:');
     console.log(`  Username: ${adminUser}`);
     console.log(`  Email:    ${adminEmail}`);
-    console.log(`  Password: ${adminPass}`);
-    console.log('  Please log in and update your password if desired.');
+    console.log('  Please log in and rotate the initial password immediately.');
     console.log('------------------------------------------------------------');
   }
 }

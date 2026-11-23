@@ -26,7 +26,7 @@ import {
   ShieldAlert,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
-import { fetchWithAuth, getToken } from '../utils/auth';
+import { fetchWithAuth, hasActiveSession } from '../utils/auth';
 import { ShopSettings, User as UserType, UserPreferences } from '../types';
 
 interface SettingsViewProps {
@@ -174,7 +174,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         throw new Error('Name and email are required');
       }
 
-      if (currentUser && getToken()) {
+      if (currentUser && hasActiveSession()) {
         const res = await fetchWithAuth('/api/auth/profile', {
           method: 'PUT',
           body: JSON.stringify({
@@ -269,7 +269,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     if (newPrefs.highPriorityAudio !== undefined) setHighPriorityAudioEnabled(newPrefs.highPriorityAudio);
     if (newPrefs.lowStockAlerts !== undefined) setLowStockAlertsEnabled(newPrefs.lowStockAlerts);
 
-    if (currentUser && getToken()) {
+    if (currentUser && hasActiveSession()) {
       try {
         await fetchWithAuth('/api/auth/preferences', {
           method: 'PUT',

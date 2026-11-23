@@ -3,6 +3,28 @@ import ReactDOM from 'react-dom/client';
 import App from './App';
 import './index.css';
 
+// Externalized SW/cache cleanup and build check (keeps index.html free of inline scripts for strict CSP)
+(function enforceLatestBuild() {
+  try {
+    if ('caches' in window) {
+      caches.keys().then((names) => names.forEach((name) => caches.delete(name))).catch(() => {});
+    }
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.getRegistrations().then((regs) => regs.forEach((r) => r.unregister())).catch(() => {});
+    }
+    const buildId = document.querySelector('meta[name="faso-build-id"]')?.getAttribute('content');
+    if (buildId) {
+      const currentBuild = localStorage.getItem('faso_pos_build_id');
+      if (currentBuild !== buildId) {
+        localStorage.setItem('faso_pos_build_id', buildId);
+        if (currentBuild) {
+          window.location.reload();
+        }
+      }
+    }
+  } catch {}
+})();
+
 interface ErrorBoundaryProps {
   children: ReactNode;
 }

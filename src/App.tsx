@@ -21,19 +21,23 @@ import { useBarcodeScanner } from './hooks/useBarcodeScanner';
 import { Ticket, Customer, DashboardStats, User } from './types';
 import { CheckCircle2, ShieldAlert, Lock, Cpu } from 'lucide-react';
 import { posAudio } from './utils/audio';
-import { fetchWithAuth, getToken, removeToken } from './utils/auth';
+import {
+  clearSessionState,
+  fetchWithAuth,
+  getSessionEpoch,
+  hasActiveSession,
+  isSessionExpired,
+  markSessionActive,
+} from './utils/auth';
 
 const getInitialUser = (): User | null => {
   try {
     const raw = localStorage.getItem('apexfix_cached_user');
-    const token = localStorage.getItem('apexfix_session_token');
-    const expiry = localStorage.getItem('apexfix_session_expiry');
-    if (raw && token) {
-      if (expiry && Date.now() >= parseInt(expiry, 10)) {
-        removeToken();
-        return null;
-      }
+    if (raw && hasActiveSession()) {
       return JSON.parse(raw);
+    }
+    if (isSessionExpired() && getSessionEpoch()) {
+      clearSessionState();
     }
   } catch {}
   return null;
@@ -114,16 +118,14 @@ export function App() {
       const reason = e?.detail?.reason || 'Your 24-hour session has expired for security. Please sign in again.';
       setCurrentUser(null);
       setSessionExpiredNotice(reason);
-      removeToken();
+      clearSessionState();
     };
 
     window.addEventListener('session-expired', handleExpired);
 
     // Periodic check enforcing the strict 24-hour maximum session lifetime
     const timer = setInterval(() => {
-      const expiry = localStorage.getItem('apexfix_session_expiry');
-      const token = localStorage.getItem('apexfix_session_token');
-      if (token && expiry && Date.now() >= parseInt(expiry, 10)) {
+      if (getSessionEpoch() && isSessionExpired()) {
         handleExpired({ detail: { reason: 'Your 24-hour session has expired for security. Please log in again.' } });
       }
     }, 30_000);
@@ -166,32 +168,28 @@ export function App() {
     },
   });
 
-  // Check auth session on startup + sync multi-tab logout
+  // Check auth session on startup (cookie-backed) + sync multi-tab logout
   useEffect(() => {
     const verifySession = async () => {
       try {
-        const mountToken = getToken();
-        if (!mountToken) {
-          setCurrentUser(null);
-          localStorage.removeItem('apexfix_cached_user');
-          return;
-        }
+        const mountEpoch = getSessionEpoch();
         const res = await fetchWithAuth('/api/auth/me');
-        if (getToken() !== mountToken) return;
+        if (getSessionEpoch() !== mountEpoch) return;
         if (res.ok) {
           const json = await res.json();
-          if (getToken() !== mountToken) return;
+          if (getSessionEpoch() !== mountEpoch) return;
           if (json.authenticated && json.user) {
+            if (!mountEpoch) markSessionActive();
             setCurrentUser(json.user);
             try {
               localStorage.setItem('apexfix_cached_user', JSON.stringify(json.user));
             } catch {}
           } else {
-            removeToken();
+            clearSessionState();
             setCurrentUser(null);
           }
         } else if (res.status === 401 || res.status === 403) {
-          removeToken();
+          clearSessionState();
           setCurrentUser(null);
         }
       } catch (err) {
@@ -203,7 +201,7 @@ export function App() {
     verifySession();
 
     const handleStorage = (e: StorageEvent) => {
-      if (e.key === 'apexfix_session_token' && !e.newValue) {
+      if (e.key === 'apexfix_session_epoch' && !e.newValue) {
         setCurrentUser(null);
         setSelectedTicket(null);
         setPrintTicket(null);
@@ -396,11 +394,8 @@ export function App() {
   }, [currentUser, currentTab]);
 
   const handleLogout = () => {
-    const tokenToRevoke = localStorage.getItem('apexfix_session_token');
-    // 1. Immediately wipe local auth credentials & cached user data
-    removeToken();
-    localStorage.removeItem('apexfix_session_token');
-    localStorage.removeItem('apexfix_cached_user');
+    // 1. Immediately wipe local UI session markers & cached user data
+    clearSessionState();
     localStorage.removeItem('apexfix_cached_tickets');
     sessionStorage.clear();
 
@@ -432,12 +427,13 @@ export function App() {
     posAudio.playBeep();
     showToast('Logged out successfully');
 
-    // 4. Background fire-and-forget notification to server (never blocks UI)
+    // 4. Background cookie-authenticated logout request to revoke DB session & clear HttpOnly cookie
     fetch('/api/auth/logout', {
       method: 'POST',
+      credentials: 'same-origin',
       headers: {
         'Content-Type': 'application/json',
-        ...(tokenToRevoke ? { Authorization: `Bearer ${tokenToRevoke}` } : {}),
+        'X-Requested-With': 'FasoFixPOS',
       },
       keepalive: true,
     }).catch(() => {});
@@ -529,8 +525,8 @@ export function App() {
   }, [searchQuery, selectedBench]);
 
   const fetchData = async (silent = false) => {
-    const reqToken = getToken();
-    if (!reqToken) {
+    const reqEpoch = getSessionEpoch();
+    if (!reqEpoch) {
       if (!silent) setIsLoading(false);
       return;
     }
@@ -563,7 +559,7 @@ export function App() {
       ]);
 
       // Guard against stale response resolving after logout or re-login
-      if (getToken() !== reqToken) return;
+      if (getSessionEpoch() !== reqEpoch) return;
 
       if (ticketsRes?.ok) {
         const data = await ticketsRes.json();
@@ -667,18 +663,17 @@ export function App() {
   }, [currentTab, currentUser]);
 
   // Real-time live updates via Server-Sent Events (SSE)
-  // Only connect on localhost with an active session token. On Vercel serverless, SSE holds lambdas open and forces multi-container divergence.
+  // Only connect on localhost with an active cookie session. On Vercel serverless, SSE holds lambdas open and forces multi-container divergence.
   useEffect(() => {
     const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-    const token = getToken();
-    if (!isLocal || !currentUser || !token) return;
+    if (!isLocal || !currentUser || !hasActiveSession()) return;
 
     let es: EventSource | null = null;
     let reconnectTimer: any = null;
 
     const connectSSE = () => {
       try {
-        es = new EventSource(`/api/live/stream?token=${encodeURIComponent(token)}`);
+        es = new EventSource('/api/live/stream');
 
         es.addEventListener('ticket_created', (e) => {
           try {

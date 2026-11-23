@@ -1674,7 +1674,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                         Payment &amp; Transaction Ledger
                       </span>
                       <div className="flex flex-wrap items-center gap-2">
-                        {totals.paidCents > 0 && (
+                        {currentUser?.role === 'ADMIN' && totals.paidCents > 0 && (
                           <button
                             type="button"
                             disabled={isRefunding}
@@ -1725,16 +1725,18 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                               </td>
                               <td className="py-2 px-3 text-slate-500">{pmt.note || 'N/A'}</td>
                               <td className="py-2 px-3 text-right whitespace-nowrap">
-                                <button
-                                  type="button"
-                                  disabled={isVoidingPaymentId === pmt.id}
-                                  onClick={() => handleVoidPayment(pmt.id, pmt.amountCents)}
-                                  className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer disabled:opacity-40"
-                                  title="Void Payment"
-                                >
-                                  <Trash2 className="w-3 h-3" />
-                                  <span>{isVoidingPaymentId === pmt.id ? 'Voiding...' : 'Void'}</span>
-                                </button>
+                                {currentUser?.role === 'ADMIN' && (
+                                  <button
+                                    type="button"
+                                    disabled={isVoidingPaymentId === pmt.id}
+                                    onClick={() => handleVoidPayment(pmt.id, pmt.amountCents)}
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer disabled:opacity-40"
+                                    title="Void Payment (Admin Only)"
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                    <span>{isVoidingPaymentId === pmt.id ? 'Voiding...' : 'Void'}</span>
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           ))}

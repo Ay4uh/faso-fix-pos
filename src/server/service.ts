@@ -23,11 +23,11 @@ import {
 import {
   hashPassword,
   verifyPassword,
+  verifyDummyPassword,
+  hashSessionToken,
   createSession,
   destroySession,
   recordAudit,
-  createSignedUserPayload,
-  verifySignedUserPayload,
 } from './auth';
 
 type Tx = Prisma.TransactionClient;
@@ -1570,9 +1570,9 @@ export async function exportTicketsCsv() {
 // ---------------------------------------------------------------------------
 
 export async function loginUser(input: unknown, ipAddress?: string) {
-  const { usernameOrEmail, password, adminMode, clientUsers } = loginSchema.parse(input);
+  const { usernameOrEmail, password, adminMode } = loginSchema.parse(input);
 
-  let user = await prisma.user.findFirst({
+  const user = await prisma.user.findFirst({
     where: {
       OR: [
         { username: usernameOrEmail.toLowerCase() },
@@ -1581,53 +1581,8 @@ export async function loginUser(input: unknown, ipAddress?: string) {
     },
   });
 
-  // Multi-container auto-hydration: if user not found in this container's SQLite DB,
-  // check verified cryptographically signed sync payloads from client storage
-  if (!user && Array.isArray(clientUsers) && clientUsers.length > 0) {
-    for (const cu of clientUsers) {
-      if (cu.payload && cu.signature) {
-        const verified = verifySignedUserPayload(cu.payload, cu.signature);
-        if (
-          verified &&
-          (verified.username?.toLowerCase() === usernameOrEmail.toLowerCase() ||
-            verified.email?.toLowerCase() === usernameOrEmail.toLowerCase())
-        ) {
-          try {
-            user = await prisma.user.upsert({
-              where: { username: verified.username.toLowerCase() },
-              update: {
-                passwordHash: verified.passwordHash,
-                name: verified.name,
-                role: verified.role,
-                status: verified.status || 'ACTIVE',
-                phone: verified.phone ?? null,
-                bench: verified.bench ?? 'Bench #01',
-                bio: verified.bio ?? '',
-              },
-              create: {
-                id: verified.id,
-                username: verified.username.toLowerCase(),
-                email: verified.email.toLowerCase(),
-                name: verified.name,
-                passwordHash: verified.passwordHash,
-                role: verified.role,
-                status: verified.status || 'ACTIVE',
-                phone: verified.phone ?? null,
-                bench: verified.bench ?? 'Bench #01',
-                bio: verified.bio ?? '',
-                preferences: verified.preferences ?? '{}',
-              },
-            });
-            break;
-          } catch (err) {
-            console.error('[User Auto-Hydration Error]', err);
-          }
-        }
-      }
-    }
-  }
-
   if (!user) {
+    verifyDummyPassword(password);
     throw new HttpError(401, 'Invalid username/email or password');
   }
 
@@ -1694,7 +1649,7 @@ export async function logoutUser(token: string, actorName?: string) {
 
 export async function listUsers(
   params: { search?: string; role?: string; status?: string },
-  includeSyncPayload = false
+  _includeSyncPayload = false
 ) {
   const where: Prisma.UserWhereInput = {};
 
@@ -1715,14 +1670,13 @@ export async function listUsers(
     ];
   }
 
-  const users = await prisma.user.findMany({
+  return prisma.user.findMany({
     where,
     select: {
       id: true,
       username: true,
       email: true,
       name: true,
-      passwordHash: true,
       role: true,
       status: true,
       phone: true,
@@ -1738,26 +1692,6 @@ export async function listUsers(
     },
     orderBy: { createdAt: 'desc' },
   });
-
-  return users.map(({ passwordHash, ...u }) =>
-    includeSyncPayload
-      ? {
-          ...u,
-          syncPayload: createSignedUserPayload({
-            id: u.id,
-            username: u.username,
-            email: u.email,
-            name: u.name,
-            passwordHash,
-            role: u.role,
-            status: u.status,
-            phone: u.phone,
-            bench: u.bench,
-            bio: u.bio,
-          }),
-        }
-      : u
-  );
 }
 
 export async function getUser(id: string) {
@@ -1842,20 +1776,7 @@ export async function createUser(input: unknown, actor: { id: string; name: stri
     details: `Created new ${user.role} user: ${user.username} (${user.name})`,
   });
 
-  const syncPayload = createSignedUserPayload({
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    name: user.name,
-    passwordHash,
-    role: user.role,
-    status: user.status,
-    phone: user.phone,
-    bench: user.bench,
-    bio: user.bio,
-  });
-
-  return { ...user, syncPayload };
+  return user;
 }
 
 export async function updateUser(id: string, input: unknown, actor: { id: string; name: string }) {
@@ -1985,7 +1906,7 @@ export async function changeUserPassword(
   await prisma.session.deleteMany({
     where: {
       userId,
-      ...(currentToken ? { token: { not: currentToken } } : {}),
+      ...(currentToken ? { token: { notIn: [hashSessionToken(currentToken), currentToken] } } : {}),
     },
   });
 
@@ -2021,20 +1942,7 @@ export async function adminResetUserPassword(userId: string, input: unknown, act
     details: `Administrator ${actor.name} securely reset password for user ${user.username}`,
   });
 
-  const syncPayload = createSignedUserPayload({
-    id: user.id,
-    username: user.username,
-    email: user.email,
-    name: user.name,
-    passwordHash,
-    role: user.role,
-    status: user.status,
-    phone: user.phone,
-    bench: user.bench,
-    bio: user.bio,
-  });
-
-  return { success: true, message: `Password for ${user.username} has been reset`, syncPayload };
+  return { success: true, message: `Password for ${user.username} has been reset` };
 }
 
 export async function updateUserPreferences(userId: string, preferences: unknown) {

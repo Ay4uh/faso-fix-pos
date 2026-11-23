@@ -399,10 +399,17 @@ describe('Faso Fix POS - Complete Pre-Release Testing Suite', () => {
       const lastPayment = ticket.json.data.payments[ticket.json.data.payments.length - 1];
       assert.ok(lastPayment);
 
-      // Void the $100 cash payment
-      const voidRes = await call(`/api/tickets/${billingTicketId}/payments/${lastPayment.id}`, {
+      // Tech void rejected (403); Admin voids the $100 cash payment
+      const techVoidRes = await call(`/api/tickets/${billingTicketId}/payments/${lastPayment.id}`, {
         method: 'DELETE',
         token: techToken,
+      });
+      assert.equal(techVoidRes.status, 403);
+
+      const adminTok = await login(ADMIN, true);
+      const voidRes = await call(`/api/tickets/${billingTicketId}/payments/${lastPayment.id}`, {
+        method: 'DELETE',
+        token: adminTok,
       });
       assert.equal(voidRes.status, 200);
       assert.equal(voidRes.json.data.totals.balanceCents, 10000);
@@ -825,10 +832,17 @@ describe('Faso Fix POS - Complete Pre-Release Testing Suite', () => {
       const repBefore = await call('/api/reports?days=1', { token: techToken });
       const revBefore = repBefore.json.data.revenueCents;
 
-      // Void / refund payment
-      const voidRes = await call(`/api/tickets/${tId}/payments/${payId}`, {
+      // Tech void rejected (403); Admin voids payment
+      const techVoidRes = await call(`/api/tickets/${tId}/payments/${payId}`, {
         method: 'DELETE',
         token: techToken,
+      });
+      assert.equal(techVoidRes.status, 403);
+
+      const adminTok = await login(ADMIN, true);
+      const voidRes = await call(`/api/tickets/${tId}/payments/${payId}`, {
+        method: 'DELETE',
+        token: adminTok,
       });
       assert.equal(voidRes.status, 200);
 

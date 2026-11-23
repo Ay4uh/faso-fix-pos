@@ -1,4 +1,4 @@
-import { getToken } from './auth';
+import { hasActiveSession } from './auth';
 
 export interface QueuedAction {
   id: string;
@@ -49,16 +49,18 @@ export async function flushOfflineQueue(
   let successCount = 0;
   let failCount = 0;
 
-  const token = getToken();
+  if (!hasActiveSession()) return { success: 0, failed: queue.length };
+
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
+    'X-Requested-With': 'FasoFixPOS',
   };
-  if (token) headers['Authorization'] = `Bearer ${token}`;
 
   for (const item of queue) {
     try {
       const res = await fetch(item.url, {
         method: item.method,
+        credentials: 'same-origin',
         headers,
         body: item.body ? JSON.stringify(item.body) : undefined,
       });

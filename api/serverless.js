@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import crypto from "node:crypto";
+import crypto$1 from "node:crypto";
 import path from "node:path";
 import fs from "node:fs";
 import { ZodError, z } from "zod";
@@ -233,20 +233,17 @@ var settingsSchema = z.object({
 	currencySymbol: trimmed.min(1).max(10),
 	dateFormat: trimmed.min(4).max(20)
 }).partial();
+var strongPassword = z.string().min(8, "Password must be at least 8 characters").max(128, "Password cannot exceed 128 characters").refine((p) => /[A-Z]/.test(p) && /[a-z]/.test(p) && /\d/.test(p), "Password must include uppercase, lowercase, and a number");
 var loginSchema = z.object({
 	usernameOrEmail: trimmed.min(1, "Username or email is required").max(120),
 	password: z.string().min(1, "Password is required"),
-	adminMode: z.boolean().optional().default(false),
-	clientUsers: z.array(z.object({
-		payload: z.string(),
-		signature: z.string()
-	})).optional()
+	adminMode: z.boolean().optional().default(false)
 });
 var userCreateSchema = z.object({
 	username: trimmed.min(3, "Username must be at least 3 characters").max(40).regex(/^[a-zA-Z0-9_.-]+$/, "Username can only contain letters, numbers, dots, hyphens, and underscores"),
 	email: trimmed.email("Valid email is required"),
 	name: trimmed.min(2, "Name must be at least 2 characters").max(100),
-	password: z.string().min(8, "Password must be at least 8 characters"),
+	password: strongPassword,
 	role: z.enum(["ADMIN", "USER"]).default("USER"),
 	phone: optionalText,
 	bench: optionalText,
@@ -264,21 +261,21 @@ var userUpdateSchema = z.object({
 });
 var changePasswordSchema = z.object({
 	currentPassword: z.string().min(1, "Current password is required"),
-	newPassword: z.string().min(8, "New password must be at least 8 characters"),
+	newPassword: strongPassword,
 	confirmPassword: z.string().min(8, "Confirm password must be at least 8 characters")
 }).refine((data) => data.newPassword === data.confirmPassword, {
 	message: "New passwords do not match",
 	path: ["confirmPassword"]
 });
-var resetPasswordSchema = z.object({ newPassword: z.string().min(8, "New password must be at least 8 characters") });
+var resetPasswordSchema = z.object({ newPassword: strongPassword });
 // src/server/auth.ts
 /**
 * NIST SP 800-63B compliant password hashing using scrypt.
 * Stores format: salt:hash
 */
 function hashPassword(password) {
-	const salt = crypto.randomBytes(16).toString("hex");
-	return `${salt}:${crypto.scryptSync(password, salt, 64).toString("hex")}`;
+	const salt = crypto$1.randomBytes(16).toString("hex");
+	return `${salt}:${crypto$1.scryptSync(password, salt, 64).toString("hex")}`;
 }
 function verifyPassword(password, combined) {
 	try {
@@ -286,56 +283,26 @@ function verifyPassword(password, combined) {
 		if (parts.length !== 2) return false;
 		const [salt, key] = parts;
 		const keyBuffer = Buffer.from(key, "hex");
-		const derivedKey = crypto.scryptSync(password, salt, 64);
-		return crypto.timingSafeEqual(keyBuffer, derivedKey);
+		const derivedKey = crypto$1.scryptSync(password, salt, 64);
+		return crypto$1.timingSafeEqual(keyBuffer, derivedKey);
 	} catch {
 		return false;
 	}
 }
-var SESSION_SIGNING_KEY = process.env.SESSION_SECRET || "fasofix-cloud-session-secret-key-2026";
-function createSignedToken(userId, username, role, expiresAt) {
-	const jti = crypto.randomBytes(8).toString("hex");
-	const payload = Buffer.from(JSON.stringify({
-		uid: userId,
-		u: username,
-		r: role,
-		exp: expiresAt,
-		jti
-	})).toString("base64url");
-	return `s.${payload}.${crypto.createHmac("sha256", SESSION_SIGNING_KEY).update(payload).digest("base64url")}`;
+var DUMMY_PASSWORD_HASH = hashPassword(crypto$1.randomBytes(24).toString("hex"));
+/** Run constant-shape scrypt verification when an account does not exist to prevent timing enumeration. */
+function verifyDummyPassword(password) {
+	verifyPassword(password, DUMMY_PASSWORD_HASH);
 }
-function verifySignedToken(token) {
-	try {
-		if (!token.startsWith("s.")) return null;
-		const parts = token.slice(2).split(".");
-		if (parts.length !== 2) return null;
-		const [payload, signature] = parts;
-		const expected = crypto.createHmac("sha256", SESSION_SIGNING_KEY).update(payload).digest("base64url");
-		if (signature.length !== expected.length) return null;
-		if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
-		const data = JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-		if (!data.exp || data.exp < Date.now()) return null;
-		return data;
-	} catch {
-		return null;
-	}
+/** Hash bearer/cookie session tokens with SHA-256 before database persistence and revocation lookup. */
+function hashSessionToken(rawToken) {
+	return crypto$1.createHash("sha256").update(rawToken).digest("hex");
 }
-function createSignedUserPayload(user) {
-	const payload = Buffer.from(JSON.stringify(user)).toString("base64url");
-	return {
-		payload,
-		signature: crypto.createHmac("sha256", SESSION_SIGNING_KEY).update(payload).digest("base64url")
-	};
-}
-function verifySignedUserPayload(payload, signature) {
-	try {
-		const expected = crypto.createHmac("sha256", SESSION_SIGNING_KEY).update(payload).digest("base64url");
-		if (signature.length !== expected.length) return null;
-		if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) return null;
-		return JSON.parse(Buffer.from(payload, "base64url").toString("utf8"));
-	} catch {
-		return null;
-	}
+/**
+* Generate a cryptographically secure 256-bit random session token.
+*/
+function generateToken() {
+	return crypto$1.randomBytes(32).toString("hex");
 }
 /**
 * Strict 24-hour maximum session lifetime enforced across ALL user roles
@@ -345,16 +312,17 @@ function verifySignedUserPayload(payload, signature) {
 var SESSION_MAX_AGE_MS = 864e5;
 /**
 * Create a persistent session for a user valid for a strict maximum of 24 hours.
+* Returns the raw bearer/cookie token while storing only its SHA-256 hash in the database.
 */
 async function createSession(userId) {
-	const user = await prisma.user.findUnique({ where: { id: userId } });
 	const expiresAt = new Date(Date.now() + SESSION_MAX_AGE_MS);
-	const token = createSignedToken(userId, user?.username || "", user?.role || "USER", expiresAt.getTime());
+	const rawToken = generateToken();
+	const tokenHash = hashSessionToken(rawToken);
 	let persisted = false;
 	let lastErr = null;
 	for (let attempt = 0; attempt < 2; attempt++) try {
 		await prisma.session.create({ data: {
-			token,
+			token: tokenHash,
 			userId,
 			expiresAt
 		} });
@@ -368,21 +336,31 @@ async function createSession(userId) {
 		console.error("[Create Session Error]", lastErr);
 		throw new Error("Failed to persist session — please try signing in again.");
 	}
-	return token;
+	return rawToken;
 }
+var MAX_REVOKED_CACHE = 2e3;
 var revokedTokens = /* @__PURE__ */ new Set();
+function cacheRevokedHash(tokenHash) {
+	revokedTokens.add(tokenHash);
+	if (revokedTokens.size > MAX_REVOKED_CACHE) {
+		const oldest = revokedTokens.values().next().value;
+		if (oldest) revokedTokens.delete(oldest);
+	}
+}
 async function destroySession(token) {
-	revokedTokens.add(token);
-	await prisma.session.delete({ where: { token } }).catch(() => {});
+	const tokenHash = hashSessionToken(token);
+	cacheRevokedHash(tokenHash);
+	await prisma.session.deleteMany({ where: { token: { in: [tokenHash, token] } } }).catch(() => {});
 }
 /**
 * Validate a session token and return the associated active user.
 */
 async function authenticateSession(token, _clientHeaders) {
-	if (!token || revokedTokens.has(token)) return null;
-	if (token.startsWith("s.") && !verifySignedToken(token)) return null;
-	const session = await prisma.session.findUnique({
-		where: { token },
+	if (!token) return null;
+	const tokenHash = hashSessionToken(token);
+	if (revokedTokens.has(tokenHash) || revokedTokens.has(token)) return null;
+	const session = await prisma.session.findFirst({
+		where: { token: { in: [tokenHash, token] } },
 		include: { user: { select: {
 			id: true,
 			username: true,
@@ -400,7 +378,7 @@ async function authenticateSession(token, _clientHeaders) {
 	});
 	if (session) {
 		if (session.expiresAt.getTime() < Date.now()) {
-			await prisma.session.delete({ where: { token } }).catch(() => {});
+			await prisma.session.deleteMany({ where: { id: session.id } }).catch(() => {});
 			return null;
 		}
 		if (session.user.status !== "ACTIVE") return null;
@@ -462,8 +440,7 @@ async function ensureAdminProvisioning() {
 		console.log("[Faso Fix Security] Initial Administrator Account Provisioned:");
 		console.log(`  Username: ${adminUser}`);
 		console.log(`  Email:    ${adminEmail}`);
-		console.log(`  Password: ${adminPass}`);
-		console.log("  Please log in and update your password if desired.");
+		console.log("  Please log in and rotate the initial password immediately.");
 		console.log("------------------------------------------------------------");
 	}
 }
@@ -1881,44 +1858,12 @@ async function exportTicketsCsv() {
 	return rows.map((r) => r.map(esc).join(",")).join("\n") + "\n";
 }
 async function loginUser(input, ipAddress) {
-	const { usernameOrEmail, password, adminMode, clientUsers } = loginSchema.parse(input);
-	let user = await prisma.user.findFirst({ where: { OR: [{ username: usernameOrEmail.toLowerCase() }, { email: usernameOrEmail.toLowerCase() }] } });
-	if (!user && Array.isArray(clientUsers) && clientUsers.length > 0) {
-		for (const cu of clientUsers) if (cu.payload && cu.signature) {
-			const verified = verifySignedUserPayload(cu.payload, cu.signature);
-			if (verified && (verified.username?.toLowerCase() === usernameOrEmail.toLowerCase() || verified.email?.toLowerCase() === usernameOrEmail.toLowerCase())) try {
-				user = await prisma.user.upsert({
-					where: { username: verified.username.toLowerCase() },
-					update: {
-						passwordHash: verified.passwordHash,
-						name: verified.name,
-						role: verified.role,
-						status: verified.status || "ACTIVE",
-						phone: verified.phone ?? null,
-						bench: verified.bench ?? "Bench #01",
-						bio: verified.bio ?? ""
-					},
-					create: {
-						id: verified.id,
-						username: verified.username.toLowerCase(),
-						email: verified.email.toLowerCase(),
-						name: verified.name,
-						passwordHash: verified.passwordHash,
-						role: verified.role,
-						status: verified.status || "ACTIVE",
-						phone: verified.phone ?? null,
-						bench: verified.bench ?? "Bench #01",
-						bio: verified.bio ?? "",
-						preferences: verified.preferences ?? "{}"
-					}
-				});
-				break;
-			} catch (err) {
-				console.error("[User Auto-Hydration Error]", err);
-			}
-		}
+	const { usernameOrEmail, password, adminMode } = loginSchema.parse(input);
+	const user = await prisma.user.findFirst({ where: { OR: [{ username: usernameOrEmail.toLowerCase() }, { email: usernameOrEmail.toLowerCase() }] } });
+	if (!user) {
+		verifyDummyPassword(password);
+		throw new HttpError(401, "Invalid username/email or password");
 	}
-	if (!user) throw new HttpError(401, "Invalid username/email or password");
 	if (user.status !== "ACTIVE") throw new HttpError(403, "This account has been deactivated. Contact an administrator.");
 	if (!verifyPassword(password, user.passwordHash)) throw new HttpError(401, "Invalid username/email or password");
 	if (adminMode && user.role !== "ADMIN") {
@@ -1962,7 +1907,7 @@ async function logoutUser(token, actorName) {
 	});
 	return { success: true };
 }
-async function listUsers(params, includeSyncPayload = false) {
+async function listUsers(params, _includeSyncPayload = false) {
 	const where = {};
 	if (params.role && params.role !== "ALL") where.role = params.role;
 	if (params.status && params.status !== "ALL") where.status = params.status;
@@ -1974,14 +1919,13 @@ async function listUsers(params, includeSyncPayload = false) {
 			{ email: ciContains(q) }
 		];
 	}
-	return (await prisma.user.findMany({
+	return prisma.user.findMany({
 		where,
 		select: {
 			id: true,
 			username: true,
 			email: true,
 			name: true,
-			passwordHash: true,
 			role: true,
 			status: true,
 			phone: true,
@@ -1996,21 +1940,7 @@ async function listUsers(params, includeSyncPayload = false) {
 			updatedAt: true
 		},
 		orderBy: { createdAt: "desc" }
-	})).map(({ passwordHash, ...u }) => includeSyncPayload ? {
-		...u,
-		syncPayload: createSignedUserPayload({
-			id: u.id,
-			username: u.username,
-			email: u.email,
-			name: u.name,
-			passwordHash,
-			role: u.role,
-			status: u.status,
-			phone: u.phone,
-			bench: u.bench,
-			bio: u.bio
-		})
-	} : u);
+	});
 }
 async function getUser(id) {
 	const user = await prisma.user.findUnique({
@@ -2076,22 +2006,7 @@ async function createUser(input, actor) {
 		action: "USER_CREATE",
 		details: `Created new ${user.role} user: ${user.username} (${user.name})`
 	});
-	const syncPayload = createSignedUserPayload({
-		id: user.id,
-		username: user.username,
-		email: user.email,
-		name: user.name,
-		passwordHash,
-		role: user.role,
-		status: user.status,
-		phone: user.phone,
-		bench: user.bench,
-		bio: user.bio
-	});
-	return {
-		...user,
-		syncPayload
-	};
+	return user;
 }
 async function updateUser(id, input, actor) {
 	const existing = await prisma.user.findUnique({ where: { id } });
@@ -2181,7 +2096,7 @@ async function changeUserPassword(userId, input, actorName, currentToken) {
 	});
 	await prisma.session.deleteMany({ where: {
 		userId,
-		...currentToken ? { token: { not: currentToken } } : {}
+		...currentToken ? { token: { notIn: [hashSessionToken(currentToken), currentToken] } } : {}
 	} });
 	await recordAudit({
 		userId,
@@ -2210,22 +2125,9 @@ async function adminResetUserPassword(userId, input, actor) {
 		action: "PASSWORD_RESET",
 		details: `Administrator ${actor.name} securely reset password for user ${user.username}`
 	});
-	const syncPayload = createSignedUserPayload({
-		id: user.id,
-		username: user.username,
-		email: user.email,
-		name: user.name,
-		passwordHash,
-		role: user.role,
-		status: user.status,
-		phone: user.phone,
-		bench: user.bench,
-		bio: user.bio
-	});
 	return {
 		success: true,
-		message: `Password for ${user.username} has been reset`,
-		syncPayload
+		message: `Password for ${user.username} has been reset`
 	};
 }
 async function updateUserPreferences(userId, preferences) {
@@ -2372,12 +2274,19 @@ async function createBackup(reason = "manual") {
 			prisma.payrollPeriod.findMany(),
 			prisma.paystub.findMany()
 		]);
+		const safeUsers = users.map(({ passwordHash: _ph, sin, ...u }) => {
+			const digits = sin ? sin.replace(/\D/g, "") : "";
+			return {
+				...u,
+				sin: digits.length >= 3 ? `***-***-${digits.slice(-3)}` : null
+			};
+		});
 		const snapshot = {
 			timestamp: (/* @__PURE__ */ new Date()).toISOString(),
 			reason,
 			provider: "postgresql",
 			data: {
-				users,
+				users: safeUsers,
 				settings,
 				tickets,
 				customers,
@@ -2981,7 +2890,29 @@ var POSTGRES_SCHEMA_STATEMENTS = [
 	`CREATE INDEX IF NOT EXISTS "Ticket_deletedAt_ticketNumber_idx" ON "Ticket"("deletedAt", "ticketNumber" DESC)`,
 	`CREATE INDEX IF NOT EXISTS "Ticket_deletedAt_status_idx" ON "Ticket"("deletedAt", "status")`,
 	`CREATE INDEX IF NOT EXISTS "Customer_archivedAt_updatedAt_idx" ON "Customer"("archivedAt", "updatedAt" DESC)`,
-	`CREATE INDEX IF NOT EXISTS "Payment_ticketId_createdAt_idx" ON "Payment"("ticketId", "createdAt")`
+	`CREATE INDEX IF NOT EXISTS "Payment_ticketId_createdAt_idx" ON "Payment"("ticketId", "createdAt")`,
+	`ALTER TABLE "public"."AuditLog" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."Customer" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."Device" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."InventoryPart" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."Notification" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."Payment" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."PayrollPeriod" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."Paystub" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."ScheduledShift" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."Session" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."Setting" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."Shift" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."ShiftBreak" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."ShiftSwapRequest" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."Ticket" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."TicketEvent" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."TicketItem" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."TimeOffRequest" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."User" ENABLE ROW LEVEL SECURITY`,
+	`ALTER TABLE "public"."WageRate" ENABLE ROW LEVEL SECURITY`,
+	`REVOKE ALL ON ALL TABLES IN SCHEMA public FROM anon, authenticated`,
+	`REVOKE ALL ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated`
 ];
 async function ensurePostgresSchema() {
 	for (const sql of POSTGRES_SCHEMA_STATEMENTS) try {
@@ -4509,6 +4440,13 @@ async function exportPayrollCsv(periodId) {
 * Generate standard CRA compliant Canadian Paystub HTML for printing & PDF export
 */
 async function buildPaystubHtml(paystubId, isAdmin = false, currentUserId) {
+	const escHtml = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
+		"&": "&amp;",
+		"<": "&lt;",
+		">": "&gt;",
+		"\"": "&quot;",
+		"'": "&#39;"
+	})[c]);
 	const paystub = await prisma.paystub.findUnique({
 		where: { id: paystubId },
 		include: {
@@ -4524,7 +4462,7 @@ async function buildPaystubHtml(paystubId, isAdmin = false, currentUserId) {
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <title>Paystub - ${paystub.user.name} - Period #${paystub.payrollPeriod.periodNumber}</title>
+  <title>Paystub - ${escHtml(paystub.user.name)} - Period #${paystub.payrollPeriod.periodNumber}</title>
   <style>
     @page { size: letter; margin: 0.5in; }
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.4; padding: 20px; font-size: 13px; max-width: 800px; margin: 0 auto; }
@@ -4556,28 +4494,28 @@ async function buildPaystubHtml(paystubId, isAdmin = false, currentUserId) {
 <body>
   <div class="header">
     <div class="company">
-      <h1>${settings.shopName || "Faso Fix POS"}</h1>
-      <p>${settings.address || "Ontario, Canada"}</p>
-      <p>Tel: ${settings.phone || "647-740-0566"} • Email: ${settings.email || "support@fasofix.ca"}</p>
+      <h1>${escHtml(settings.shopName || "Faso Fix POS")}</h1>
+      <p>${escHtml(settings.address || "Ontario, Canada")}</p>
+      <p>Tel: ${escHtml(settings.phone || "647-740-0566")} • Email: ${escHtml(settings.email || "support@fasofix.ca")}</p>
     </div>
     <div class="title">
       <h2>EMPLOYEE EARNINGS STATEMENT</h2>
-      <p>Period #${paystub.payrollPeriod.periodNumber} • Status: ${paystub.status}</p>
+      <p>Period #${paystub.payrollPeriod.periodNumber} • Status: ${escHtml(paystub.status)}</p>
       <p>Issued: ${paystub.payrollPeriod.payDate.toISOString().slice(0, 10)}</p>
     </div>
   </div>
 
   <div class="meta-grid">
     <div class="meta-col">
-      <p><strong>Employee Name:</strong> ${paystub.user.name}</p>
-      <p><strong>Employee ID:</strong> ${paystub.user.employeeNumber || "EMP-" + paystub.user.id.slice(0, 6)}</p>
-      <p><strong>Email:</strong> ${paystub.user.email}</p>
+      <p><strong>Employee Name:</strong> ${escHtml(paystub.user.name)}</p>
+      <p><strong>Employee ID:</strong> ${escHtml(paystub.user.employeeNumber || "EMP-" + paystub.user.id.slice(0, 6))}</p>
+      <p><strong>Email:</strong> ${escHtml(paystub.user.email)}</p>
       <p><strong>Hourly Rate:</strong> ${money(paystub.hourlyRateCents)}/hr</p>
     </div>
     <div class="meta-col">
       <p><strong>Pay Period:</strong> ${paystub.payrollPeriod.startDate.toISOString().slice(0, 10)} to ${paystub.payrollPeriod.endDate.toISOString().slice(0, 10)}</p>
       <p><strong>Payment Date:</strong> ${paystub.payrollPeriod.payDate.toISOString().slice(0, 10)}</p>
-      <p><strong>Payment Method:</strong> ${paystub.paymentMethod.replace(/_/g, " ")}</p>
+      <p><strong>Payment Method:</strong> ${escHtml(paystub.paymentMethod.replace(/_/g, " "))}</p>
       <p><strong>Jurisdiction:</strong> Ontario (CRA T4127 Compliant)</p>
     </div>
   </div>
@@ -5498,6 +5436,12 @@ async function exportSchedulesCsv(filters) {
 	]);
 	return [headers.join(","), ...rows.map((r) => r.join(","))].join("\n");
 }
+// src/utils/auth.ts
+try {
+	localStorage.removeItem("apexfix_session_token");
+	localStorage.removeItem("apexfix_registered_users");
+	localStorage.removeItem("apexfix_deleted_user_ids");
+} catch {}
 // src/utils/receipt.ts
 var esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({
 	"&": "&amp;",
@@ -5845,23 +5789,117 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
 }
 // src/server/index.ts
 var app = express();
+app.disable("x-powered-by");
 var PORT = process.env.PORT || 4e3;
-app.use(cors());
+var SESSION_COOKIE_NAME = "fasofix_session";
+var CSRF_HEADER_NAME = "x-requested-with";
+var CSRF_HEADER_VALUE = "FasoFixPOS";
+var ZERO_SCRIPT_HTML_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+var STATIC_ALLOWED_ORIGINS = /* @__PURE__ */ new Set([
+	"https://fasodesk.repair",
+	"https://www.fasodesk.repair",
+	"https://faso-fix-pos.vercel.app",
+	...(process.env.ALLOWED_ORIGINS || "").split(",").map((s) => s.trim()).filter(Boolean)
+]);
+function isOriginAllowed(origin) {
+	if (STATIC_ALLOWED_ORIGINS.has(origin)) return true;
+	if (!process.env.VERCEL && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) return true;
+	return false;
+}
+function parseCookies(cookieHeader) {
+	const out = {};
+	if (!cookieHeader) return out;
+	for (const part of cookieHeader.split(";")) {
+		const idx = part.indexOf("=");
+		if (idx <= 0) continue;
+		const key = part.slice(0, idx).trim();
+		const val = part.slice(idx + 1).trim();
+		if (!key) continue;
+		try {
+			out[key] = decodeURIComponent(val);
+		} catch {
+			out[key] = val;
+		}
+	}
+	return out;
+}
+function shouldUseSecureCookie(req) {
+	if (process.env.VERCEL || req.secure) return true;
+	const proto = req.headers["x-forwarded-proto"];
+	if (typeof proto === "string" && proto.split(",")[0].trim().toLowerCase() === "https") return true;
+	return false;
+}
+function setSessionCookie(req, res, token) {
+	const parts = [
+		`${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
+		"HttpOnly",
+		"SameSite=Strict",
+		"Path=/",
+		"Max-Age=86400"
+	];
+	if (shouldUseSecureCookie(req)) parts.push("Secure");
+	res.setHeader("Set-Cookie", parts.join("; "));
+}
+function clearSessionCookie(req, res) {
+	const parts = [
+		`${SESSION_COOKIE_NAME}=`,
+		"HttpOnly",
+		"SameSite=Strict",
+		"Path=/",
+		"Max-Age=0"
+	];
+	if (shouldUseSecureCookie(req)) parts.push("Secure");
+	res.setHeader("Set-Cookie", parts.join("; "));
+}
+app.use(cors({
+	origin(origin, callback) {
+		if (!origin) return callback(null, false);
+		if (isOriginAllowed(origin)) return callback(null, origin);
+		return callback(null, false);
+	},
+	credentials: true,
+	methods: [
+		"GET",
+		"POST",
+		"PUT",
+		"PATCH",
+		"DELETE",
+		"OPTIONS"
+	],
+	allowedHeaders: [
+		"Content-Type",
+		"Authorization",
+		"X-Requested-With",
+		"X-Idempotency-Key"
+	]
+}));
 app.use(express.json({ limit: "5mb" }));
 app.use((_req, res, next) => {
 	res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
 	res.setHeader("Pragma", "no-cache");
 	res.setHeader("Expires", "0");
+	res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
 	res.setHeader("X-Content-Type-Options", "nosniff");
 	res.setHeader("X-Frame-Options", "DENY");
 	res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+	res.setHeader("Permissions-Policy", "camera=(), microphone=(), geolocation=(), payment=(), interest-cohort=()");
+	res.setHeader("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'");
 	next();
 });
 app.use(async (req, _res, next) => {
 	try {
 		const authHeader = req.headers.authorization;
-		let token = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : req.headers["x-session-token"];
-		if (!token && typeof req.query?.token === "string") token = req.query.token;
+		let token;
+		if (authHeader?.startsWith("Bearer ")) {
+			token = authHeader.slice(7).trim();
+			if (token) req.authMethod = "bearer";
+		} else {
+			const cookieToken = parseCookies(req.headers.cookie)[SESSION_COOKIE_NAME];
+			if (cookieToken) {
+				token = cookieToken;
+				req.authMethod = "cookie";
+			}
+		}
 		if (token) {
 			req.token = token;
 			const user = await authenticateSession(token);
@@ -5870,6 +5908,36 @@ app.use(async (req, _res, next) => {
 		}
 	} catch (err) {
 		console.error("[Auth Middleware Error]", err);
+	}
+	next();
+});
+app.use("/api", (req, res, next) => {
+	if (req.authMethod !== "cookie") return next();
+	const method = req.method.toUpperCase();
+	if (method === "GET" || method === "HEAD" || method === "OPTIONS") return next();
+	if (String(req.headers[CSRF_HEADER_NAME] || "") !== CSRF_HEADER_VALUE) return res.status(403).json({
+		success: false,
+		error: "CSRF validation failed: missing required request header."
+	});
+	const originHeader = req.headers.origin;
+	const refererHeader = req.headers.referer;
+	const sourceOrigin = typeof originHeader === "string" && originHeader ? originHeader : typeof refererHeader === "string" && refererHeader ? (() => {
+		try {
+			return new URL(refererHeader).origin;
+		} catch {
+			return "INVALID";
+		}
+	})() : null;
+	if (sourceOrigin) {
+		const requestHost = String(req.headers.host || "").toLowerCase();
+		let matchesHost = false;
+		try {
+			matchesHost = new URL(sourceOrigin).host.toLowerCase() === requestHost;
+		} catch {}
+		if (!matchesHost && !isOriginAllowed(sourceOrigin)) return res.status(403).json({
+			success: false,
+			error: "CSRF validation failed: cross-origin request rejected."
+		});
 	}
 	next();
 });
@@ -5921,7 +5989,7 @@ app.get("/api/live/stream", requireAuth, (req, res) => {
 		status: "connected",
 		time: Date.now()
 	})}\n\n`);
-	const clientId = crypto.randomUUID();
+	const clientId = crypto$1.randomUUID();
 	const client = {
 		id: clientId,
 		res
@@ -5942,56 +6010,71 @@ app.get("/api/live/stream", requireAuth, (req, res) => {
 });
 function getClientIp(req) {
 	try {
-		const forwarded = req.headers["x-forwarded-for"];
-		if (typeof forwarded === "string") return forwarded.split(",")[0].trim();
-		if (Array.isArray(forwarded) && forwarded.length > 0) return forwarded[0].trim();
-		const realIp = req.headers["x-real-ip"];
-		if (typeof realIp === "string") return realIp.trim();
-		if (req.socket && req.socket.remoteAddress) return req.socket.remoteAddress;
-		return req.ip || "127.0.0.1";
+		if (process.env.VERCEL) {
+			const vercelIp = req.headers["x-vercel-forwarded-for"];
+			if (typeof vercelIp === "string" && vercelIp.trim()) return vercelIp.split(",")[0].trim();
+			const realIp = req.headers["x-real-ip"];
+			if (typeof realIp === "string" && realIp.trim()) return realIp.trim();
+		} else {
+			const realIp = req.headers["x-real-ip"];
+			if (typeof realIp === "string" && realIp.trim()) return realIp.trim();
+			if (req.socket && req.socket.remoteAddress) return req.socket.remoteAddress;
+			const forwarded = req.headers["x-forwarded-for"];
+			if (typeof forwarded === "string" && forwarded.trim()) return forwarded.split(",")[0].trim();
+		}
+		return req.socket?.remoteAddress || req.ip || "127.0.0.1";
 	} catch {
 		return "127.0.0.1";
 	}
 }
 var LOGIN_WINDOW_MS = 9e5;
 var LOGIN_MAX_FAILS = 5;
-var loginFails = /* @__PURE__ */ new Map();
+var LOGIN_IP_MAX_FAILS = 30;
 app.post("/api/auth/login", wrap(async (req, res) => {
 	const ip = getClientIp(req);
-	const key = `${ip}|${String(req.body?.usernameOrEmail || "").trim().toLowerCase()}`;
-	const now = Date.now();
-	const rec = loginFails.get(key);
-	if (rec && now - rec.first > LOGIN_WINDOW_MS) loginFails.delete(key);
-	const cur = loginFails.get(key);
-	if (cur && cur.count >= LOGIN_MAX_FAILS) {
-		const mins = Math.ceil((LOGIN_WINDOW_MS - (now - cur.first)) / 6e4);
-		return res.status(429).json({
-			success: false,
-			error: `Too many failed attempts. Try again in ${mins} minute(s).`
-		});
-	}
+	const who = String(req.body?.usernameOrEmail || "").trim().toLowerCase().slice(0, 80) || "unknown";
+	const cutoff = /* @__PURE__ */ new Date(Date.now() - LOGIN_WINDOW_MS);
+	const [userFailCount, ipFailCount] = await Promise.all([prisma.auditLog.count({ where: {
+		action: "LOGIN_FAILED",
+		ipAddress: ip,
+		actorName: who,
+		createdAt: { gte: cutoff }
+	} }), prisma.auditLog.count({ where: {
+		action: "LOGIN_FAILED",
+		ipAddress: ip,
+		createdAt: { gte: cutoff }
+	} })]);
+	if (userFailCount >= LOGIN_MAX_FAILS || ipFailCount >= LOGIN_IP_MAX_FAILS) return res.status(429).json({
+		success: false,
+		error: "Too many failed attempts. Please wait 15 minutes and try again."
+	});
 	try {
 		const result = await loginUser(req.body, ip);
-		loginFails.delete(key);
+		if (req.token && req.token !== result.token) await destroySession(req.token).catch(() => {});
+		await prisma.auditLog.deleteMany({ where: {
+			action: "LOGIN_FAILED",
+			ipAddress: ip,
+			actorName: who
+		} }).catch(() => {});
+		setSessionCookie(req, res, result.token);
 		res.json({
 			success: true,
 			...result
 		});
 	} catch (err) {
-		if (err instanceof HttpError && err.status === 401) {
-			const r = loginFails.get(key) || {
-				count: 0,
-				first: now
-			};
-			r.count += 1;
-			loginFails.set(key, r);
-		}
+		if (err instanceof HttpError && err.status === 401) await recordAudit({
+			action: "LOGIN_FAILED",
+			actorName: who,
+			ipAddress: ip,
+			details: `Failed login attempt for ${who}`
+		});
 		throw err;
 	}
 }));
 app.post("/api/auth/logout", wrap(async (req, res) => {
 	const token = req.token;
 	if (token) await logoutUser(token, req.user?.name);
+	clearSessionCookie(req, res);
 	res.json({
 		success: true,
 		message: "Logged out successfully"
@@ -6056,47 +6139,15 @@ app.get("/api/users", requireAuth, wrap(async (_req, res) => {
 	});
 }));
 app.post("/api/sync/users", requireAdmin, wrap(async (req, res) => {
-	const { clientUsers, deletedUserIds } = req.body || {};
+	const { deletedUserIds } = req.body || {};
 	if (Array.isArray(deletedUserIds) && deletedUserIds.length > 0) {
-		const safeDeletedIds = deletedUserIds.filter((id) => id && id !== req.user.id);
+		const safeDeletedIds = deletedUserIds.filter((id) => typeof id === "string" && id.length > 0 && id !== req.user.id);
 		if (safeDeletedIds.length > 0) {
 			await prisma.session.deleteMany({ where: { userId: { in: safeDeletedIds } } }).catch(() => {});
 			await prisma.user.deleteMany({ where: { id: { in: safeDeletedIds } } }).catch(() => {});
 		}
 	}
-	if (Array.isArray(clientUsers) && clientUsers.length > 0) {
-		for (const cu of clientUsers) if (cu.payload && cu.signature) {
-			const verified = verifySignedUserPayload(cu.payload, cu.signature);
-			if (verified && verified.username && verified.passwordHash) try {
-				await prisma.user.upsert({
-					where: { username: verified.username.toLowerCase() },
-					update: {
-						passwordHash: verified.passwordHash,
-						name: verified.name,
-						role: verified.role,
-						status: verified.status || "ACTIVE",
-						phone: verified.phone ?? null,
-						bench: verified.bench ?? "Bench #01",
-						bio: verified.bio ?? ""
-					},
-					create: {
-						id: verified.id,
-						username: verified.username.toLowerCase(),
-						email: verified.email.toLowerCase(),
-						name: verified.name,
-						passwordHash: verified.passwordHash,
-						role: verified.role,
-						status: verified.status || "ACTIVE",
-						phone: verified.phone ?? null,
-						bench: verified.bench ?? "Bench #01",
-						bio: verified.bio ?? "",
-						preferences: verified.preferences ?? "{}"
-					}
-				});
-			} catch {}
-		}
-	}
-	const allUsers = await listUsers({}, true);
+	const allUsers = await listUsers({}, false);
 	res.json({
 		success: true,
 		count: allUsers.length,
@@ -6111,7 +6162,7 @@ app.get("/api/admin/users", requireAdmin, wrap(async (req, res) => {
 		search,
 		role,
 		status
-	}, true);
+	}, false);
 	res.json({
 		success: true,
 		count: users.length,
@@ -6276,12 +6327,13 @@ app.get("/api/tickets/:id/print", requireAuth, wrap(async (req, res) => {
 	try {
 		ticket = await getTicket(getParam(req, "id"));
 	} catch {
+		res.setHeader("Content-Type", "text/html; charset=utf-8");
+		res.setHeader("Content-Security-Policy", ZERO_SCRIPT_HTML_CSP);
 		return res.status(200).send(`
       <!doctype html><html><head><title>Print Preview</title></head>
       <body style="font-family:sans-serif;padding:40px;text-align:center;color:#334155">
         <h2 style="color:#0f172a">Faso Fix POS • Print Dispatch</h2>
-        <p>This work order is stored in your active POS browser session. Please click Print directly from your open work order screen in the POS terminal.</p>
-        <button onclick="window.close()" style="margin-top:15px;padding:8px 18px;border-radius:6px;border:1px solid #cbd5e1;background:#f8fafc;font-weight:bold;cursor:pointer">Close Window</button>
+        <p>Work order not found in active database records. Please close this tab and click Print from your open work order screen.</p>
       </body></html>
     `);
 	}
@@ -6292,21 +6344,8 @@ app.get("/api/tickets/:id/print", requireAuth, wrap(async (req, res) => {
 	else if (format === "58mm") html = buildReceiptHtml(ticket, shop, "58mm");
 	else if (format === "slip" || format === "bench") html = buildBenchSlipHtml(ticket, shop);
 	else html = buildLetterInvoiceHtml(ticket, shop);
-	html = html.replace("</body>", `
-    <script>
-      window.addEventListener('load', function() {
-        setTimeout(function() {
-          try {
-            window.focus();
-            window.print();
-          } catch (e) {
-            console.error(e);
-          }
-        }, 200);
-      });
-    <\/script>
-  </body>`);
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
+	res.setHeader("Content-Security-Policy", ZERO_SCRIPT_HTML_CSP);
 	res.send(html);
 }));
 app.post("/api/tickets", requireAuth, wrap(async (req, res) => {
@@ -6403,7 +6442,7 @@ app.post("/api/tickets/:id/payments", requireAuth, wrap(async (req, res) => {
 		data: ticket
 	});
 }));
-app.post("/api/tickets/:id/refund", requireAuth, wrap(async (req, res) => {
+app.post("/api/tickets/:id/refund", requireAdmin, wrap(async (req, res) => {
 	const body = req.body || {};
 	const amountCents = body.amountCents ?? (body.amount !== void 0 ? Math.round(Number(body.amount) * 100) : void 0);
 	const idempotencyKey = body.idempotencyKey || req.headers["x-idempotency-key"];
@@ -6419,7 +6458,7 @@ app.post("/api/tickets/:id/refund", requireAuth, wrap(async (req, res) => {
 		data: ticket
 	});
 }));
-app.delete("/api/tickets/:id/payments/:paymentId", requireAuth, wrap(async (req, res) => {
+app.delete("/api/tickets/:id/payments/:paymentId", requireAdmin, wrap(async (req, res) => {
 	const ticket = await voidPayment(getParam(req, "id"), getParam(req, "paymentId"), req.user.name, req.user.id);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
@@ -6529,7 +6568,7 @@ app.put("/api/customers/:id", requireAuth, wrap(async (req, res) => {
 		data: customer
 	});
 }));
-app.post("/api/customers/:id/archive", requireAuth, wrap(async (req, res) => {
+app.post("/api/customers/:id/archive", requireAdmin, wrap(async (req, res) => {
 	const actor = {
 		id: req.user.id,
 		name: req.user.name
@@ -6541,7 +6580,7 @@ app.post("/api/customers/:id/archive", requireAuth, wrap(async (req, res) => {
 		data: customer
 	});
 }));
-app.post("/api/customers/:id/unarchive", requireAuth, wrap(async (req, res) => {
+app.post("/api/customers/:id/unarchive", requireAdmin, wrap(async (req, res) => {
 	const actor = {
 		id: req.user.id,
 		name: req.user.name
@@ -6750,6 +6789,7 @@ app.get("/api/timeclock/my-paystubs/:id/html", requireAuth, wrap(async (req, res
 	const isAdmin = req.user.role === "ADMIN";
 	const html = await buildPaystubHtml(getParam(req, "id"), isAdmin, req.user.id);
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
+	res.setHeader("Content-Security-Policy", ZERO_SCRIPT_HTML_CSP);
 	res.send(html);
 }));
 app.get("/api/admin/attendance/live", requireAdmin, wrap(async (_req, res) => {
@@ -6911,6 +6951,7 @@ app.get("/api/admin/payroll/periods/:id/export", requireAdmin, wrap(async (req, 
 app.get("/api/admin/payroll/paystubs/:id/html", requireAdmin, wrap(async (req, res) => {
 	const html = await buildPaystubHtml(getParam(req, "id"), true);
 	res.setHeader("Content-Type", "text/html; charset=utf-8");
+	res.setHeader("Content-Security-Policy", ZERO_SCRIPT_HTML_CSP);
 	res.send(html);
 }));
 app.get("/api/schedules/my-schedule", requireAuth, wrap(async (req, res) => {
@@ -7173,7 +7214,7 @@ app.use((err, _req, res, _next) => {
 		...isProd ? {} : { details: err?.stack || String(err) }
 	});
 });
-if (!process.env.VERCEL) app.listen(Number(PORT), "0.0.0.0", async () => {
+if (!process.env.VERCEL && process.env.NODE_ENV !== "test") app.listen(Number(PORT), "0.0.0.0", async () => {
 	console.log(`[Faso Fix API] Running on http://localhost:${PORT}`);
 	try {
 		await configureSqlite();

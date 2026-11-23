@@ -49,7 +49,7 @@ import {
   listAuditLogsPaginated,
   getAdminOverview,
 } from './service';
-import { authenticateSession, ensureAdminProvisioning, recordAudit, verifySignedUserPayload } from './auth';
+import { authenticateSession, destroySession, ensureAdminProvisioning, recordAudit } from './auth';
 import { configureSqlite, createBackup, listBackups, resolveBackup, startBackupSchedule } from './backup';
 import { ensureDatabaseSchema, ensureInitialInventory } from './initDb';
 import * as payrollService from './payrollService';
@@ -76,15 +76,101 @@ declare global {
         createdAt: Date;
       };
       token?: string;
+      authMethod?: 'bearer' | 'cookie';
       sessionExpired?: boolean;
     }
   }
 }
 
 const app = express();
+app.disable('x-powered-by');
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+const SESSION_COOKIE_NAME = 'fasofix_session';
+const CSRF_HEADER_NAME = 'x-requested-with';
+const CSRF_HEADER_VALUE = 'FasoFixPOS';
+const ZERO_SCRIPT_HTML_CSP =
+  "default-src 'none'; style-src 'unsafe-inline'; img-src data:; frame-ancestors 'none'; base-uri 'none'; form-action 'none'";
+
+const STATIC_ALLOWED_ORIGINS = new Set([
+  'https://fasodesk.repair',
+  'https://www.fasodesk.repair',
+  'https://faso-fix-pos.vercel.app',
+  ...(process.env.ALLOWED_ORIGINS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean),
+]);
+
+function isOriginAllowed(origin: string): boolean {
+  if (STATIC_ALLOWED_ORIGINS.has(origin)) return true;
+  if (!process.env.VERCEL && /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(origin)) {
+    return true;
+  }
+  return false;
+}
+
+function parseCookies(cookieHeader?: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  if (!cookieHeader) return out;
+  for (const part of cookieHeader.split(';')) {
+    const idx = part.indexOf('=');
+    if (idx <= 0) continue;
+    const key = part.slice(0, idx).trim();
+    const val = part.slice(idx + 1).trim();
+    if (!key) continue;
+    try {
+      out[key] = decodeURIComponent(val);
+    } catch {
+      out[key] = val;
+    }
+  }
+  return out;
+}
+
+function shouldUseSecureCookie(req: Request): boolean {
+  if (process.env.VERCEL || req.secure) return true;
+  const proto = req.headers['x-forwarded-proto'];
+  if (typeof proto === 'string' && proto.split(',')[0].trim().toLowerCase() === 'https') return true;
+  return false;
+}
+
+function setSessionCookie(req: Request, res: Response, token: string): void {
+  const parts = [
+    `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}`,
+    'HttpOnly',
+    'SameSite=Strict',
+    'Path=/',
+    'Max-Age=86400',
+  ];
+  if (shouldUseSecureCookie(req)) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+
+function clearSessionCookie(req: Request, res: Response): void {
+  const parts = [
+    `${SESSION_COOKIE_NAME}=`,
+    'HttpOnly',
+    'SameSite=Strict',
+    'Path=/',
+    'Max-Age=0',
+  ];
+  if (shouldUseSecureCookie(req)) parts.push('Secure');
+  res.setHeader('Set-Cookie', parts.join('; '));
+}
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin) return callback(null, false);
+      if (isOriginAllowed(origin)) return callback(null, origin);
+      return callback(null, false);
+    },
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Idempotency-Key'],
+  })
+);
 app.use(express.json({ limit: '5mb' }));
 
 // Prevent any browser or CDN edge caching of dynamic POS API responses and enforce security headers
@@ -92,22 +178,30 @@ app.use((_req: Request, res: Response, next: NextFunction) => {
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
   res.setHeader('Expires', '0');
+  res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=(), interest-cohort=()');
+  res.setHeader('Content-Security-Policy', "default-src 'none'; frame-ancestors 'none'");
   next();
 });
 
-// Session resolution middleware
+// Session resolution middleware (Authorization: Bearer or HttpOnly SameSite=Strict cookie only)
 app.use(async (req: Request, _res: Response, next: NextFunction) => {
   try {
     const authHeader = req.headers.authorization;
-    let token = authHeader?.startsWith('Bearer ')
-      ? authHeader.slice(7)
-      : (req.headers['x-session-token'] as string | undefined);
-
-    if (!token && typeof req.query?.token === 'string') {
-      token = req.query.token;
+    let token: string | undefined;
+    if (authHeader?.startsWith('Bearer ')) {
+      token = authHeader.slice(7).trim();
+      if (token) req.authMethod = 'bearer';
+    } else {
+      const cookies = parseCookies(req.headers.cookie);
+      const cookieToken = cookies[SESSION_COOKIE_NAME];
+      if (cookieToken) {
+        token = cookieToken;
+        req.authMethod = 'cookie';
+      }
     }
 
     if (token) {
@@ -121,6 +215,51 @@ app.use(async (req: Request, _res: Response, next: NextFunction) => {
     }
   } catch (err) {
     console.error('[Auth Middleware Error]', err);
+  }
+  next();
+});
+
+// CSRF defense-in-depth for cookie-authenticated state-changing API requests
+app.use('/api', (req: Request, res: Response, next: NextFunction) => {
+  if (req.authMethod !== 'cookie') return next();
+  const method = req.method.toUpperCase();
+  if (method === 'GET' || method === 'HEAD' || method === 'OPTIONS') return next();
+
+  const xrw = String(req.headers[CSRF_HEADER_NAME] || '');
+  if (xrw !== CSRF_HEADER_VALUE) {
+    return res.status(403).json({
+      success: false,
+      error: 'CSRF validation failed: missing required request header.',
+    });
+  }
+
+  const originHeader = req.headers.origin;
+  const refererHeader = req.headers.referer;
+  const sourceOrigin =
+    typeof originHeader === 'string' && originHeader
+      ? originHeader
+      : typeof refererHeader === 'string' && refererHeader
+      ? (() => {
+          try {
+            return new URL(refererHeader).origin;
+          } catch {
+            return 'INVALID';
+          }
+        })()
+      : null;
+
+  if (sourceOrigin) {
+    const requestHost = String(req.headers.host || '').toLowerCase();
+    let matchesHost = false;
+    try {
+      matchesHost = new URL(sourceOrigin).host.toLowerCase() === requestHost;
+    } catch {}
+    if (!matchesHost && !isOriginAllowed(sourceOrigin)) {
+      return res.status(403).json({
+        success: false,
+        error: 'CSRF validation failed: cross-origin request rejected.',
+      });
+    }
   }
   next();
 });
@@ -219,52 +358,79 @@ app.get('/api/live/stream', requireAuth, (req: Request, res: Response) => {
 
 function getClientIp(req: Request): string {
   try {
-    const forwarded = req.headers['x-forwarded-for'];
-    if (typeof forwarded === 'string') {
-      return forwarded.split(',')[0].trim();
+    if (process.env.VERCEL) {
+      const vercelIp = req.headers['x-vercel-forwarded-for'];
+      if (typeof vercelIp === 'string' && vercelIp.trim()) {
+        return vercelIp.split(',')[0].trim();
+      }
+      const realIp = req.headers['x-real-ip'];
+      if (typeof realIp === 'string' && realIp.trim()) {
+        return realIp.trim();
+      }
+    } else {
+      const realIp = req.headers['x-real-ip'];
+      if (typeof realIp === 'string' && realIp.trim()) {
+        return realIp.trim();
+      }
+      if (req.socket && req.socket.remoteAddress) {
+        return req.socket.remoteAddress;
+      }
+      const forwarded = req.headers['x-forwarded-for'];
+      if (typeof forwarded === 'string' && forwarded.trim()) {
+        return forwarded.split(',')[0].trim();
+      }
     }
-    if (Array.isArray(forwarded) && forwarded.length > 0) {
-      return forwarded[0].trim();
-    }
-    const realIp = req.headers['x-real-ip'];
-    if (typeof realIp === 'string') {
-      return realIp.trim();
-    }
-    if (req.socket && req.socket.remoteAddress) {
-      return req.socket.remoteAddress;
-    }
-    return req.ip || '127.0.0.1';
+    return req.socket?.remoteAddress || req.ip || '127.0.0.1';
   } catch {
     return '127.0.0.1';
   }
 }
 
-// Brute-force protection: max 5 failed attempts per IP+username per 15 minutes
+// Persistent PostgreSQL-backed brute-force lockout: max 5 failures per IP+account / 30 per IP per 15 mins
 const LOGIN_WINDOW_MS = 15 * 60_000;
 const LOGIN_MAX_FAILS = 5;
-const loginFails = new Map<string, { count: number; first: number }>();
+const LOGIN_IP_MAX_FAILS = 30;
 
 app.post('/api/auth/login', wrap(async (req, res) => {
   const ip = getClientIp(req);
-  const who = String(req.body?.usernameOrEmail || '').trim().toLowerCase();
-  const key = `${ip}|${who}`;
-  const now = Date.now();
-  const rec = loginFails.get(key);
-  if (rec && now - rec.first > LOGIN_WINDOW_MS) loginFails.delete(key);
-  const cur = loginFails.get(key);
-  if (cur && cur.count >= LOGIN_MAX_FAILS) {
-    const mins = Math.ceil((LOGIN_WINDOW_MS - (now - cur.first)) / 60_000);
-    return res.status(429).json({ success: false, error: `Too many failed attempts. Try again in ${mins} minute(s).` });
+  const who = String(req.body?.usernameOrEmail || '').trim().toLowerCase().slice(0, 80) || 'unknown';
+  const cutoff = new Date(Date.now() - LOGIN_WINDOW_MS);
+
+  const [userFailCount, ipFailCount] = await Promise.all([
+    prisma.auditLog.count({
+      where: { action: 'LOGIN_FAILED', ipAddress: ip, actorName: who, createdAt: { gte: cutoff } },
+    }),
+    prisma.auditLog.count({
+      where: { action: 'LOGIN_FAILED', ipAddress: ip, createdAt: { gte: cutoff } },
+    }),
+  ]);
+
+  if (userFailCount >= LOGIN_MAX_FAILS || ipFailCount >= LOGIN_IP_MAX_FAILS) {
+    return res.status(429).json({
+      success: false,
+      error: 'Too many failed attempts. Please wait 15 minutes and try again.',
+    });
   }
+
   try {
     const result = await loginUser(req.body, ip);
-    loginFails.delete(key);
+    // Rotate out any prior session token on re-login / role elevation
+    if (req.token && req.token !== result.token) {
+      await destroySession(req.token).catch(() => {});
+    }
+    await prisma.auditLog
+      .deleteMany({ where: { action: 'LOGIN_FAILED', ipAddress: ip, actorName: who } })
+      .catch(() => {});
+    setSessionCookie(req, res, result.token);
     res.json({ success: true, ...result });
   } catch (err) {
     if (err instanceof HttpError && err.status === 401) {
-      const r = loginFails.get(key) || { count: 0, first: now };
-      r.count += 1;
-      loginFails.set(key, r);
+      await recordAudit({
+        action: 'LOGIN_FAILED',
+        actorName: who,
+        ipAddress: ip,
+        details: `Failed login attempt for ${who}`,
+      });
     }
     throw err;
   }
@@ -275,6 +441,7 @@ app.post('/api/auth/logout', wrap(async (req, res) => {
   if (token) {
     await logoutUser(token, req.user?.name);
   }
+  clearSessionCookie(req, res);
   res.json({ success: true, message: 'Logged out successfully' });
 }));
 
@@ -325,51 +492,15 @@ app.get('/api/users', requireAuth, wrap(async (_req, res) => {
 }));
 
 app.post('/api/sync/users', requireAdmin, wrap(async (req, res) => {
-  const { clientUsers, deletedUserIds } = req.body || {};
+  const { deletedUserIds } = req.body || {};
   if (Array.isArray(deletedUserIds) && deletedUserIds.length > 0) {
-    const safeDeletedIds = deletedUserIds.filter((id: string) => id && id !== req.user!.id);
+    const safeDeletedIds = deletedUserIds.filter((id: unknown): id is string => typeof id === 'string' && id.length > 0 && id !== req.user!.id);
     if (safeDeletedIds.length > 0) {
       await prisma.session.deleteMany({ where: { userId: { in: safeDeletedIds } } }).catch(() => {});
       await prisma.user.deleteMany({ where: { id: { in: safeDeletedIds } } }).catch(() => {});
     }
   }
-  if (Array.isArray(clientUsers) && clientUsers.length > 0) {
-    for (const cu of clientUsers) {
-      if (cu.payload && cu.signature) {
-        const verified = verifySignedUserPayload(cu.payload, cu.signature);
-        if (verified && verified.username && verified.passwordHash) {
-          try {
-            await prisma.user.upsert({
-              where: { username: verified.username.toLowerCase() },
-              update: {
-                passwordHash: verified.passwordHash,
-                name: verified.name,
-                role: verified.role,
-                status: verified.status || 'ACTIVE',
-                phone: verified.phone ?? null,
-                bench: verified.bench ?? 'Bench #01',
-                bio: verified.bio ?? '',
-              },
-              create: {
-                id: verified.id,
-                username: verified.username.toLowerCase(),
-                email: verified.email.toLowerCase(),
-                name: verified.name,
-                passwordHash: verified.passwordHash,
-                role: verified.role,
-                status: verified.status || 'ACTIVE',
-                phone: verified.phone ?? null,
-                bench: verified.bench ?? 'Bench #01',
-                bio: verified.bio ?? '',
-                preferences: verified.preferences ?? '{}',
-              },
-            });
-          } catch {}
-        }
-      }
-    }
-  }
-  const allUsers = await listUsers({}, true);
+  const allUsers = await listUsers({}, false);
   res.json({ success: true, count: allUsers.length, data: allUsers });
 }));
 
@@ -377,7 +508,7 @@ app.get('/api/admin/users', requireAdmin, wrap(async (req, res) => {
   const search = req.query.search as string | undefined;
   const role = req.query.role as string | undefined;
   const status = req.query.status as string | undefined;
-  const users = await listUsers({ search, role, status }, true);
+  const users = await listUsers({ search, role, status }, false);
   res.json({ success: true, count: users.length, data: users });
 }));
 
@@ -528,12 +659,13 @@ app.get('/api/tickets/:id/print', requireAuth, wrap(async (req, res) => {
   try {
     ticket = await getTicket(getParam(req, 'id'));
   } catch {
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Content-Security-Policy', ZERO_SCRIPT_HTML_CSP);
     return res.status(200).send(`
       <!doctype html><html><head><title>Print Preview</title></head>
       <body style="font-family:sans-serif;padding:40px;text-align:center;color:#334155">
         <h2 style="color:#0f172a">Faso Fix POS • Print Dispatch</h2>
-        <p>This work order is stored in your active POS browser session. Please click Print directly from your open work order screen in the POS terminal.</p>
-        <button onclick="window.close()" style="margin-top:15px;padding:8px 18px;border-radius:6px;border:1px solid #cbd5e1;background:#f8fafc;font-weight:bold;cursor:pointer">Close Window</button>
+        <p>Work order not found in active database records. Please close this tab and click Print from your open work order screen.</p>
       </body></html>
     `);
   }
@@ -551,24 +683,8 @@ app.get('/api/tickets/:id/print', requireAuth, wrap(async (req, res) => {
     html = buildLetterInvoiceHtml(ticket as any, shop);
   }
 
-  // Inject auto-print script that focuses and prints reliably
-  const autoPrint = `
-    <script>
-      window.addEventListener('load', function() {
-        setTimeout(function() {
-          try {
-            window.focus();
-            window.print();
-          } catch (e) {
-            console.error(e);
-          }
-        }, 200);
-      });
-    </script>
-  `;
-  html = html.replace('</body>', `${autoPrint}</body>`);
-
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Security-Policy', ZERO_SCRIPT_HTML_CSP);
   res.send(html);
 }));
 
@@ -649,7 +765,7 @@ app.post('/api/tickets/:id/payments', requireAuth, wrap(async (req, res) => {
   res.status(201).json({ success: true, data: ticket });
 }));
 
-app.post('/api/tickets/:id/refund', requireAuth, wrap(async (req, res) => {
+app.post('/api/tickets/:id/refund', requireAdmin, wrap(async (req, res) => {
   const body = req.body || {};
   const amountCents = body.amountCents ?? (body.amount !== undefined ? Math.round(Number(body.amount) * 100) : undefined);
   const idempotencyKey = body.idempotencyKey || (req.headers['x-idempotency-key'] as string | undefined);
@@ -663,7 +779,7 @@ app.post('/api/tickets/:id/refund', requireAuth, wrap(async (req, res) => {
   res.status(201).json({ success: true, data: ticket });
 }));
 
-app.delete('/api/tickets/:id/payments/:paymentId', requireAuth, wrap(async (req, res) => {
+app.delete('/api/tickets/:id/payments/:paymentId', requireAdmin, wrap(async (req, res) => {
   const ticket = await voidPayment(getParam(req, 'id'), getParam(req, 'paymentId'), req.user!.name, req.user!.id);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
@@ -761,14 +877,14 @@ app.put('/api/customers/:id', requireAuth, wrap(async (req, res) => {
   res.json({ success: true, data: customer });
 }));
 
-app.post('/api/customers/:id/archive', requireAuth, wrap(async (req, res) => {
+app.post('/api/customers/:id/archive', requireAdmin, wrap(async (req, res) => {
   const actor = { id: req.user!.id, name: req.user!.name };
   const customer = await archiveCustomer(getParam(req, 'id'), true, actor);
   broadcastLiveEvent('customer_updated', customer);
   res.json({ success: true, data: customer });
 }));
 
-app.post('/api/customers/:id/unarchive', requireAuth, wrap(async (req, res) => {
+app.post('/api/customers/:id/unarchive', requireAdmin, wrap(async (req, res) => {
   const actor = { id: req.user!.id, name: req.user!.name };
   const customer = await archiveCustomer(getParam(req, 'id'), false, actor);
   broadcastLiveEvent('customer_updated', customer);
@@ -946,6 +1062,7 @@ app.get('/api/timeclock/my-paystubs/:id/html', requireAuth, wrap(async (req, res
   const isAdmin = req.user!.role === 'ADMIN';
   const html = await payrollService.buildPaystubHtml(getParam(req, 'id'), isAdmin, req.user!.id);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Security-Policy', ZERO_SCRIPT_HTML_CSP);
   res.send(html);
 }));
 
@@ -1103,6 +1220,7 @@ app.get('/api/admin/payroll/periods/:id/export', requireAdmin, wrap(async (req, 
 app.get('/api/admin/payroll/paystubs/:id/html', requireAdmin, wrap(async (req, res) => {
   const html = await payrollService.buildPaystubHtml(getParam(req, 'id'), true);
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Security-Policy', ZERO_SCRIPT_HTML_CSP);
   res.send(html);
 }));
 
@@ -1370,7 +1488,7 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
 export { app };
 export default app;
 
-if (!process.env.VERCEL) {
+if (!process.env.VERCEL && process.env.NODE_ENV !== 'test') {
   app.listen(Number(PORT), '0.0.0.0', async () => {
     console.log(`[Faso Fix API] Running on http://localhost:${PORT}`);
     try {

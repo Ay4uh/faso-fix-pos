@@ -8,7 +8,7 @@ import {
   CheckCircle2,
   X,
 } from 'lucide-react';
-import { fetchWithAuth, getToken } from '../../utils/auth';
+import { fetchWithAuth } from '../../utils/auth';
 
 export const AdminAttendanceTab: React.FC = () => {
   const [liveRoster, setLiveRoster] = useState<any[]>([]);
@@ -200,14 +200,24 @@ export const AdminAttendanceTab: React.FC = () => {
     }
   };
 
-  const handleExportCsv = () => {
-    const params = new URLSearchParams();
-    if (selectedUser !== 'ALL') params.set('userId', selectedUser);
-    if (startDate) params.set('startDate', startDate);
-    if (endDate) params.set('endDate', endDate);
-    const token = getToken();
-    if (token) params.set('token', token);
-    window.open(`/api/admin/attendance/export?${params.toString()}`, '_blank');
+  const handleExportCsv = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (selectedUser !== 'ALL') params.set('userId', selectedUser);
+      if (startDate) params.set('startDate', startDate);
+      if (endDate) params.set('endDate', endDate);
+      const res = await fetchWithAuth(`/api/admin/attendance/export?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to export attendance CSV');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `attendance-export-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Attendance export failed');
+    }
   };
 
   const clockedInCount = liveRoster.filter((r) => r.isClockedIn && !r.isOnBreak).length;

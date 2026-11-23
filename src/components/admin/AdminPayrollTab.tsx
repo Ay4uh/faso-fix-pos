@@ -15,7 +15,7 @@ import {
   TrendingUp,
   Percent,
 } from 'lucide-react';
-import { fetchWithAuth, getToken } from '../../utils/auth';
+import { fetchWithAuth } from '../../utils/auth';
 import { PaystubModal } from '../PaystubModal';
 
 export const AdminPayrollTab: React.FC = () => {
@@ -221,10 +221,20 @@ export const AdminPayrollTab: React.FC = () => {
     }
   };
 
-  const handleExportCsv = (periodId: string) => {
-    const token = getToken();
-    const q = token ? `?token=${encodeURIComponent(token)}` : '';
-    window.open(`/api/admin/payroll/periods/${periodId}/export${q}`, '_blank');
+  const handleExportCsv = async (periodId: string) => {
+    try {
+      const res = await fetchWithAuth(`/api/admin/payroll/periods/${periodId}/export`);
+      if (!res.ok) throw new Error('Failed to export payroll CSV');
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `payroll-period-${periodId}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Payroll export failed');
+    }
   };
 
   const fmtCurrency = (cents: number) => `$${((cents || 0) / 100).toFixed(2)}`;
