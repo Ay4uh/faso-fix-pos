@@ -28,6 +28,7 @@ import {
   ReceiptShop,
 } from '../utils/receipt';
 import { buildTicketEscPos, printDirectWebUsb, printDirectWebSerial } from '../utils/escpos';
+import { deriveTicketQuoteState, isTicketPaidInFull } from '../utils/repairPricing';
 
 interface PrintTicketModalProps {
   ticket: Ticket | null;
@@ -80,7 +81,8 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
   const preTaxSubtotalCents = totals.taxableCents ?? Math.max(0, totals.subtotalCents - (totals.discountCents || 0));
   const taxRatePctStr = ((totals.taxRateBps ?? ticket.taxRateBps ?? 1300) / 100).toFixed(1);
 
-  const isPaid = totals.balanceCents <= 0;
+  const quoteState = ticket.quoteState ?? deriveTicketQuoteState(ticket, totals);
+  const isPaid = isTicketPaidInFull(totals, quoteState);
   const woBarcode = `WO-${String(ticket.ticketNumber).padStart(4, '0')}`;
 
   const handlePrint = () => {
@@ -273,7 +275,17 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                       isPaid ? 'bg-emerald-500' : 'bg-amber-500 animate-pulse'
                     }`}
                   />
-                  <span>{isPaid ? 'PAID • READY FOR RELEASE' : 'INSPECTION / BALANCE DUE'}</span>
+                  <span>
+                    {ticket.status === 'CANCELLED'
+                      ? 'CANCELLED'
+                      : quoteState.approvalStatus === 'REJECTED'
+                      ? 'QUOTE REJECTED'
+                      : !quoteState.hasPrice
+                      ? 'PRICE PENDING DIAGNOSIS'
+                      : isPaid
+                      ? 'PAID • READY FOR RELEASE'
+                      : `${quoteState.approvalLabel.toUpperCase()} • BALANCE DUE`}
+                  </span>
                 </div>
 
                 <div className="mt-2 flex flex-col sm:items-end">
@@ -342,17 +354,29 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
 
               <div className="bg-slate-50 border border-slate-200/80 p-3 rounded-xl flex flex-col">
                 <span className="font-mono text-[10px] uppercase text-slate-400 font-bold">
-                  Payment Status
+                  Pricing &amp; Payment
                 </span>
                 <span
                   className={`font-black mt-0.5 font-mono ${
-                    isPaid ? 'text-emerald-600' : 'text-amber-600'
+                    !quoteState.hasPrice
+                      ? 'text-amber-700'
+                      : isPaid
+                      ? 'text-emerald-600'
+                      : quoteState.approvalStatus === 'REJECTED'
+                      ? 'text-rose-600'
+                      : 'text-amber-600'
                   }`}
                 >
-                  {isPaid ? 'PAID IN FULL' : 'BALANCE OWING'}
+                  {!quoteState.hasPrice
+                    ? 'PRICE PENDING'
+                    : isPaid
+                    ? 'PAID IN FULL'
+                    : quoteState.approvalStatus === 'REJECTED'
+                    ? 'REJECTED'
+                    : 'BALANCE OWING'}
                 </span>
                 <span className="font-mono text-[10px] text-slate-500">
-                  Ref: #TXN-{ticket.ticketNumber}89
+                  Ref: WO-{ticket.ticketNumber}
                 </span>
               </div>
             </div>
@@ -436,13 +460,18 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
 
             {/* Diagnostic Intake & Symptoms */}
             <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3.5 space-y-1">
-              <div className="flex items-center justify-between pb-1 border-b border-slate-200/60">
+              <div className="flex flex-wrap items-center justify-between gap-2 pb-1 border-b border-slate-200/60">
                 <span className="font-mono text-[10px] uppercase text-slate-700 font-bold">
-                  Phase 1 • Initial Physical & Digital Intake
+                  Phase 1 • Initial Physical &amp; Digital Intake
                 </span>
-                <span className="px-2 py-0.5 bg-slate-200 rounded text-slate-700 font-mono text-[10px] font-semibold">
-                  Bench Checked OK
-                </span>
+                <div className="flex flex-wrap items-center gap-1.5 font-mono text-[10px]">
+                  <span className="px-2 py-0.5 bg-indigo-50 text-indigo-700 border border-indigo-200 rounded font-semibold">
+                    Pricing: {quoteState.pricingLabel}
+                  </span>
+                  <span className="px-2 py-0.5 bg-purple-50 text-purple-700 border border-purple-200 rounded font-semibold">
+                    Approval: {quoteState.approvalLabel}
+                  </span>
+                </div>
               </div>
               <p className="text-xs text-slate-700 pt-1 leading-relaxed">
                 <strong>Reported Issue:</strong> {ticket.faultDescription}
@@ -483,8 +512,8 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                 </div>
               </div>
 
-              {/* Parts Line Items */}
-              {ticket.items && ticket.items.length > 0 ? (
+              {/* Parts / Service Line Items */}
+              {ticket.items && ticket.items.length > 0 &&
                 ticket.items.map((item, idx) => (
                   <div
                     key={item.id || idx}
@@ -493,7 +522,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                     <div>
                       <div className="font-bold text-slate-900">{item.description}</div>
                       <div className="font-mono text-[10px] text-slate-400">
-                        SKU: {item.partId ? item.partId.slice(0, 8).toUpperCase() : 'PART-GEN'} • OEM Replacement
+                        {item.partId ? `SKU: ${item.partId.slice(0, 8).toUpperCase()} • Replacement Part` : 'Quoted Repair Service'}
                       </div>
                     </div>
                     <div className="flex items-center gap-8 shrink-0 font-mono text-xs">
@@ -505,37 +534,42 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                       </span>
                     </div>
                   </div>
-                ))
-              ) : (
-                <div className="p-3 px-4 flex items-center justify-between border-b border-slate-100 text-xs">
-                  <div>
-                    <div className="font-bold text-slate-900">Hardware Component & Diagnostic Testing</div>
-                    <div className="font-mono text-[10px] text-slate-400">OEM Grade-A Screen / Battery / Port replacement</div>
-                  </div>
-                  <div className="flex items-center gap-8 shrink-0 font-mono text-xs">
-                    <span className="w-16 text-right text-slate-500">1 × $0.00</span>
-                    <span className="w-20 text-right font-bold text-slate-900">$0.00</span>
-                  </div>
-                </div>
-              )}
+                ))}
 
-              {/* Labor Row */}
-              <div className="p-3 px-4 flex items-center justify-between bg-slate-50 text-xs">
-                <div>
-                  <div className="font-bold text-slate-900">
-                    Bench Tech Labor: Diagnostics, Repair & Pressure Regasket
+              {!quoteState.hasPrice ? (
+                <div className="p-3 px-4 flex items-center justify-between bg-amber-50/70 text-xs">
+                  <div>
+                    <div className="font-bold text-slate-900">
+                      Diagnostic Inspection &amp; Repair Scope
+                    </div>
+                    <div className="font-mono text-[10px] text-amber-800">
+                      {ticket.faultDescription} • Evaluation required prior to final quotation
+                    </div>
                   </div>
-                  <div className="font-mono text-[10px] text-slate-400">
-                    Station {ticket.bench || 'Front Counter'} • Tech {ticket.technician || 'Unassigned'}
+                  <div className="shrink-0 font-mono text-xs font-bold text-amber-800">
+                    Price Pending Diagnosis
                   </div>
                 </div>
-                <div className="flex items-center gap-8 shrink-0 font-mono text-xs">
-                  <span className="w-16 text-right text-slate-500">Service</span>
-                  <span className="w-20 text-right font-bold text-slate-900">
-                    ${(totals.laborCents / 100).toFixed(2)}
-                  </span>
-                </div>
-              </div>
+              ) : (
+                totals.laborCents > 0 && (
+                  <div className="p-3 px-4 flex items-center justify-between bg-slate-50 text-xs">
+                    <div>
+                      <div className="font-bold text-slate-900">
+                        Bench Tech Labor: Diagnostics &amp; Repair Service
+                      </div>
+                      <div className="font-mono text-[10px] text-slate-400">
+                        Station {ticket.bench || 'Front Counter'} • Tech {ticket.technician || 'Unassigned'}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-8 shrink-0 font-mono text-xs">
+                      <span className="w-16 text-right text-slate-500">Service</span>
+                      <span className="w-20 text-right font-bold text-slate-900">
+                        ${(totals.laborCents / 100).toFixed(2)}
+                      </span>
+                    </div>
+                  </div>
+                )
+              )}
             </div>
 
             {/* Phase 3 QA Checklist Grid */}
@@ -603,54 +637,78 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                 </div>
               </div>
 
-              {/* Right: Explicit Before-Tax & After-Tax Totals */}
+              {/* Right: Explicit Before-Tax & After-Tax Totals or Pending Diagnosis */}
               <div className="md:col-span-5 bg-slate-50 border border-slate-200/80 p-4 rounded-xl flex flex-col justify-between">
-                <div className="space-y-1.5 text-xs text-slate-600">
-                  <div className="flex items-center justify-between">
-                    <span>Parts Subtotal:</span>
-                    <span className="font-mono font-medium text-slate-800">
-                      ${(totals.itemsCents / 100).toFixed(2)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span>Labor Subtotal:</span>
-                    <span className="font-mono font-medium text-slate-800">
-                      ${(totals.laborCents / 100).toFixed(2)}
-                    </span>
-                  </div>
-                  {totals.discountCents > 0 && (
-                    <div className="flex items-center justify-between text-rose-600">
-                      <span>Discount:</span>
-                      <span className="font-mono">-${(totals.discountCents / 100).toFixed(2)}</span>
+                {!quoteState.hasPrice ? (
+                  <div className="space-y-2 text-xs">
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Pricing Status:</span>
+                      <span className="font-bold text-amber-800">{quoteState.pricingLabel}</span>
                     </div>
-                  )}
-                  <div className="flex items-center justify-between font-bold text-slate-700 pt-1 border-t border-slate-200">
-                    <span>Subtotal (Pre-Tax):</span>
-                    <span className="font-mono">${(preTaxSubtotalCents / 100).toFixed(2)}</span>
+                    <div className="flex items-center justify-between text-slate-600">
+                      <span>Approval Status:</span>
+                      <span className="font-bold text-slate-800">{quoteState.approvalLabel}</span>
+                    </div>
+                    <div className="pt-2 mt-2 bg-amber-50 border border-amber-200 p-3 rounded-lg text-center">
+                      <div className="font-mono text-[10px] uppercase text-amber-700 font-bold">
+                        Estimated Total
+                      </div>
+                      <div className="text-sm font-black text-amber-900 mt-0.5">
+                        Price Pending Diagnosis
+                      </div>
+                      <div className="text-[10px] text-amber-800 mt-1">
+                        Customer approval will be requested once diagnosis and final quote are ready.
+                      </div>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-slate-500 font-mono text-[11px] pb-1">
-                    <span>{shop.taxLabel || 'Sales Tax'} ({taxRatePctStr}%):</span>
-                    <span>+${(totals.taxCents / 100).toFixed(2)}</span>
-                  </div>
-                </div>
+                ) : (
+                  <>
+                    <div className="space-y-1.5 text-xs text-slate-600">
+                      <div className="flex items-center justify-between">
+                        <span>Quoted Subtotal:</span>
+                        <span className="font-mono font-medium text-slate-800">
+                          ${(totals.subtotalCents / 100).toFixed(2)}
+                        </span>
+                      </div>
+                      {totals.discountCents > 0 && (
+                        <div className="flex items-center justify-between text-rose-600">
+                          <span>Discount:</span>
+                          <span className="font-mono">-${(totals.discountCents / 100).toFixed(2)}</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between font-bold text-slate-700 pt-1 border-t border-slate-200">
+                        <span>Subtotal (Pre-Tax):</span>
+                        <span className="font-mono">${(preTaxSubtotalCents / 100).toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-500 font-mono text-[11px] pb-1">
+                        <span>{shop.taxLabel || 'Sales Tax'} ({taxRatePctStr}%):</span>
+                        <span>+${(totals.taxCents / 100).toFixed(2)}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-[11px] text-slate-600">
+                        <span>Approval:</span>
+                        <span className="font-bold text-slate-900">{quoteState.approvalLabel}</span>
+                      </div>
+                    </div>
 
-                <div className="pt-2 mt-2 bg-white border border-slate-200 p-3 rounded-lg flex items-center justify-between shadow-2xs">
-                  <div className="flex flex-col">
-                    <span className="font-mono text-[10px] uppercase text-slate-400 font-bold">
-                      Total Invoice
-                    </span>
-                    <span
-                      className={`font-mono text-[11px] font-bold ${
-                        totals.balanceCents > 0 ? 'text-amber-600' : 'text-emerald-600'
-                      }`}
-                    >
-                      Balance Due: ${(totals.balanceCents / 100).toFixed(2)}
-                    </span>
-                  </div>
-                  <span className="text-xl font-black text-slate-900 font-mono tracking-tight">
-                    ${(totals.totalCents / 100).toFixed(2)}
-                  </span>
-                </div>
+                    <div className="pt-2 mt-2 bg-white border border-slate-200 p-3 rounded-lg flex items-center justify-between shadow-2xs">
+                      <div className="flex flex-col">
+                        <span className="font-mono text-[10px] uppercase text-slate-400 font-bold">
+                          {isPaid ? 'Total Invoice' : 'Estimated Total'}
+                        </span>
+                        <span
+                          className={`font-mono text-[11px] font-bold ${
+                            totals.balanceCents > 0 ? 'text-amber-600' : 'text-emerald-600'
+                          }`}
+                        >
+                          Balance Due: ${(Math.max(totals.balanceCents, 0) / 100).toFixed(2)}
+                        </span>
+                      </div>
+                      <span className="text-xl font-black text-slate-900 font-mono tracking-tight">
+                        ${(totals.totalCents / 100).toFixed(2)}
+                      </span>
+                    </div>
+                  </>
+                )}
               </div>
             </div>
 
@@ -756,10 +814,27 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                 &ldquo;{ticket.faultDescription}&rdquo;
               </div>
 
+              <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] space-y-0.5">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Pricing:</span>
+                  <span className="font-bold text-slate-800">{quoteState.pricingLabel}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Approval:</span>
+                  <span className="font-bold text-slate-800">{quoteState.approvalLabel}</span>
+                </div>
+                <div className="flex justify-between pt-0.5 border-t border-slate-200 font-bold">
+                  <span>{quoteState.hasPrice ? (isPaid ? 'Total Paid:' : 'Est. Total:') : 'Estimate:'}</span>
+                  <span>
+                    {quoteState.hasPrice ? `$${(totals.totalCents / 100).toFixed(2)}` : 'Price Pending Diagnosis'}
+                  </span>
+                </div>
+              </div>
+
               <div className="pt-2 flex flex-col items-center justify-center border-t border-dashed border-slate-200">
                 <Barcode value={woBarcode} width={180} height={36} />
                 <span className="text-[9px] text-slate-400 mt-1">
-                  DUE: {new Date(ticket.dueDate).toLocaleDateString()} • BENCH #{ticket.bench || '04'}
+                  DUE: {new Date(ticket.dueDate).toLocaleDateString()} • {ticket.bench || 'Front Counter'}
                 </span>
               </div>
             </div>

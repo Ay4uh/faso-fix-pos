@@ -15,6 +15,7 @@ import {
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
+import { deriveTicketQuoteState, isTicketPaidInFull } from '../utils/repairPricing';
 import { ConfirmDialog } from './ConfirmDialog';
 
 export interface PaginationMeta {
@@ -237,9 +238,11 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     const paidCents = ticket.totals ? ticket.totals.paidCents : 0;
                     const balanceCents = ticket.totals ? ticket.totals.balanceCents : totalCents;
                     const subtotalCents = ticket.totals ? ticket.totals.subtotalCents : ticket.laborCents;
-                    const isPaid = totalCents > 0 && paidCents >= totalCents;
-                    const isUnbilled = totalCents === 0 && paidCents === 0;
-                    const hasDeposit = totalCents === 0 && paidCents > 0;
+                    const quoteState =
+                      ticket.quoteState ??
+                      deriveTicketQuoteState(ticket, { subtotalCents, totalCents, paidCents, balanceCents });
+                    const isPaid = isTicketPaidInFull({ totalCents, balanceCents, paidCents }, quoteState);
+                    const hasDeposit = !quoteState.hasPrice && paidCents > 0;
 
                     return (
                       <tr
@@ -310,27 +313,42 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                           </div>
                         </td>
 
-                        {/* Price: Explicit Before-Tax vs After-Tax with dark readable contrast */}
+                        {/* Price: Explicit Before-Tax vs After-Tax or Pending Diagnosis */}
                         <td className="py-2 px-3.5 whitespace-nowrap">
-                          <div className="flex flex-col">
-                            <span className="font-bold text-slate-900 font-mono text-xs">
-                              ${(totalCents / 100).toFixed(2)}
-                            </span>
-                            <span className="text-[11px] text-slate-600 font-mono font-medium">
-                              Pre-tax: ${(subtotalCents / 100).toFixed(2)}
-                            </span>
-                            {isPaid ? (
-                              <span className="text-[10px] font-bold text-emerald-700">Paid in full</span>
-                            ) : hasDeposit ? (
-                              <span className="text-[10px] font-bold text-indigo-700">Deposit: ${(paidCents / 100).toFixed(2)}</span>
-                            ) : isUnbilled ? (
-                              <span className="text-[10px] font-medium text-slate-500">Unbilled</span>
-                            ) : (
-                              <span className="text-[10px] font-bold text-amber-700">
-                                Bal: ${(balanceCents / 100).toFixed(2)}
+                          {!quoteState.hasPrice && !hasDeposit ? (
+                            <div className="flex flex-col">
+                              <span className="font-semibold text-amber-700 text-xs">
+                                Price Pending
                               </span>
-                            )}
-                          </div>
+                              <span className="text-[10px] text-slate-500 font-medium">
+                                {quoteState.approvalStatus === 'REJECTED' ? 'Rejected' : 'Diagnosis Required'}
+                              </span>
+                            </div>
+                          ) : (
+                            <div className="flex flex-col">
+                              <span className="font-bold text-slate-900 font-mono text-xs">
+                                ${(totalCents / 100).toFixed(2)}
+                              </span>
+                              <span className="text-[11px] text-slate-600 font-mono font-medium">
+                                Pre-tax: ${(subtotalCents / 100).toFixed(2)}
+                              </span>
+                              {isPaid ? (
+                                <span className="text-[10px] font-bold text-emerald-700">Paid in full</span>
+                              ) : hasDeposit ? (
+                                <span className="text-[10px] font-bold text-indigo-700">Deposit: ${(paidCents / 100).toFixed(2)}</span>
+                              ) : quoteState.requiresReapproval ? (
+                                <span className="text-[10px] font-bold text-rose-700">Reapproval Req.</span>
+                              ) : quoteState.approvalStatus === 'REJECTED' ? (
+                                <span className="text-[10px] font-bold text-rose-600">Quote Rejected</span>
+                              ) : quoteState.approvalStatus === 'AWAITING_APPROVAL' ? (
+                                <span className="text-[10px] font-bold text-purple-700">Awaiting Approval</span>
+                              ) : (
+                                <span className="text-[10px] font-bold text-amber-700">
+                                  Bal: ${(balanceCents / 100).toFixed(2)}
+                                </span>
+                              )}
+                            </div>
+                          )}
                         </td>
 
                         {/* Status Badge */}
@@ -529,9 +547,12 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                 const totalCents = ticket.totals ? ticket.totals.totalCents : ticket.laborCents;
                 const paidCents = ticket.totals ? ticket.totals.paidCents : 0;
                 const balanceCents = ticket.totals ? ticket.totals.balanceCents : totalCents;
-                const isPaid = totalCents > 0 && paidCents >= totalCents;
-                const isUnbilled = totalCents === 0 && paidCents === 0;
-                const hasDeposit = totalCents === 0 && paidCents > 0;
+                const subtotalCents = ticket.totals ? ticket.totals.subtotalCents : ticket.laborCents;
+                const quoteState =
+                  ticket.quoteState ??
+                  deriveTicketQuoteState(ticket, { subtotalCents, totalCents, paidCents, balanceCents });
+                const isPaid = isTicketPaidInFull({ totalCents, balanceCents, paidCents }, quoteState);
+                const hasDeposit = !quoteState.hasPrice && paidCents > 0;
 
                 return (
                   <div
@@ -562,20 +583,30 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                         </div>
                       </div>
                       <div className="text-right shrink-0">
-                        <div className="font-mono font-bold text-xs text-slate-900">
-                          ${(totalCents / 100).toFixed(2)}
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          {isPaid ? (
-                            <span className="text-emerald-600 font-bold">Paid</span>
-                          ) : hasDeposit ? (
-                            <span className="text-indigo-600 font-bold">Deposit ${(paidCents / 100).toFixed(2)}</span>
-                          ) : isUnbilled ? (
-                            <span className="text-slate-400 font-normal">Unbilled</span>
-                          ) : (
-                            <span>Bal: ${(balanceCents / 100).toFixed(2)}</span>
-                          )}
-                        </div>
+                        {!quoteState.hasPrice && !hasDeposit ? (
+                          <div className="text-[11px] font-semibold text-amber-700">Price Pending</div>
+                        ) : (
+                          <>
+                            <div className="font-mono font-bold text-xs text-slate-900">
+                              ${(totalCents / 100).toFixed(2)}
+                            </div>
+                            <div className="text-[10px] text-slate-400">
+                              {isPaid ? (
+                                <span className="text-emerald-600 font-bold">Paid</span>
+                              ) : hasDeposit ? (
+                                <span className="text-indigo-600 font-bold">Deposit ${(paidCents / 100).toFixed(2)}</span>
+                              ) : quoteState.requiresReapproval ? (
+                                <span className="text-rose-600 font-bold">Reapproval Req.</span>
+                              ) : quoteState.approvalStatus === 'REJECTED' ? (
+                                <span className="text-rose-600 font-bold">Rejected</span>
+                              ) : quoteState.approvalStatus === 'AWAITING_APPROVAL' ? (
+                                <span className="text-purple-700 font-bold">Awaiting Approval</span>
+                              ) : (
+                                <span>Bal: ${(balanceCents / 100).toFixed(2)}</span>
+                              )}
+                            </div>
+                          </>
+                        )}
                       </div>
                     </div>
 

@@ -78,6 +78,179 @@ function csvCell(value) {
 	const isStrictNumber = /^[+-]?\d+(\.\d+)?$/.test(s.trim());
 	return `"${((/^[=+\-@\t\r]/.test(strippedLeft) || /^[=+\-@]/.test(s.trimStart())) && !isStrictNumber ? `'${s}` : s).replace(/"/g, "\"\"")}"`;
 }
+// src/utils/repairPricing.ts
+var PRICING_LABEL = {
+	PRICE_PENDING: "Price Pending",
+	DIAGNOSIS_REQUIRED: "Price Pending Diagnosis",
+	QUOTE_PROVIDED: "Quote Provided",
+	REVISED_QUOTE: "Revised Quote"
+};
+var APPROVAL_LABEL = {
+	DIAGNOSIS_REQUIRED: "Diagnosis Required",
+	AWAITING_APPROVAL: "Awaiting Customer Approval",
+	APPROVED: "Approved",
+	REJECTED: "Rejected",
+	REAPPROVAL_REQUIRED: "Reapproval Required"
+};
+var monotonicSeqCounter = 0;
+function nextSeq() {
+	monotonicSeqCounter = (monotonicSeqCounter + 1) % 1e3;
+	return Date.now() * 1e3 + monotonicSeqCounter;
+}
+/** Appends structured pricing metadata suffix inside a human-readable TicketEvent message. */
+function buildPricingEventMessage(humanText, meta) {
+	const payload = {
+		...meta,
+		seq: nextSeq()
+	};
+	return `${humanText} [qmeta:${JSON.stringify(payload)}]`;
+}
+/** Appends structured approval metadata suffix inside a human-readable TicketEvent message. */
+function buildApprovalEventMessage(humanText, meta) {
+	const payload = {
+		...meta,
+		seq: nextSeq()
+	};
+	return `${humanText} [ameta:${JSON.stringify(payload)}]`;
+}
+function parseMetaSuffix(message, tag) {
+	const prefix = `[${tag}:`;
+	const idx = message.lastIndexOf(prefix);
+	if (idx === -1 || !message.endsWith("]")) return null;
+	try {
+		return JSON.parse(message.slice(idx + prefix.length, -1));
+	} catch {
+		return null;
+	}
+}
+function sortEventsChronological(events) {
+	return [...events].sort((a, b) => {
+		const ta = new Date(a.createdAt).getTime();
+		const tb = new Date(b.createdAt).getTime();
+		if (ta !== tb) return ta - tb;
+		const ma = parseMetaSuffix(a.message, a.kind === "PRICING" ? "qmeta" : "ameta");
+		const mb = parseMetaSuffix(b.message, b.kind === "PRICING" ? "qmeta" : "ameta");
+		return (ma?.seq ?? 0) - (mb?.seq ?? 0);
+	});
+}
+/**
+* Derives separate pricing and approval state from ticket totals and PRICING/APPROVAL events
+* while staying 100% backwards-compatible with historical tickets that lack quote events.
+*/
+function deriveTicketQuoteState(ticket, totals) {
+	const quoteEvents = sortEventsChronological((ticket.events || []).filter((e) => e.kind === "PRICING" || e.kind === "APPROVAL"));
+	if (quoteEvents.length === 0 && ticket.quoteState && (!ticket.events || ticket.events.length === 0)) {
+		const cached = ticket.quoteState;
+		if (cached.quotedTotalCents === totals.totalCents && cached.hasPrice === totals.subtotalCents > 0) return cached;
+	}
+	const hasPrice = totals.subtotalCents > 0;
+	let latestPricingMeta = null;
+	let latestApprovalMeta = null;
+	let lastApprovedTotal = null;
+	let lastApprovedAt = null;
+	let lastApprovedBy = null;
+	for (const ev of quoteEvents) if (ev.kind === "PRICING") {
+		const m = parseMetaSuffix(ev.message, "qmeta");
+		if (m) latestPricingMeta = m;
+	} else if (ev.kind === "APPROVAL") {
+		const m = parseMetaSuffix(ev.message, "ameta");
+		if (m) {
+			latestApprovalMeta = m;
+			if (m.as === "APPROVED") {
+				lastApprovedTotal = typeof m.approvedTotal === "number" ? m.approvedTotal : m.total;
+				lastApprovedAt = new Date(ev.createdAt).toISOString();
+				lastApprovedBy = ev.author || null;
+			} else if (m.as === "REAPPROVAL_REQUIRED" && typeof m.approvedTotal === "number") lastApprovedTotal = m.approvedTotal;
+		}
+	}
+	if (quoteEvents.length === 0) {
+		if (!hasPrice) {
+			const rejected = ticket.status === "DECLINED";
+			return {
+				hasPrice: false,
+				pricingStatus: "DIAGNOSIS_REQUIRED",
+				pricingLabel: PRICING_LABEL.DIAGNOSIS_REQUIRED,
+				approvalStatus: rejected ? "REJECTED" : "DIAGNOSIS_REQUIRED",
+				approvalLabel: rejected ? APPROVAL_LABEL.REJECTED : APPROVAL_LABEL.DIAGNOSIS_REQUIRED,
+				quotedTotalCents: totals.totalCents,
+				approvedTotalCents: null,
+				previousTotalCents: null,
+				approvedAt: null,
+				approvedBy: null,
+				requiresReapproval: false,
+				isPriceLockedForNonAdmin: false,
+				maxChargeableCents: rejected ? 0 : null
+			};
+		}
+		const legacyApproval = ticket.status === "DECLINED" ? "REJECTED" : ticket.status === "COMPLETED" || totals.paidCents > 0 ? "APPROVED" : "AWAITING_APPROVAL";
+		const legacyApprovedTotal = legacyApproval === "APPROVED" ? totals.totalCents : null;
+		return {
+			hasPrice: true,
+			pricingStatus: "QUOTE_PROVIDED",
+			pricingLabel: PRICING_LABEL.QUOTE_PROVIDED,
+			approvalStatus: legacyApproval,
+			approvalLabel: APPROVAL_LABEL[legacyApproval],
+			quotedTotalCents: totals.totalCents,
+			approvedTotalCents: legacyApprovedTotal,
+			previousTotalCents: null,
+			approvedAt: null,
+			approvedBy: null,
+			requiresReapproval: false,
+			isPriceLockedForNonAdmin: legacyApproval === "APPROVED",
+			maxChargeableCents: legacyApproval === "REJECTED" ? 0 : legacyApprovedTotal
+		};
+	}
+	if (!hasPrice && latestApprovalMeta?.as !== "APPROVED" && lastApprovedTotal === null) {
+		const pm = latestPricingMeta?.pm === "PRICE_PENDING" ? "PRICE_PENDING" : "DIAGNOSIS_REQUIRED";
+		const approvalStatus = ticket.status === "DECLINED" || latestApprovalMeta?.as === "REJECTED" ? "REJECTED" : "DIAGNOSIS_REQUIRED";
+		return {
+			hasPrice: false,
+			pricingStatus: pm,
+			pricingLabel: PRICING_LABEL.DIAGNOSIS_REQUIRED,
+			approvalStatus,
+			approvalLabel: APPROVAL_LABEL[approvalStatus],
+			quotedTotalCents: totals.totalCents,
+			approvedTotalCents: null,
+			previousTotalCents: latestPricingMeta?.prev ?? null,
+			approvedAt: null,
+			approvedBy: null,
+			requiresReapproval: false,
+			isPriceLockedForNonAdmin: false,
+			maxChargeableCents: approvalStatus === "REJECTED" ? 0 : null
+		};
+	}
+	let pricingStatus = latestPricingMeta?.pm || "QUOTE_PROVIDED";
+	if (hasPrice && (pricingStatus === "DIAGNOSIS_REQUIRED" || pricingStatus === "PRICE_PENDING")) pricingStatus = "QUOTE_PROVIDED";
+	let approvalStatus = latestApprovalMeta?.as || (hasPrice ? "AWAITING_APPROVAL" : "DIAGNOSIS_REQUIRED");
+	if (ticket.status === "DECLINED" && approvalStatus !== "REJECTED") approvalStatus = "REJECTED";
+	if (approvalStatus === "APPROVED" && lastApprovedTotal !== null && totals.totalCents !== lastApprovedTotal) {
+		approvalStatus = "REAPPROVAL_REQUIRED";
+		pricingStatus = "REVISED_QUOTE";
+	}
+	const requiresReapproval = approvalStatus === "REAPPROVAL_REQUIRED";
+	const approvedTotalCents = approvalStatus === "APPROVED" || requiresReapproval ? lastApprovedTotal : null;
+	const maxChargeableCents = approvalStatus === "REJECTED" ? 0 : approvedTotalCents !== null ? approvedTotalCents : null;
+	return {
+		hasPrice,
+		pricingStatus,
+		pricingLabel: PRICING_LABEL[pricingStatus],
+		approvalStatus,
+		approvalLabel: APPROVAL_LABEL[approvalStatus],
+		quotedTotalCents: totals.totalCents,
+		approvedTotalCents,
+		previousTotalCents: latestApprovalMeta?.prev ?? latestPricingMeta?.prev ?? null,
+		approvedAt: lastApprovedAt,
+		approvedBy: lastApprovedBy,
+		requiresReapproval,
+		isPriceLockedForNonAdmin: approvalStatus === "APPROVED" || approvalStatus === "REAPPROVAL_REQUIRED",
+		maxChargeableCents
+	};
+}
+/** Never treats an unpriced ($0.00) work order as Paid in Full. */
+function isTicketPaidInFull(totals, quoteState) {
+	if (quoteState && !quoteState.hasPrice) return false;
+	return totals.totalCents > 0 && totals.balanceCents <= 0;
+}
 // src/server/schemas.ts
 var STATUSES = [
 	"CHECKED_IN",
@@ -132,6 +305,17 @@ var createTicketSchema = z.object({
 	faultDescription: trimmed.max(2e3).optional().default("Device Diagnostic & Repair"),
 	laborCents: cents.default(0),
 	discountCents: cents.default(0),
+	pricingMode: z.enum([
+		"DIAGNOSIS_REQUIRED",
+		"PRICE_PENDING",
+		"QUOTE_PROVIDED"
+	]).optional(),
+	initialItems: z.array(z.object({
+		description: trimmed.min(1, "Service description is required").max(200),
+		quantity: z.number().int().min(1).max(999).default(1),
+		unitPriceCents: cents
+	})).max(20).optional(),
+	pricingNotes: optionalText,
 	dueDate: z.string().optional().default(() => {
 		const d = /* @__PURE__ */ new Date();
 		d.setDate(d.getDate() + 2);
@@ -145,6 +329,14 @@ var createTicketSchema = z.object({
 	isWarranty: z.boolean().optional().default(false),
 	depositCents: cents.optional(),
 	depositMethod: z.enum(PAYMENT_METHODS).optional()
+});
+var ticketApprovalSchema = z.object({
+	status: z.enum([
+		"APPROVED",
+		"REJECTED",
+		"AWAITING_APPROVAL"
+	]),
+	note: optionalText
 });
 var updateTicketSchema = z.object({
 	status: z.enum(STATUSES),
@@ -607,13 +799,21 @@ var ticketListSelect = {
 	customer: true,
 	device: true,
 	items: { orderBy: { createdAt: "asc" } },
-	payments: { orderBy: { createdAt: "asc" } }
+	payments: { orderBy: { createdAt: "asc" } },
+	events: {
+		where: { kind: { in: ["PRICING", "APPROVAL"] } },
+		orderBy: { createdAt: "asc" }
+	}
 };
 var ticketInclude = {
 	customer: true,
 	device: true,
 	items: { orderBy: { createdAt: "asc" } },
-	payments: { orderBy: { createdAt: "asc" } }
+	payments: { orderBy: { createdAt: "asc" } },
+	events: {
+		where: { kind: { in: ["PRICING", "APPROVAL"] } },
+		orderBy: { createdAt: "asc" }
+	}
 };
 function withTotals(t) {
 	let diagnostics = {};
@@ -622,11 +822,14 @@ function withTotals(t) {
 	} catch {
 		diagnostics = {};
 	}
+	const totals = computeTotals(t);
+	const quoteState = deriveTicketQuoteState(t, totals);
 	return {
 		...t,
 		signature: t.signature ?? null,
 		diagnostics,
-		totals: computeTotals(t)
+		totals,
+		quoteState
 	};
 }
 var settingsInFlight = null;
@@ -785,6 +988,7 @@ async function createTicket(input, actor) {
 	let createdNumber = 0;
 	let customerName = data.customer.fullName;
 	let deviceName = data.device.name;
+	let intakeQuoteSummary = "Price Pending Diagnosis";
 	const id = await prisma.$transaction(async (tx) => {
 		const settings = await getSettings(tx);
 		const bumped = await tx.setting.update({
@@ -861,13 +1065,48 @@ async function createTicket(input, actor) {
 		createdNumber = ticketNumber;
 		customerName = customer.fullName;
 		deviceName = device.name;
-		await logEvent(tx, ticket.id, "STATUS", `Work order #${ticketNumber}${data.isWarranty ? " (WARRANTY)" : ""} created for ${device.name}`, actor?.name || data.technician);
-		if (data.depositCents && data.depositCents > 0) {
-			const totals = computeTotals({
-				...ticket,
-				items: [],
-				payments: []
+		const eventAuthor = actor?.name || data.technician;
+		await logEvent(tx, ticket.id, "STATUS", `Work order #${ticketNumber}${data.isWarranty ? " (WARRANTY)" : ""} created for ${device.name}`, eventAuthor);
+		const createdItems = [];
+		if (data.initialItems?.length) for (const item of data.initialItems) {
+			await tx.ticketItem.create({ data: {
+				ticketId: ticket.id,
+				partId: null,
+				description: item.description,
+				quantity: item.quantity,
+				unitPriceCents: item.unitPriceCents,
+				unitCostCents: 0
+			} });
+			createdItems.push({
+				quantity: item.quantity,
+				unitPriceCents: item.unitPriceCents
 			});
+			await logEvent(tx, ticket.id, "ITEM", `Initial quote item: ${item.quantity} × ${item.description} @ ${money(item.unitPriceCents)}`, eventAuthor);
+		}
+		const totals = computeTotals({
+			...ticket,
+			items: createdItems,
+			payments: []
+		});
+		if (totals.subtotalCents > 0) {
+			await logEvent(tx, ticket.id, "PRICING", buildPricingEventMessage(`Initial quote provided: ${money(totals.totalCents)} (incl. tax)`, {
+				pm: "QUOTE_PROVIDED",
+				total: totals.totalCents
+			}), eventAuthor);
+			await logEvent(tx, ticket.id, "APPROVAL", buildApprovalEventMessage(`Awaiting customer approval for ${money(totals.totalCents)}`, {
+				as: "AWAITING_APPROVAL",
+				total: totals.totalCents
+			}), eventAuthor);
+			intakeQuoteSummary = `Quote ${money(totals.totalCents)} (Awaiting Approval)`;
+		} else {
+			const pm = data.pricingMode === "PRICE_PENDING" ? "PRICE_PENDING" : "DIAGNOSIS_REQUIRED";
+			await logEvent(tx, ticket.id, "PRICING", buildPricingEventMessage(pm === "PRICE_PENDING" ? "Price pending quote" : "Price pending diagnosis", {
+				pm,
+				total: 0
+			}), eventAuthor);
+			intakeQuoteSummary = pm === "PRICE_PENDING" ? "Price Pending" : "Price Pending Diagnosis";
+		}
+		if (data.depositCents && data.depositCents > 0) {
 			if (data.depositCents > totals.totalCents) throw new HttpError(400, `Deposit (${money(data.depositCents)}) cannot exceed the quoted total (${money(totals.totalCents)})`);
 			await tx.payment.create({ data: {
 				ticketId: ticket.id,
@@ -883,14 +1122,76 @@ async function createTicket(input, actor) {
 		userId: actor?.id,
 		actorName: actor?.name || "POS User",
 		action: "TICKET_CREATE",
-		details: `Created work order #${createdNumber} for ${customerName} (${deviceName})${data.isWarranty ? " [Warranty]" : ""}`
+		details: `Created work order #${createdNumber} for ${customerName} (${deviceName})${data.isWarranty ? " [Warranty]" : ""} — ${intakeQuoteSummary}`
 	});
 	return getTicket(id);
 }
-async function updateTicket(id, input, author, actorId) {
+async function recordQuoteTransition(tx, params) {
+	const { ticketId, ticketNumber, beforeTotals, beforeQuote, afterTotals, author } = params;
+	if (beforeTotals.totalCents === afterTotals.totalCents && beforeTotals.subtotalCents === afterTotals.subtotalCents) return null;
+	if ((beforeQuote.approvalStatus === "APPROVED" || beforeQuote.approvalStatus === "REAPPROVAL_REQUIRED" && beforeQuote.approvedTotalCents !== null) && beforeQuote.approvedTotalCents !== null) {
+		await logEvent(tx, ticketId, "PRICING", buildPricingEventMessage(`Quote revised from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`, {
+			pm: "REVISED_QUOTE",
+			prev: beforeTotals.totalCents,
+			total: afterTotals.totalCents
+		}), author);
+		await logEvent(tx, ticketId, "APPROVAL", buildApprovalEventMessage(`Customer reapproval required (approved ${money(beforeQuote.approvedTotalCents)} → revised ${money(afterTotals.totalCents)})`, {
+			as: "REAPPROVAL_REQUIRED",
+			approvedTotal: beforeQuote.approvedTotalCents,
+			prev: beforeTotals.totalCents,
+			total: afterTotals.totalCents
+		}), author);
+		return {
+			action: "QUOTE_REVISED",
+			details: `WO #${ticketNumber}: Approved quote revised from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)} (approved cap ${money(beforeQuote.approvedTotalCents)}) — customer reapproval required`
+		};
+	}
+	if (beforeTotals.subtotalCents === 0 && afterTotals.subtotalCents > 0) {
+		await logEvent(tx, ticketId, "PRICING", buildPricingEventMessage(`Quote provided: ${money(afterTotals.totalCents)} (incl. tax)`, {
+			pm: "QUOTE_PROVIDED",
+			prev: beforeTotals.totalCents,
+			total: afterTotals.totalCents
+		}), author);
+		await logEvent(tx, ticketId, "APPROVAL", buildApprovalEventMessage(`Awaiting customer approval for ${money(afterTotals.totalCents)}`, {
+			as: "AWAITING_APPROVAL",
+			total: afterTotals.totalCents
+		}), author);
+		return {
+			action: "QUOTE_PROVIDED",
+			details: `WO #${ticketNumber}: Quote set to ${money(afterTotals.totalCents)} (awaiting customer approval)`
+		};
+	}
+	if (beforeQuote.approvalStatus === "REJECTED" && afterTotals.subtotalCents > 0) {
+		await logEvent(tx, ticketId, "PRICING", buildPricingEventMessage(`Revised quote provided: ${money(beforeTotals.totalCents)} → ${money(afterTotals.totalCents)}`, {
+			pm: "REVISED_QUOTE",
+			prev: beforeTotals.totalCents,
+			total: afterTotals.totalCents
+		}), author);
+		await logEvent(tx, ticketId, "APPROVAL", buildApprovalEventMessage(`Revised quote awaiting customer approval (${money(afterTotals.totalCents)})`, {
+			as: "AWAITING_APPROVAL",
+			prev: beforeTotals.totalCents,
+			total: afterTotals.totalCents
+		}), author);
+		return {
+			action: "QUOTE_REVISED",
+			details: `WO #${ticketNumber}: Quote revised after rejection from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`
+		};
+	}
+	await logEvent(tx, ticketId, "PRICING", buildPricingEventMessage(afterTotals.subtotalCents > 0 ? `Quote updated from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}` : "Pricing reset to pending diagnosis", {
+		pm: afterTotals.subtotalCents > 0 ? "QUOTE_PROVIDED" : "PRICE_PENDING",
+		prev: beforeTotals.totalCents,
+		total: afterTotals.totalCents
+	}), author);
+	return {
+		action: "QUOTE_UPDATED",
+		details: `WO #${ticketNumber}: Quote updated from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`
+	};
+}
+async function updateTicket(id, input, author, actorId, actorRole = "USER") {
 	const data = updateTicketSchema.parse(input);
 	let auditSummary = "";
 	let auditTicketNum = 0;
+	let quoteAudit = null;
 	await prisma.$transaction(async (tx) => {
 		const t = await loadTicket(tx, id);
 		auditTicketNum = t.ticketNumber;
@@ -898,6 +1199,10 @@ async function updateTicket(id, input, author, actorId) {
 			const expectedMs = Date.parse(data.expectedUpdatedAt);
 			if (!Number.isNaN(expectedMs) && t.updatedAt.getTime() !== expectedMs) throw new HttpError(409, "Conflict: This work order was modified by another employee. Refresh before saving to avoid overwriting their changes.");
 		}
+		const beforeTotals = computeTotals(t);
+		const beforeQuote = deriveTicketQuoteState(t, beforeTotals);
+		const isPriceChange = data.laborCents !== void 0 && data.laborCents !== t.laborCents || data.discountCents !== void 0 && data.discountCents !== t.discountCents;
+		if (isPriceChange && (beforeQuote.approvalStatus === "APPROVED" || beforeQuote.approvalStatus === "REAPPROVAL_REQUIRED") && actorRole !== "ADMIN") throw new HttpError(403, "Admin authorization is required to change an already-approved quote.");
 		const update = {};
 		const changes = [];
 		if (data.status && data.status !== t.status) {
@@ -1001,12 +1306,33 @@ async function updateTicket(id, input, author, actorId) {
 			auditSummary = changes.join(", ");
 			await logEvent(tx, id, "SYSTEM", `Updated: ${auditSummary}`, author);
 		}
+		if (isPriceChange) {
+			const afterTotals = computeTotals({
+				...t,
+				laborCents: data.laborCents ?? t.laborCents,
+				discountCents: data.discountCents ?? t.discountCents
+			});
+			quoteAudit = await recordQuoteTransition(tx, {
+				ticketId: id,
+				ticketNumber: t.ticketNumber,
+				beforeTotals,
+				beforeQuote,
+				afterTotals,
+				author
+			});
+		}
 	}, TX_OPTIONS);
 	if (auditSummary) await recordAudit({
 		userId: actorId ?? void 0,
 		actorName: author || "POS User",
 		action: "TICKET_UPDATE",
 		details: `WO #${auditTicketNum}: ${auditSummary}`
+	});
+	if (quoteAudit) await recordAudit({
+		userId: actorId ?? void 0,
+		actorName: author || "POS User",
+		action: quoteAudit.action,
+		details: quoteAudit.details
 	});
 	return getTicket(id);
 }
@@ -1025,10 +1351,14 @@ async function deleteTicket(id, author) {
 	}, TX_OPTIONS);
 	return { ok: true };
 }
-async function addItem(ticketId, input, author) {
+async function addItem(ticketId, input, author, actorId, actorRole = "USER") {
 	const data = addItemSchema.parse(input);
+	let quoteAudit = null;
 	await prisma.$transaction(async (tx) => {
-		await loadTicket(tx, ticketId);
+		const t = await loadTicket(tx, ticketId);
+		const beforeTotals = computeTotals(t);
+		const beforeQuote = deriveTicketQuoteState(t, beforeTotals);
+		if ((beforeQuote.approvalStatus === "APPROVED" || beforeQuote.approvalStatus === "REAPPROVAL_REQUIRED") && actorRole !== "ADMIN") throw new HttpError(403, "Admin authorization is required to modify items on an already-approved quote.");
 		let description = data.description || "";
 		let unitPriceCents = data.unitPriceCents ?? 0;
 		let unitCostCents = 0;
@@ -1053,12 +1383,37 @@ async function addItem(ticketId, input, author) {
 			unitCostCents
 		} });
 		await logEvent(tx, ticketId, "ITEM", `Added ${data.quantity} × ${description} @ ${money(unitPriceCents)}`, author);
+		const afterTotals = computeTotals({
+			...t,
+			items: [...t.items, {
+				quantity: data.quantity,
+				unitPriceCents
+			}]
+		});
+		quoteAudit = await recordQuoteTransition(tx, {
+			ticketId,
+			ticketNumber: t.ticketNumber,
+			beforeTotals,
+			beforeQuote,
+			afterTotals,
+			author
+		});
 	}, TX_OPTIONS);
+	if (quoteAudit) await recordAudit({
+		userId: actorId ?? void 0,
+		actorName: author || "POS User",
+		action: quoteAudit.action,
+		details: quoteAudit.details
+	});
 	return getTicket(ticketId);
 }
-async function removeItem(ticketId, itemId, author) {
+async function removeItem(ticketId, itemId, author, actorId, actorRole = "USER") {
+	let quoteAudit = null;
 	await prisma.$transaction(async (tx) => {
-		await loadTicket(tx, ticketId);
+		const t = await loadTicket(tx, ticketId);
+		const beforeTotals = computeTotals(t);
+		const beforeQuote = deriveTicketQuoteState(t, beforeTotals);
+		if ((beforeQuote.approvalStatus === "APPROVED" || beforeQuote.approvalStatus === "REAPPROVAL_REQUIRED") && actorRole !== "ADMIN") throw new HttpError(403, "Admin authorization is required to modify items on an already-approved quote.");
 		const item = await tx.ticketItem.findFirst({ where: {
 			id: itemId,
 			ticketId
@@ -1070,7 +1425,63 @@ async function removeItem(ticketId, itemId, author) {
 		});
 		await tx.ticketItem.delete({ where: { id: itemId } });
 		await logEvent(tx, ticketId, "ITEM", `Removed ${item.quantity} × ${item.description}${item.partId ? " (returned to stock)" : ""}`, author);
+		const afterTotals = computeTotals({
+			...t,
+			items: t.items.filter((i) => i.id !== itemId)
+		});
+		quoteAudit = await recordQuoteTransition(tx, {
+			ticketId,
+			ticketNumber: t.ticketNumber,
+			beforeTotals,
+			beforeQuote,
+			afterTotals,
+			author
+		});
 	}, TX_OPTIONS);
+	if (quoteAudit) await recordAudit({
+		userId: actorId ?? void 0,
+		actorName: author || "POS User",
+		action: quoteAudit.action,
+		details: quoteAudit.details
+	});
+	return getTicket(ticketId);
+}
+async function updateTicketApproval(ticketId, input, actor) {
+	const data = ticketApprovalSchema.parse(input);
+	let ticketNum = 0;
+	let totalCents = 0;
+	const note = emptyToNull(data.note) ?? null;
+	await prisma.$transaction(async (tx) => {
+		const t = await loadTicket(tx, ticketId);
+		ticketNum = t.ticketNumber;
+		if (t.status === "CANCELLED") throw new HttpError(409, "Cannot change approval status on a cancelled work order.");
+		const totals = computeTotals(t);
+		const quoteState = deriveTicketQuoteState(t, totals);
+		totalCents = totals.totalCents;
+		if (data.status === "APPROVED" && !quoteState.hasPrice && !t.isWarranty) throw new HttpError(400, "Enter a quoted price before recording customer approval.");
+		if (data.status === "APPROVED") await logEvent(tx, ticketId, "APPROVAL", buildApprovalEventMessage(`Customer approved quote of ${money(totals.totalCents)}${note ? ` — ${note}` : ""}`, {
+			as: "APPROVED",
+			total: totals.totalCents,
+			approvedTotal: totals.totalCents,
+			prev: quoteState.approvedTotalCents
+		}), actor.name);
+		else if (data.status === "REJECTED") await logEvent(tx, ticketId, "APPROVAL", buildApprovalEventMessage(`Customer rejected quote of ${money(totals.totalCents)}${note ? ` — ${note}` : ""}`, {
+			as: "REJECTED",
+			total: totals.totalCents,
+			approvedTotal: quoteState.approvedTotalCents
+		}), actor.name);
+		else await logEvent(tx, ticketId, "APPROVAL", buildApprovalEventMessage(`Quote marked awaiting customer approval (${money(totals.totalCents)})${note ? ` — ${note}` : ""}`, {
+			as: "AWAITING_APPROVAL",
+			total: totals.totalCents,
+			approvedTotal: quoteState.approvedTotalCents
+		}), actor.name);
+	}, TX_OPTIONS);
+	await recordAudit({
+		userId: actor.id,
+		actorName: actor.name,
+		action: "QUOTE_APPROVAL",
+		details: `WO #${ticketNum}: Approval set to ${data.status} (${money(totalCents)}) by ${actor.name}${note ? ` — ${note}` : ""}`
+	});
 	return getTicket(ticketId);
 }
 async function addPayment(ticketId, input, author, actorId) {
@@ -1087,7 +1498,11 @@ async function addPayment(ticketId, input, author, actorId) {
 			return;
 		}
 		if (t.status === "CANCELLED" || t.status === "DECLINED") throw new HttpError(409, "Cannot process payment on a cancelled or declined work order");
-		const { balanceCents } = computeTotals(t);
+		const totals = computeTotals(t);
+		const quoteState = deriveTicketQuoteState(t, totals);
+		const { balanceCents } = totals;
+		if (quoteState.approvalStatus === "REJECTED") throw new HttpError(409, "Cannot record payment: the repair quote was rejected by the customer.");
+		if ((quoteState.approvalStatus === "REAPPROVAL_REQUIRED" || quoteState.approvalStatus === "APPROVED") && quoteState.approvedTotalCents !== null && totals.paidCents + data.amountCents > quoteState.approvedTotalCents) throw new HttpError(409, `Cannot charge above the customer-approved amount (${money(quoteState.approvedTotalCents)}). Obtain customer reapproval for the revised quote (${money(totals.totalCents)}) first.`);
 		if (t.status === "COMPLETED" && balanceCents <= 0) throw new HttpError(409, "This completed work order is already settled and cannot be charged twice");
 		const isDeposit = data.note && /deposit/i.test(data.note);
 		if (!isDeposit) {
@@ -6433,8 +6848,15 @@ function buildReceiptHtml(ticket, shop, width = "80mm") {
 	const items = (ticket.items || []).map((i) => `<div class="item"><div>${esc(i.description)}</div>${row(`&nbsp;&nbsp;${i.quantity} × ${money(i.unitPriceCents)}`, money(i.quantity * i.unitPriceCents))}</div>`).join("");
 	const payments = (ticket.payments || []).map((p) => row(`${esc(METHOD_LABEL[p.method] || p.method)} ${new Date(p.createdAt).toLocaleDateString()}`, money(p.amountCents))).join("");
 	const publicNotes = (ticket.events || []).filter((e) => e.kind === "CUSTOMER_NOTE").map((e) => `<div class="note">• ${esc(e.message)}</div>`).join("");
+	const quoteState = ticket.quoteState ?? deriveTicketQuoteState(ticket, t || {
+		subtotalCents: ticket.laborCents || 0,
+		totalCents: ticket.laborCents || 0,
+		paidCents: 0,
+		balanceCents: ticket.laborCents || 0
+	});
+	const isPaid = t ? isTicketPaidInFull(t, quoteState) : false;
 	const paperPx = width === "58mm" ? "58mm" : "80mm";
-	const status = ticket.status === "CANCELLED" ? "CANCELLED" : ticket.status === "DECLINED" ? "DECLINED" : t ? t.balanceCents <= 0 ? "PAID IN FULL" : t.paidCents > 0 ? "PARTIALLY PAID" : "BALANCE DUE" : "";
+	const status = ticket.status === "CANCELLED" ? "CANCELLED" : ticket.status === "DECLINED" || quoteState.approvalStatus === "REJECTED" ? "QUOTE REJECTED" : !quoteState.hasPrice ? "PRICE PENDING DIAGNOSIS" : t ? isPaid ? "PAID IN FULL" : t.paidCents > 0 ? "PARTIALLY PAID" : "BALANCE DUE" : "";
 	return `<!doctype html><html><head><meta charset="utf-8"><title>Receipt WO #${ticket.ticketNumber}</title>
 <style>
 @page { size: ${paperPx} auto; margin: 0; }
@@ -6463,19 +6885,24 @@ ${ticket.device?.serialNumber ? row("Serial/IMEI", esc(ticket.device.serialNumbe
 ${ticket.isWarranty ? row("Coverage", "WARRANTY REPAIR", true) : ""}
 <hr>
 <div class="b">Issue</div><div>${esc(ticket.faultDescription)}</div>
+${row("Pricing", esc(quoteState.pricingLabel))}
+${row("Approval", esc(quoteState.approvalLabel))}
 ${publicNotes ? `<hr><div class="b">Work Performed</div>${publicNotes}` : ""}
 <hr>
-${ticket.laborCents ? row("Labour", money(ticket.laborCents)) : ""}
+${!quoteState.hasPrice ? `<div class="c b" style="padding:4px 0">Price Pending Diagnosis</div>
+${payments ? `<hr><div class="b">Payments</div>${payments}` : ""}
+${t && t.paidCents > 0 ? row("Deposit Paid", money(t.paidCents)) : ""}
+<div class="c b" style="margin-top:4px">*** ${status} ***</div>` : `${ticket.laborCents ? row("Labour", money(ticket.laborCents)) : ""}
 ${items}
 ${t ? `<hr>
 ${row("Subtotal", money(t.subtotalCents))}
 ${t.discountCents ? row("Discount", money(-t.discountCents)) : ""}
 ${row(`${esc(shop.taxLabel || "Tax")} (${taxPct}%)`, money(t.taxCents))}
-<div class="big">${row("TOTAL", money(t.totalCents), true)}</div>
+<div class="big">${row(isPaid ? "TOTAL" : "EST. TOTAL", money(t.totalCents), true)}</div>
 ${payments ? `<hr><div class="b">Payments</div>${payments}` : ""}
-${row("Paid", money(t.paidCents))}
+${t.paidCents > 0 ? row("Paid", money(t.paidCents)) : ""}
 <div class="big">${row("BALANCE", money(Math.max(t.balanceCents, 0)), true)}</div>
-<div class="c b" style="margin-top:4px">*** ${status} ***</div>` : ""}
+<div class="c b" style="margin-top:4px">*** ${status} ***</div>` : ""}`}
 <hr>
 <div class="c small">Thank you for your business!</div>
 </body></html>`;
@@ -6512,6 +6939,20 @@ body { margin: 0; width: 80mm; padding: 4mm 4mm 8mm; font: 12px/1.35 'Arial', sy
   ${ticket.device?.serialNumber ? `<div style="font-size:10px;color:#64748b">S/N: ${esc(ticket.device.serialNumber)}</div>` : ""}
 </div>
 <div class="desc">&ldquo;${esc(ticket.faultDescription)}&rdquo;</div>
+${(() => {
+		const t = ticket.totals;
+		const qs = ticket.quoteState ?? deriveTicketQuoteState(ticket, t || {
+			subtotalCents: ticket.laborCents || 0,
+			totalCents: ticket.laborCents || 0,
+			paidCents: 0,
+			balanceCents: ticket.laborCents || 0
+		});
+		const priceText = qs.hasPrice ? `${shop.currencySymbol || "$"}${(qs.quotedTotalCents / 100).toFixed(2)}` : "Price Pending Diagnosis";
+		return `<div style="font-size:10px;border-top:1px dashed #cbd5e1;padding-top:4px;margin-top:4px">
+    <div><strong>Pricing:</strong> ${esc(qs.pricingLabel)} (${esc(priceText)})</div>
+    <div><strong>Approval:</strong> ${esc(qs.approvalLabel)}</div>
+  </div>`;
+	})()}
 <div class="barcode-box">
   ${barcodeSvg}
   <div style="font-family:monospace;font-size:10px;font-weight:bold;margin-top:2px">*${woBarcode}*</div>
@@ -6535,7 +6976,8 @@ function buildLetterInvoiceHtml(ticket, shop) {
 		balanceCents: ticket.laborCents + Math.round(ticket.laborCents * (ticket.taxRateBps || 1300) / 1e4),
 		paymentStatus: "UNPAID"
 	};
-	const isPaid = t.balanceCents <= 0;
+	const quoteState = ticket.quoteState ?? deriveTicketQuoteState(ticket, t);
+	const isPaid = isTicketPaidInFull(t, quoteState);
 	const woBarcode = `WO-${String(ticket.ticketNumber).padStart(4, "0")}`;
 	const barcodeSvg = generateBarcodeSvg(woBarcode, 160, 36);
 	const itemsHtml = (ticket.items || []).map((i) => `
@@ -6584,8 +7026,8 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   </div>
   <div style="text-align:right">
     ${ticket.isWarranty ? `<div class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;margin-right:4px">WARRANTY REPAIR</div>` : ""}
-    <div class="badge ${ticket.status === "CANCELLED" || ticket.status === "DECLINED" ? "badge-due" : isPaid ? "badge-paid" : "badge-due"}">
-      ${ticket.status === "CANCELLED" ? "CANCELLED" : ticket.status === "DECLINED" ? "DECLINED" : isPaid ? "PAID • READY FOR RELEASE" : "INSPECTION / BALANCE DUE"}
+    <div class="badge ${ticket.status === "CANCELLED" || ticket.status === "DECLINED" || quoteState.approvalStatus === "REJECTED" ? "badge-due" : isPaid ? "badge-paid" : "badge-due"}">
+      ${ticket.status === "CANCELLED" ? "CANCELLED" : quoteState.approvalStatus === "REJECTED" ? "QUOTE REJECTED" : !quoteState.hasPrice ? "PRICE PENDING DIAGNOSIS" : isPaid ? "PAID • READY FOR RELEASE" : `${esc(quoteState.approvalLabel.toUpperCase())} • BALANCE DUE`}
     </div>
     <div style="margin-top:6px">${barcodeSvg}</div>
     <div style="font-family:monospace;font-size:10px;color:#64748b;margin-top:2px">*${woBarcode}*</div>
@@ -6617,9 +7059,9 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
     <div style="font-size:9px;color:#64748b">Station: ${esc(ticket.bench || "Front Counter")}</div>
   </div>
   <div class="card">
-    <div class="card-label">Payment Status</div>
-    <div class="card-val" style="color:${isPaid ? "#059669" : "#d97706"}">${isPaid ? "PAID IN FULL" : "BALANCE DUE"}</div>
-    <div style="font-size:9px;color:#64748b">Ref: WO-${ticket.ticketNumber}</div>
+    <div class="card-label">Pricing &amp; Approval</div>
+    <div class="card-val" style="color:${!quoteState.hasPrice ? "#b45309" : isPaid ? "#059669" : quoteState.approvalStatus === "REJECTED" ? "#e11d48" : "#d97706"}">${!quoteState.hasPrice ? "PRICE PENDING" : isPaid ? "PAID IN FULL" : esc(quoteState.approvalLabel.toUpperCase())}</div>
+    <div style="font-size:9px;color:#64748b">${esc(quoteState.pricingLabel)} • Ref: WO-${ticket.ticketNumber}</div>
   </div>
 </div>
 
@@ -6650,6 +7092,10 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
 <div class="card" style="margin-bottom:10px">
   <div class="card-label">Phase 1 • Initial Physical &amp; Digital Intake</div>
   <div style="font-size:11px;color:#1e293b;margin-top:2px"><strong>Reported Issue:</strong> ${esc(ticket.faultDescription)}</div>
+  <div style="font-size:10px;color:#475569;margin-top:4px">
+    <strong>Pricing Status:</strong> ${esc(quoteState.pricingLabel)} &nbsp;|&nbsp;
+    <strong>Approval Status:</strong> ${esc(quoteState.approvalLabel)}
+  </div>
 </div>
 
 <table style="margin-bottom:10px">
@@ -6662,16 +7108,26 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
     </tr>
   </thead>
   <tbody>
+    ${!quoteState.hasPrice ? `
+    <tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">
+        <strong>Diagnostic Evaluation &amp; Repair Scope</strong>
+        <div style="font-size:9px;color:#64748b">${esc(ticket.faultDescription)}</div>
+      </td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">1</td>
+      <td colspan="2" style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:bold;color:#b45309">Price Pending Diagnosis</td>
+    </tr>` : `
+    ${t.laborCents > 0 ? `
     <tr>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">
         <strong>Bench Labor &amp; Diagnostic Calibration</strong>
-        <div style="font-size:9px;color:#64748b">Disassembly, microscopic board inspection, testing &amp; quality assurance</div>
+        <div style="font-size:9px;color:#64748b">Disassembly, inspection, testing &amp; quality assurance</div>
       </td>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">1</td>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right">${money(t.laborCents)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:bold">${money(t.laborCents)}</td>
-    </tr>
-    ${itemsHtml}
+    </tr>` : ""}
+    ${itemsHtml}`}
   </tbody>
 </table>
 
@@ -6679,14 +7135,27 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   <div class="card">
     <div class="card-label">Payment &amp; Transaction Ledger</div>
     ${paymentsHtml || "<div style=\"font-size:10px;color:#64748b;padding:4px 0\">No prior deposits recorded</div>"}
-    <div style="margin-top:8px;padding-top:6px;border-top:1px dashed #cbd5e1;display:flex;justify-content:space-between;font-weight:bold;font-size:11px">
+    ${quoteState.hasPrice || t.paidCents > 0 ? `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #cbd5e1;display:flex;justify-content:space-between;font-weight:bold;font-size:11px">
       <span>Total Paid to Date:</span>
       <span style="color:#059669">${money(t.paidCents)}</span>
-    </div>
+    </div>` : ""}
   </div>
 
   <div class="card">
     <div class="card-label">Invoice Calculation Summary</div>
+    ${!quoteState.hasPrice ? `
+    <div class="totals-row">
+      <span>Pricing Status:</span>
+      <span style="font-weight:bold;color:#b45309">${esc(quoteState.pricingLabel)}</span>
+    </div>
+    <div class="totals-row">
+      <span>Approval Status:</span>
+      <span style="font-weight:bold">${esc(quoteState.approvalLabel)}</span>
+    </div>
+    <div class="total-highlight" style="color:#b45309">
+      <span>ESTIMATED TOTAL:</span>
+      <span>Price Pending Diagnosis</span>
+    </div>` : `
     <div class="totals-row">
       <span>Parts Subtotal:</span>
       <span>${money(t.itemsCents)}</span>
@@ -6708,14 +7177,18 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
       <span>${esc(shop.taxLabel || "Sales Tax")} (${((t.taxRateBps ?? ticket.taxRateBps ?? 1300) / 100).toFixed(1)}%):</span>
       <span>+${money(t.taxCents)}</span>
     </div>
+    <div class="totals-row" style="font-size:10px">
+      <span>Approval Status:</span>
+      <span style="font-weight:bold">${esc(quoteState.approvalLabel)}</span>
+    </div>
     <div class="total-highlight">
-      <span>TOTAL INVOICE:</span>
+      <span>${isPaid ? "TOTAL INVOICE:" : "ESTIMATED TOTAL:"}</span>
       <span>${money(t.totalCents)}</span>
     </div>
     <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:bold;margin-top:4px;color:${t.balanceCents > 0 ? "#d97706" : "#059669"}">
       <span>BALANCE DUE:</span>
       <span>${money(Math.max(t.balanceCents, 0))}</span>
-    </div>
+    </div>`}
   </div>
 </div>
 
@@ -7530,7 +8003,19 @@ app.post("/api/tickets", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.put("/api/tickets/:id", requireAuth, wrap(async (req, res) => {
-	const ticket = await updateTicket(getParam(req, "id"), req.body, req.user.name, req.user.id);
+	const ticket = await updateTicket(getParam(req, "id"), req.body, req.user.name, req.user.id, req.user.role);
+	broadcastLiveEvent("ticket_updated", ticket);
+	res.json({
+		success: true,
+		data: ticket
+	});
+}));
+app.post("/api/tickets/:id/approval", requireAuth, wrap(async (req, res) => {
+	const ticket = await updateTicketApproval(getParam(req, "id"), req.body, {
+		id: req.user.id,
+		name: req.user.name,
+		role: req.user.role
+	});
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
 		success: true,
@@ -7557,7 +8042,7 @@ app.delete("/api/tickets/:id", requireAdmin, wrap(async (req, res) => {
 	});
 }));
 app.post("/api/tickets/:id/quick-complete", requireAuth, wrap(async (req, res) => {
-	const ticket = await updateTicket(getParam(req, "id"), { status: "COMPLETED" }, req.user.name, req.user.id);
+	const ticket = await updateTicket(getParam(req, "id"), { status: "COMPLETED" }, req.user.name, req.user.id, req.user.role);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
 		success: true,
@@ -7566,7 +8051,7 @@ app.post("/api/tickets/:id/quick-complete", requireAuth, wrap(async (req, res) =
 	});
 }));
 app.post("/api/tickets/:id/items", requireAuth, wrap(async (req, res) => {
-	const ticket = await addItem(getParam(req, "id"), req.body, req.user.name);
+	const ticket = await addItem(getParam(req, "id"), req.body, req.user.name, req.user.id, req.user.role);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.status(201).json({
 		success: true,
@@ -7580,7 +8065,7 @@ app.post("/api/tickets/:id/parts", requireAuth, wrap(async (req, res) => {
 		description: customName || void 0,
 		unitPriceCents: price !== void 0 ? Math.round(Number(price) * 100) : void 0,
 		quantity: quantity ? Number(quantity) : 1
-	}, req.user.name);
+	}, req.user.name, req.user.id, req.user.role);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.status(201).json({
 		success: true,
@@ -7588,7 +8073,7 @@ app.post("/api/tickets/:id/parts", requireAuth, wrap(async (req, res) => {
 	});
 }));
 app.delete("/api/tickets/:id/items/:itemId", requireAuth, wrap(async (req, res) => {
-	const ticket = await removeItem(getParam(req, "id"), getParam(req, "itemId"), req.user.name);
+	const ticket = await removeItem(getParam(req, "id"), getParam(req, "itemId"), req.user.name, req.user.id, req.user.role);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.json({
 		success: true,

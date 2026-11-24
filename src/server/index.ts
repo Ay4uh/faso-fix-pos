@@ -12,6 +12,7 @@ import {
   getTicket,
   createTicket,
   updateTicket,
+  updateTicketApproval,
   deleteTicket,
   addItem,
   removeItem,
@@ -924,7 +925,17 @@ app.post('/api/tickets', requireAuth, wrap(async (req, res) => {
 }));
 
 app.put('/api/tickets/:id', requireAuth, wrap(async (req, res) => {
-  const ticket = await updateTicket(getParam(req, 'id'), req.body, req.user!.name, req.user!.id);
+  const ticket = await updateTicket(getParam(req, 'id'), req.body, req.user!.name, req.user!.id, req.user!.role);
+  broadcastLiveEvent('ticket_updated', ticket);
+  res.json({ success: true, data: ticket });
+}));
+
+app.post('/api/tickets/:id/approval', requireAuth, wrap(async (req, res) => {
+  const ticket = await updateTicketApproval(getParam(req, 'id'), req.body, {
+    id: req.user!.id,
+    name: req.user!.name,
+    role: req.user!.role,
+  });
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));
@@ -947,14 +958,14 @@ app.delete('/api/tickets/:id', requireAdmin, wrap(async (req, res) => {
 
 // Quick complete shortcut
 app.post('/api/tickets/:id/quick-complete', requireAuth, wrap(async (req, res) => {
-  const ticket = await updateTicket(getParam(req, 'id'), { status: 'COMPLETED' }, req.user!.name, req.user!.id);
+  const ticket = await updateTicket(getParam(req, 'id'), { status: 'COMPLETED' }, req.user!.name, req.user!.id, req.user!.role);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, message: 'Work order marked completed', data: ticket });
 }));
 
 // Line items / parts attachment
 app.post('/api/tickets/:id/items', requireAuth, wrap(async (req, res) => {
-  const ticket = await addItem(getParam(req, 'id'), req.body, req.user!.name);
+  const ticket = await addItem(getParam(req, 'id'), req.body, req.user!.name, req.user!.id, req.user!.role);
   broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
@@ -967,13 +978,13 @@ app.post('/api/tickets/:id/parts', requireAuth, wrap(async (req, res) => {
     description: customName || undefined,
     unitPriceCents: price !== undefined ? Math.round(Number(price) * 100) : undefined,
     quantity: quantity ? Number(quantity) : 1,
-  }, req.user!.name);
+  }, req.user!.name, req.user!.id, req.user!.role);
   broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
 }));
 
 app.delete('/api/tickets/:id/items/:itemId', requireAuth, wrap(async (req, res) => {
-  const ticket = await removeItem(getParam(req, 'id'), getParam(req, 'itemId'), req.user!.name);
+  const ticket = await removeItem(getParam(req, 'id'), getParam(req, 'itemId'), req.user!.name, req.user!.id, req.user!.role);
   broadcastLiveEvent('ticket_updated', ticket);
   res.json({ success: true, data: ticket });
 }));

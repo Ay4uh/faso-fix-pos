@@ -87,6 +87,8 @@ export function App() {
   const [customersPagination, setCustomersPagination] = useState<PaginationMeta | null>(null);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [shopTaxRateBps, setShopTaxRateBps] = useState(1300);
+  const [shopTaxLabel, setShopTaxLabel] = useState('HST');
 
   // Authentication & Session
   const [currentUser, setCurrentUser] = useState<User | null>(getInitialUser);
@@ -271,10 +273,23 @@ export function App() {
   useEffect(() => {
     if (currentUser) {
       fetchTimeClockStatus();
+      fetchShopTaxConfig();
       const interval = setInterval(fetchTimeClockStatus, 60000);
       return () => clearInterval(interval);
     }
   }, [currentUser]);
+
+  const fetchShopTaxConfig = async () => {
+    try {
+      const res = await fetchWithAuth('/api/settings');
+      if (res.ok) {
+        const json = await res.json();
+        const s = json.data || json;
+        if (typeof s?.taxRateBps === 'number') setShopTaxRateBps(s.taxRateBps);
+        if (s?.taxLabel) setShopTaxLabel(s.taxLabel);
+      }
+    } catch {}
+  };
 
   const handleQuickClockIn = async () => {
     if (!currentUser) return;
@@ -1161,7 +1176,10 @@ export function App() {
           {currentTab === 'settings' && (
             <SettingsView
               currentUser={currentUser}
-              onSettingsUpdated={() => fetchData(true)}
+              onSettingsUpdated={() => {
+                fetchShopTaxConfig();
+                fetchData(true);
+              }}
               onUserUpdated={(u) => {
                 setCurrentUser(u);
                 try {
@@ -1298,6 +1316,8 @@ export function App() {
           fetchData(true);
         }}
         existingCustomers={customers}
+        shopTaxRateBps={shopTaxRateBps}
+        shopTaxLabel={shopTaxLabel}
       />
 
       <SendSmsModal

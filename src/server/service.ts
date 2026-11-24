@@ -1,8 +1,14 @@
 import { Prisma } from '@prisma/client';
 import { z } from 'zod';
 import { prisma, isPostgres } from './prisma';
-import { computeTotals, digitsOnly } from './money';
+import { computeTotals, digitsOnly, Totals } from './money';
 import { csvCell } from './csvSafe';
+import {
+  deriveTicketQuoteState,
+  buildPricingEventMessage,
+  buildApprovalEventMessage,
+  TicketQuoteState,
+} from '../utils/repairPricing';
 import {
   addItemSchema,
   createTicketSchema,
@@ -14,6 +20,7 @@ import {
   refundSchema,
   photoUploadSchema,
   settingsSchema,
+  ticketApprovalSchema,
   updateTicketSchema,
   loginSchema,
   userCreateSchema,
@@ -101,6 +108,10 @@ const ticketListSelect = {
   device: true,
   items: { orderBy: { createdAt: 'asc' } },
   payments: { orderBy: { createdAt: 'asc' } },
+  events: {
+    where: { kind: { in: ['PRICING', 'APPROVAL'] } },
+    orderBy: { createdAt: 'asc' },
+  },
 } satisfies Prisma.TicketSelect;
 
 const ticketInclude = {
@@ -108,6 +119,10 @@ const ticketInclude = {
   device: true,
   items: { orderBy: { createdAt: 'asc' } },
   payments: { orderBy: { createdAt: 'asc' } },
+  events: {
+    where: { kind: { in: ['PRICING', 'APPROVAL'] } },
+    orderBy: { createdAt: 'asc' },
+  },
 } satisfies Prisma.TicketInclude;
 
 type TicketWithRelations = Prisma.TicketGetPayload<{ include: typeof ticketInclude }>;
@@ -119,7 +134,9 @@ function withTotals<T extends Omit<TicketWithRelations, 'signature'> & { signatu
   } catch {
     diagnostics = {};
   }
-  return { ...t, signature: t.signature ?? null, diagnostics, totals: computeTotals(t) };
+  const totals = computeTotals(t);
+  const quoteState = deriveTicketQuoteState(t, totals);
+  return { ...t, signature: t.signature ?? null, diagnostics, totals, quoteState };
 }
 
 // ---------------------------------------------------------------------------
@@ -305,6 +322,7 @@ export async function createTicket(input: unknown, actor?: { id?: string; name?:
   let createdNumber = 0;
   let customerName = data.customer.fullName;
   let deviceName = data.device.name;
+  let intakeQuoteSummary = 'Price Pending Diagnosis';
 
   const id = await prisma.$transaction(async (tx) => {
     const settings = await getSettings(tx);
@@ -386,16 +404,78 @@ export async function createTicket(input: unknown, actor?: { id?: string; name?:
     createdNumber = ticketNumber;
     customerName = customer.fullName;
     deviceName = device.name;
+    const eventAuthor = actor?.name || data.technician;
     await logEvent(
       tx,
       ticket.id,
       'STATUS',
       `Work order #${ticketNumber}${data.isWarranty ? ' (WARRANTY)' : ''} created for ${device.name}`,
-      actor?.name || data.technician
+      eventAuthor
     );
 
+    const createdItems: { quantity: number; unitPriceCents: number }[] = [];
+    if (data.initialItems?.length) {
+      for (const item of data.initialItems) {
+        await tx.ticketItem.create({
+          data: {
+            ticketId: ticket.id,
+            partId: null,
+            description: item.description,
+            quantity: item.quantity,
+            unitPriceCents: item.unitPriceCents,
+            unitCostCents: 0,
+          },
+        });
+        createdItems.push({ quantity: item.quantity, unitPriceCents: item.unitPriceCents });
+        await logEvent(
+          tx,
+          ticket.id,
+          'ITEM',
+          `Initial quote item: ${item.quantity} × ${item.description} @ ${money(item.unitPriceCents)}`,
+          eventAuthor
+        );
+      }
+    }
+
+    const totals = computeTotals({ ...ticket, items: createdItems, payments: [] });
+    if (totals.subtotalCents > 0) {
+      await logEvent(
+        tx,
+        ticket.id,
+        'PRICING',
+        buildPricingEventMessage(
+          `Initial quote provided: ${money(totals.totalCents)} (incl. tax)`,
+          { pm: 'QUOTE_PROVIDED', total: totals.totalCents }
+        ),
+        eventAuthor
+      );
+      await logEvent(
+        tx,
+        ticket.id,
+        'APPROVAL',
+        buildApprovalEventMessage(
+          `Awaiting customer approval for ${money(totals.totalCents)}`,
+          { as: 'AWAITING_APPROVAL', total: totals.totalCents }
+        ),
+        eventAuthor
+      );
+      intakeQuoteSummary = `Quote ${money(totals.totalCents)} (Awaiting Approval)`;
+    } else {
+      const pm = data.pricingMode === 'PRICE_PENDING' ? 'PRICE_PENDING' : 'DIAGNOSIS_REQUIRED';
+      await logEvent(
+        tx,
+        ticket.id,
+        'PRICING',
+        buildPricingEventMessage(
+          pm === 'PRICE_PENDING' ? 'Price pending quote' : 'Price pending diagnosis',
+          { pm, total: 0 }
+        ),
+        eventAuthor
+      );
+      intakeQuoteSummary = pm === 'PRICE_PENDING' ? 'Price Pending' : 'Price Pending Diagnosis';
+    }
+
     if (data.depositCents && data.depositCents > 0) {
-      const totals = computeTotals({ ...ticket, items: [], payments: [] });
       if (data.depositCents > totals.totalCents) {
         throw new HttpError(400, `Deposit (${money(data.depositCents)}) cannot exceed the quoted total (${money(totals.totalCents)})`);
       }
@@ -411,16 +491,151 @@ export async function createTicket(input: unknown, actor?: { id?: string; name?:
     userId: actor?.id,
     actorName: actor?.name || 'POS User',
     action: 'TICKET_CREATE',
-    details: `Created work order #${createdNumber} for ${customerName} (${deviceName})${data.isWarranty ? ' [Warranty]' : ''}`,
+    details: `Created work order #${createdNumber} for ${customerName} (${deviceName})${data.isWarranty ? ' [Warranty]' : ''} — ${intakeQuoteSummary}`,
   });
 
   return getTicket(id);
 }
 
-export async function updateTicket(id: string, input: unknown, author?: string | null, actorId?: string | null) {
+async function recordQuoteTransition(
+  tx: Tx,
+  params: {
+    ticketId: string;
+    ticketNumber: number;
+    beforeTotals: Totals;
+    beforeQuote: TicketQuoteState;
+    afterTotals: Totals;
+    author?: string | null;
+  }
+): Promise<{ action: string; details: string } | null> {
+  const { ticketId, ticketNumber, beforeTotals, beforeQuote, afterTotals, author } = params;
+  if (beforeTotals.totalCents === afterTotals.totalCents && beforeTotals.subtotalCents === afterTotals.subtotalCents) {
+    return null;
+  }
+
+  const hadPriorApproval =
+    beforeQuote.approvalStatus === 'APPROVED' ||
+    (beforeQuote.approvalStatus === 'REAPPROVAL_REQUIRED' && beforeQuote.approvedTotalCents !== null);
+
+  if (hadPriorApproval && beforeQuote.approvedTotalCents !== null) {
+    await logEvent(
+      tx,
+      ticketId,
+      'PRICING',
+      buildPricingEventMessage(
+        `Quote revised from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`,
+        { pm: 'REVISED_QUOTE', prev: beforeTotals.totalCents, total: afterTotals.totalCents }
+      ),
+      author
+    );
+    await logEvent(
+      tx,
+      ticketId,
+      'APPROVAL',
+      buildApprovalEventMessage(
+        `Customer reapproval required (approved ${money(beforeQuote.approvedTotalCents)} → revised ${money(afterTotals.totalCents)})`,
+        {
+          as: 'REAPPROVAL_REQUIRED',
+          approvedTotal: beforeQuote.approvedTotalCents,
+          prev: beforeTotals.totalCents,
+          total: afterTotals.totalCents,
+        }
+      ),
+      author
+    );
+    return {
+      action: 'QUOTE_REVISED',
+      details: `WO #${ticketNumber}: Approved quote revised from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)} (approved cap ${money(beforeQuote.approvedTotalCents)}) — customer reapproval required`,
+    };
+  }
+
+  if (beforeTotals.subtotalCents === 0 && afterTotals.subtotalCents > 0) {
+    await logEvent(
+      tx,
+      ticketId,
+      'PRICING',
+      buildPricingEventMessage(
+        `Quote provided: ${money(afterTotals.totalCents)} (incl. tax)`,
+        { pm: 'QUOTE_PROVIDED', prev: beforeTotals.totalCents, total: afterTotals.totalCents }
+      ),
+      author
+    );
+    await logEvent(
+      tx,
+      ticketId,
+      'APPROVAL',
+      buildApprovalEventMessage(
+        `Awaiting customer approval for ${money(afterTotals.totalCents)}`,
+        { as: 'AWAITING_APPROVAL', total: afterTotals.totalCents }
+      ),
+      author
+    );
+    return {
+      action: 'QUOTE_PROVIDED',
+      details: `WO #${ticketNumber}: Quote set to ${money(afterTotals.totalCents)} (awaiting customer approval)`,
+    };
+  }
+
+  if (beforeQuote.approvalStatus === 'REJECTED' && afterTotals.subtotalCents > 0) {
+    await logEvent(
+      tx,
+      ticketId,
+      'PRICING',
+      buildPricingEventMessage(
+        `Revised quote provided: ${money(beforeTotals.totalCents)} → ${money(afterTotals.totalCents)}`,
+        { pm: 'REVISED_QUOTE', prev: beforeTotals.totalCents, total: afterTotals.totalCents }
+      ),
+      author
+    );
+    await logEvent(
+      tx,
+      ticketId,
+      'APPROVAL',
+      buildApprovalEventMessage(
+        `Revised quote awaiting customer approval (${money(afterTotals.totalCents)})`,
+        { as: 'AWAITING_APPROVAL', prev: beforeTotals.totalCents, total: afterTotals.totalCents }
+      ),
+      author
+    );
+    return {
+      action: 'QUOTE_REVISED',
+      details: `WO #${ticketNumber}: Quote revised after rejection from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`,
+    };
+  }
+
+  await logEvent(
+    tx,
+    ticketId,
+    'PRICING',
+    buildPricingEventMessage(
+      afterTotals.subtotalCents > 0
+        ? `Quote updated from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`
+        : 'Pricing reset to pending diagnosis',
+      {
+        pm: afterTotals.subtotalCents > 0 ? 'QUOTE_PROVIDED' : 'PRICE_PENDING',
+        prev: beforeTotals.totalCents,
+        total: afterTotals.totalCents,
+      }
+    ),
+    author
+  );
+  return {
+    action: 'QUOTE_UPDATED',
+    details: `WO #${ticketNumber}: Quote updated from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`,
+  };
+}
+
+export async function updateTicket(
+  id: string,
+  input: unknown,
+  author?: string | null,
+  actorId?: string | null,
+  actorRole: string = 'USER'
+) {
   const data = updateTicketSchema.parse(input);
   let auditSummary = '';
   let auditTicketNum = 0;
+  let quoteAudit: { action: string; details: string } | null = null as { action: string; details: string } | null;
 
   await prisma.$transaction(async (tx) => {
     const t = await loadTicket(tx, id);
@@ -435,6 +650,20 @@ export async function updateTicket(id: string, input: unknown, author?: string |
           'Conflict: This work order was modified by another employee. Refresh before saving to avoid overwriting their changes.'
         );
       }
+    }
+
+    const beforeTotals = computeTotals(t);
+    const beforeQuote = deriveTicketQuoteState(t, beforeTotals);
+    const isPriceChange =
+      (data.laborCents !== undefined && data.laborCents !== t.laborCents) ||
+      (data.discountCents !== undefined && data.discountCents !== t.discountCents);
+
+    if (
+      isPriceChange &&
+      (beforeQuote.approvalStatus === 'APPROVED' || beforeQuote.approvalStatus === 'REAPPROVAL_REQUIRED') &&
+      actorRole !== 'ADMIN'
+    ) {
+      throw new HttpError(403, 'Admin authorization is required to change an already-approved quote.');
     }
 
     const update: Prisma.TicketUpdateInput = {};
@@ -543,6 +772,22 @@ export async function updateTicket(id: string, input: unknown, author?: string |
       auditSummary = changes.join(', ');
       await logEvent(tx, id, 'SYSTEM', `Updated: ${auditSummary}`, author);
     }
+
+    if (isPriceChange) {
+      const afterTotals = computeTotals({
+        ...t,
+        laborCents: data.laborCents ?? t.laborCents,
+        discountCents: data.discountCents ?? t.discountCents,
+      });
+      quoteAudit = await recordQuoteTransition(tx, {
+        ticketId: id,
+        ticketNumber: t.ticketNumber,
+        beforeTotals,
+        beforeQuote,
+        afterTotals,
+        author,
+      });
+    }
   }, TX_OPTIONS);
 
   if (auditSummary) {
@@ -551,6 +796,14 @@ export async function updateTicket(id: string, input: unknown, author?: string |
       actorName: author || 'POS User',
       action: 'TICKET_UPDATE',
       details: `WO #${auditTicketNum}: ${auditSummary}`,
+    });
+  }
+  if (quoteAudit) {
+    await recordAudit({
+      userId: actorId ?? undefined,
+      actorName: author || 'POS User',
+      action: quoteAudit.action,
+      details: quoteAudit.details,
     });
   }
 
@@ -570,11 +823,28 @@ export async function deleteTicket(id: string, author?: string | null) {
   return { ok: true };
 }
 
-export async function addItem(ticketId: string, input: unknown, author?: string | null) {
+export async function addItem(
+  ticketId: string,
+  input: unknown,
+  author?: string | null,
+  actorId?: string | null,
+  actorRole: string = 'USER'
+) {
   const data = addItemSchema.parse(input);
+  let quoteAudit: { action: string; details: string } | null = null as { action: string; details: string } | null;
 
   await prisma.$transaction(async (tx) => {
-    await loadTicket(tx, ticketId);
+    const t = await loadTicket(tx, ticketId);
+    const beforeTotals = computeTotals(t);
+    const beforeQuote = deriveTicketQuoteState(t, beforeTotals);
+
+    if (
+      (beforeQuote.approvalStatus === 'APPROVED' || beforeQuote.approvalStatus === 'REAPPROVAL_REQUIRED') &&
+      actorRole !== 'ADMIN'
+    ) {
+      throw new HttpError(403, 'Admin authorization is required to modify items on an already-approved quote.');
+    }
+
     let description = data.description || '';
     let unitPriceCents = data.unitPriceCents ?? 0;
     let unitCostCents = 0;
@@ -595,14 +865,54 @@ export async function addItem(ticketId: string, input: unknown, author?: string 
       data: { ticketId, partId: data.partId ?? null, description, quantity: data.quantity, unitPriceCents, unitCostCents },
     });
     await logEvent(tx, ticketId, 'ITEM', `Added ${data.quantity} × ${description} @ ${money(unitPriceCents)}`, author);
+
+    const afterTotals = computeTotals({
+      ...t,
+      items: [...t.items, { quantity: data.quantity, unitPriceCents }],
+    });
+    quoteAudit = await recordQuoteTransition(tx, {
+      ticketId,
+      ticketNumber: t.ticketNumber,
+      beforeTotals,
+      beforeQuote,
+      afterTotals,
+      author,
+    });
   }, TX_OPTIONS);
+
+  if (quoteAudit) {
+    await recordAudit({
+      userId: actorId ?? undefined,
+      actorName: author || 'POS User',
+      action: quoteAudit.action,
+      details: quoteAudit.details,
+    });
+  }
 
   return getTicket(ticketId);
 }
 
-export async function removeItem(ticketId: string, itemId: string, author?: string | null) {
+export async function removeItem(
+  ticketId: string,
+  itemId: string,
+  author?: string | null,
+  actorId?: string | null,
+  actorRole: string = 'USER'
+) {
+  let quoteAudit: { action: string; details: string } | null = null as { action: string; details: string } | null;
+
   await prisma.$transaction(async (tx) => {
-    await loadTicket(tx, ticketId);
+    const t = await loadTicket(tx, ticketId);
+    const beforeTotals = computeTotals(t);
+    const beforeQuote = deriveTicketQuoteState(t, beforeTotals);
+
+    if (
+      (beforeQuote.approvalStatus === 'APPROVED' || beforeQuote.approvalStatus === 'REAPPROVAL_REQUIRED') &&
+      actorRole !== 'ADMIN'
+    ) {
+      throw new HttpError(403, 'Admin authorization is required to modify items on an already-approved quote.');
+    }
+
     const item = await tx.ticketItem.findFirst({ where: { id: itemId, ticketId } });
     if (!item) throw new HttpError(404, 'Line item not found');
     if (item.partId) {
@@ -610,7 +920,114 @@ export async function removeItem(ticketId: string, itemId: string, author?: stri
     }
     await tx.ticketItem.delete({ where: { id: itemId } });
     await logEvent(tx, ticketId, 'ITEM', `Removed ${item.quantity} × ${item.description}${item.partId ? ' (returned to stock)' : ''}`, author);
+
+    const afterTotals = computeTotals({
+      ...t,
+      items: t.items.filter((i) => i.id !== itemId),
+    });
+    quoteAudit = await recordQuoteTransition(tx, {
+      ticketId,
+      ticketNumber: t.ticketNumber,
+      beforeTotals,
+      beforeQuote,
+      afterTotals,
+      author,
+    });
   }, TX_OPTIONS);
+
+  if (quoteAudit) {
+    await recordAudit({
+      userId: actorId ?? undefined,
+      actorName: author || 'POS User',
+      action: quoteAudit.action,
+      details: quoteAudit.details,
+    });
+  }
+
+  return getTicket(ticketId);
+}
+
+export async function updateTicketApproval(
+  ticketId: string,
+  input: unknown,
+  actor: { id?: string; name: string; role?: string }
+) {
+  const data = ticketApprovalSchema.parse(input);
+  let ticketNum = 0;
+  let totalCents = 0;
+  const note = emptyToNull(data.note) ?? null;
+
+  await prisma.$transaction(async (tx) => {
+    const t = await loadTicket(tx, ticketId);
+    ticketNum = t.ticketNumber;
+    if (t.status === 'CANCELLED') {
+      throw new HttpError(409, 'Cannot change approval status on a cancelled work order.');
+    }
+
+    const totals = computeTotals(t);
+    const quoteState = deriveTicketQuoteState(t, totals);
+    totalCents = totals.totalCents;
+
+    if (data.status === 'APPROVED' && !quoteState.hasPrice && !t.isWarranty) {
+      throw new HttpError(400, 'Enter a quoted price before recording customer approval.');
+    }
+
+    if (data.status === 'APPROVED') {
+      await logEvent(
+        tx,
+        ticketId,
+        'APPROVAL',
+        buildApprovalEventMessage(
+          `Customer approved quote of ${money(totals.totalCents)}${note ? ` — ${note}` : ''}`,
+          {
+            as: 'APPROVED',
+            total: totals.totalCents,
+            approvedTotal: totals.totalCents,
+            prev: quoteState.approvedTotalCents,
+          }
+        ),
+        actor.name
+      );
+    } else if (data.status === 'REJECTED') {
+      await logEvent(
+        tx,
+        ticketId,
+        'APPROVAL',
+        buildApprovalEventMessage(
+          `Customer rejected quote of ${money(totals.totalCents)}${note ? ` — ${note}` : ''}`,
+          {
+            as: 'REJECTED',
+            total: totals.totalCents,
+            approvedTotal: quoteState.approvedTotalCents,
+          }
+        ),
+        actor.name
+      );
+    } else {
+      await logEvent(
+        tx,
+        ticketId,
+        'APPROVAL',
+        buildApprovalEventMessage(
+          `Quote marked awaiting customer approval (${money(totals.totalCents)})${note ? ` — ${note}` : ''}`,
+          {
+            as: 'AWAITING_APPROVAL',
+            total: totals.totalCents,
+            approvedTotal: quoteState.approvedTotalCents,
+          }
+        ),
+        actor.name
+      );
+    }
+  }, TX_OPTIONS);
+
+  await recordAudit({
+    userId: actor.id,
+    actorName: actor.name,
+    action: 'QUOTE_APPROVAL',
+    details: `WO #${ticketNum}: Approval set to ${data.status} (${money(totalCents)}) by ${actor.name}${note ? ` — ${note}` : ''}`,
+  });
+
   return getTicket(ticketId);
 }
 
@@ -634,7 +1051,25 @@ export async function addPayment(ticketId: string, input: unknown, author?: stri
       throw new HttpError(409, 'Cannot process payment on a cancelled or declined work order');
     }
 
-    const { balanceCents } = computeTotals(t);
+    const totals = computeTotals(t);
+    const quoteState = deriveTicketQuoteState(t, totals);
+    const { balanceCents } = totals;
+
+    if (quoteState.approvalStatus === 'REJECTED') {
+      throw new HttpError(409, 'Cannot record payment: the repair quote was rejected by the customer.');
+    }
+
+    if (
+      (quoteState.approvalStatus === 'REAPPROVAL_REQUIRED' || quoteState.approvalStatus === 'APPROVED') &&
+      quoteState.approvedTotalCents !== null &&
+      totals.paidCents + data.amountCents > quoteState.approvedTotalCents
+    ) {
+      throw new HttpError(
+        409,
+        `Cannot charge above the customer-approved amount (${money(quoteState.approvedTotalCents)}). Obtain customer reapproval for the revised quote (${money(totals.totalCents)}) first.`
+      );
+    }
+
     if (t.status === 'COMPLETED' && balanceCents <= 0) {
       throw new HttpError(409, 'This completed work order is already settled and cannot be charged twice');
     }

@@ -43,6 +43,18 @@ export const createTicketSchema = z.object({
   faultDescription: trimmed.max(2000).optional().default('Device Diagnostic & Repair'),
   laborCents: cents.default(0),
   discountCents: cents.default(0),
+  pricingMode: z.enum(['DIAGNOSIS_REQUIRED', 'PRICE_PENDING', 'QUOTE_PROVIDED']).optional(),
+  initialItems: z
+    .array(
+      z.object({
+        description: trimmed.min(1, 'Service description is required').max(200),
+        quantity: z.number().int().min(1).max(999).default(1),
+        unitPriceCents: cents,
+      })
+    )
+    .max(20)
+    .optional(),
+  pricingNotes: optionalText,
   dueDate: z.string().optional().default(() => {
     const d = new Date();
     d.setDate(d.getDate() + 2);
@@ -56,6 +68,11 @@ export const createTicketSchema = z.object({
   isWarranty: z.boolean().optional().default(false),
   depositCents: cents.optional(),
   depositMethod: z.enum(PAYMENT_METHODS).optional(),
+});
+
+export const ticketApprovalSchema = z.object({
+  status: z.enum(['APPROVED', 'REJECTED', 'AWAITING_APPROVAL']),
+  note: optionalText,
 });
 
 export const updateTicketSchema = z

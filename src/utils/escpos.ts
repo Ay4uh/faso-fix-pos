@@ -1,5 +1,6 @@
 import { Ticket } from '../types';
 import { ReceiptShop } from './receipt';
+import { deriveTicketQuoteState, isTicketPaidInFull } from './repairPricing';
 
 /**
  * ESC/POS binary command set for thermal receipt printers (Epson, Star, Munbyn, Xprinter, etc.)
@@ -129,36 +130,60 @@ export function buildTicketEscPos(ticket: Ticket, shop: ReceiptShop): Uint8Array
   b.divider('-');
   b.bold(true).line('ISSUE REPORTED:').bold(false);
   b.line(ticket.faultDescription || 'General inspection and diagnosis');
-  b.divider('-');
 
-  // Items & Labor
-  if (ticket.laborCents) {
-    b.twoColumnRow('Labour / Service', money(ticket.laborCents));
-  }
-  for (const item of ticket.items || []) {
-    b.twoColumnRow(
-      `${item.description} (x${item.quantity})`,
-      money(item.quantity * item.unitPriceCents)
-    );
-  }
-
-  // Totals
-  b.divider('-');
   const totals = ticket.totals;
-  if (totals) {
-    b.twoColumnRow('Subtotal', money(totals.subtotalCents));
-    if (totals.discountCents) {
-      b.twoColumnRow('Discount', money(-totals.discountCents));
+  const quoteState = ticket.quoteState ?? deriveTicketQuoteState(
+    ticket,
+    totals || {
+      subtotalCents: ticket.laborCents || 0,
+      totalCents: ticket.laborCents || 0,
+      paidCents: 0,
+      balanceCents: ticket.laborCents || 0,
     }
-    const taxLabel = shop.taxLabel || 'Tax';
-    const taxPct = ((totals.taxRateBps || 1300) / 100).toFixed(1);
-    b.twoColumnRow(`${taxLabel} (${taxPct}%)`, money(totals.taxCents));
-    b.divider('=');
-    b.bold(true).doubleSize(true).twoColumnRow('TOTAL:', money(totals.totalCents)).doubleSize(false).bold(false);
+  );
+  const isPaid = totals ? isTicketPaidInFull(totals, quoteState) : false;
+  b.twoColumnRow('Pricing:', quoteState.pricingLabel);
+  b.twoColumnRow('Approval:', quoteState.approvalLabel);
+  b.divider('-');
 
-    if (totals.paidCents > 0) {
-      b.twoColumnRow('Paid to Date:', money(totals.paidCents));
-      b.bold(true).twoColumnRow('BALANCE DUE:', money(totals.balanceCents)).bold(false);
+  if (!quoteState.hasPrice) {
+    b.bold(true).line('PRICING: Price Pending Diagnosis').bold(false);
+    if (totals && totals.paidCents > 0) {
+      b.twoColumnRow('Deposit Paid:', money(totals.paidCents));
+    }
+  } else {
+    // Items & Labor
+    if (ticket.laborCents) {
+      b.twoColumnRow('Labour / Service', money(ticket.laborCents));
+    }
+    for (const item of ticket.items || []) {
+      b.twoColumnRow(
+        `${item.description} (x${item.quantity})`,
+        money(item.quantity * item.unitPriceCents)
+      );
+    }
+
+    // Totals
+    b.divider('-');
+    if (totals) {
+      b.twoColumnRow('Subtotal', money(totals.subtotalCents));
+      if (totals.discountCents) {
+        b.twoColumnRow('Discount', money(-totals.discountCents));
+      }
+      const taxLabel = shop.taxLabel || 'Tax';
+      const taxPct = ((totals.taxRateBps || 1300) / 100).toFixed(1);
+      b.twoColumnRow(`${taxLabel} (${taxPct}%)`, money(totals.taxCents));
+      b.divider('=');
+      b.bold(true)
+        .doubleSize(true)
+        .twoColumnRow(isPaid ? 'TOTAL:' : 'EST. TOTAL:', money(totals.totalCents))
+        .doubleSize(false)
+        .bold(false);
+
+      if (totals.paidCents > 0) {
+        b.twoColumnRow('Paid to Date:', money(totals.paidCents));
+        b.bold(true).twoColumnRow('BALANCE DUE:', money(Math.max(totals.balanceCents, 0))).bold(false);
+      }
     }
   }
 

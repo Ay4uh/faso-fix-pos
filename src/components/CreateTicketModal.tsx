@@ -11,10 +11,12 @@ import {
   Check,
   Search,
   Grid3X3,
+  DollarSign,
 } from 'lucide-react';
 import { Customer } from '../types';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
+import { STANDARD_REPAIR_SERVICES } from '../utils/repairPricing';
 import { PatternLockModal, PatternLockPreview } from './PatternLockModal';
 
 interface CreateTicketModalProps {
@@ -23,6 +25,8 @@ interface CreateTicketModalProps {
   onSuccess: (createdTicket?: any) => void;
   existingCustomers: Customer[];
   initialCustomer?: Customer | null;
+  shopTaxRateBps?: number;
+  shopTaxLabel?: string;
 }
 
 export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
@@ -31,6 +35,8 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   onSuccess,
   existingCustomers,
   initialCustomer,
+  shopTaxRateBps = 1300,
+  shopTaxLabel = 'HST',
 }) => {
   // 1. Customer Details
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -48,6 +54,12 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
 
   // 3. Reported Issue
   const [issue, setIssue] = useState('');
+
+  // 4. Optional Upfront Pricing & Service Selection (NEVER auto-approves)
+  const [pricingChoice, setPricingChoice] = useState<'PENDING_DIAGNOSIS' | 'QUOTED'>('PENDING_DIAGNOSIS');
+  const [selectedServiceId, setSelectedServiceId] = useState('');
+  const [quotedServiceDesc, setQuotedServiceDesc] = useState('');
+  const [quotedPriceDollars, setQuotedPriceDollars] = useState('');
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -68,6 +80,10 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
     setPattern('');
     setSerialNumber('');
     setIssue('');
+    setPricingChoice('PENDING_DIAGNOSIS');
+    setSelectedServiceId('');
+    setQuotedServiceDesc('');
+    setQuotedPriceDollars('');
     if (initialCustomer) {
       setPhoneNumber(initialCustomer.phone || '');
       setAltPhone(initialCustomer.altPhone || '');
@@ -165,6 +181,18 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
       return;
     }
 
+    const parsedPrice = parseFloat(quotedPriceDollars);
+    const hasQuotedAmount =
+      pricingChoice === 'QUOTED' && quotedPriceDollars.trim() !== '' && !Number.isNaN(parsedPrice);
+    if (pricingChoice === 'QUOTED' && quotedPriceDollars.trim() !== '' && (Number.isNaN(parsedPrice) || parsedPrice < 0)) {
+      setErrorMsg('Please enter a valid non-negative quoted price or leave blank for diagnosis');
+      return;
+    }
+
+    const quotedCents = hasQuotedAmount ? Math.round(parsedPrice * 100) : 0;
+    const effectiveDescription =
+      quotedServiceDesc.trim() || issue.trim() || `${deviceName.trim()} Repair Service`;
+
     try {
       setIsSubmitting(true);
       const res = await fetchWithAuth('/api/tickets', {
@@ -182,8 +210,20 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
             pattern: pattern.trim() || undefined,
             serialNumber: serialNumber.trim() || undefined,
           },
-          faultDescription: issue.trim() || 'Device Diagnostics & Inspection',
+          faultDescription: issue.trim() || quotedServiceDesc.trim() || 'Device Diagnostics & Inspection',
           laborCents: 0,
+          pricingMode: quotedCents > 0 ? 'QUOTE_PROVIDED' : 'DIAGNOSIS_REQUIRED',
+          ...(quotedCents > 0
+            ? {
+                initialItems: [
+                  {
+                    description: effectiveDescription,
+                    quantity: 1,
+                    unitPriceCents: quotedCents,
+                  },
+                ],
+              }
+            : {}),
         }),
       });
 
@@ -423,6 +463,158 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
               className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition resize-none"
             />
           </div>
+
+          {/* 4. Repair Pricing & Initial Quote (Optional — never auto-approves) */}
+          {(() => {
+            const parsedNum = parseFloat(quotedPriceDollars);
+            const validCents =
+              pricingChoice === 'QUOTED' &&
+              quotedPriceDollars.trim() !== '' &&
+              !Number.isNaN(parsedNum) &&
+              parsedNum > 0
+                ? Math.round(parsedNum * 100)
+                : 0;
+            const taxCents = Math.round((validCents * shopTaxRateBps) / 10000);
+            const estimatedTotalCents = validCents + taxCents;
+            const taxPctLabel = (shopTaxRateBps / 100).toFixed(1).replace(/\.0$/, '');
+
+            return (
+              <div className="space-y-2.5 pt-2 border-t border-slate-100">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
+                    <DollarSign className="w-3.5 h-3.5 text-indigo-600" />
+                    4. Repair Quote / Pricing
+                  </span>
+                  <div className="inline-flex rounded-lg bg-slate-100 p-0.5 border border-slate-200">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPricingChoice('PENDING_DIAGNOSIS');
+                        setSelectedServiceId('');
+                        setQuotedPriceDollars('');
+                      }}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                        pricingChoice === 'PENDING_DIAGNOSIS'
+                          ? 'bg-white text-slate-900 shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Price Pending Diagnosis
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPricingChoice('QUOTED')}
+                      className={`px-2.5 py-1 rounded-md text-[11px] font-bold transition cursor-pointer ${
+                        pricingChoice === 'QUOTED'
+                          ? 'bg-indigo-600 text-white shadow-2xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      Enter Quoted Price
+                    </button>
+                  </div>
+                </div>
+
+                {pricingChoice === 'PENDING_DIAGNOSIS' ? (
+                  <div className="px-3 py-2.5 rounded-lg bg-amber-50/70 border border-amber-200/80 text-[11px] text-amber-900">
+                    Ticket will be created as <strong>Price Pending Diagnosis</strong>. You can add parts or
+                    a repair quote after bench inspection without showing $0.00 to the customer.
+                  </div>
+                ) : (
+                  <div className="space-y-2.5 bg-slate-50 border border-slate-200 rounded-xl p-3">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                        Predefined Repair Service (Optional)
+                      </label>
+                      <select
+                        value={selectedServiceId}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setSelectedServiceId(id);
+                          const svc = STANDARD_REPAIR_SERVICES.find((s) => s.id === id);
+                          if (svc) {
+                            setQuotedServiceDesc(svc.name);
+                            setQuotedPriceDollars((svc.priceCents / 100).toFixed(2));
+                          }
+                        }}
+                        className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-none focus:border-indigo-600"
+                      >
+                        <option value="">-- Custom repair or select standard service --</option>
+                        {STANDARD_REPAIR_SERVICES.map((svc) => (
+                          <option key={svc.id} value={svc.id}>
+                            {svc.name} — ${(svc.priceCents / 100).toFixed(2)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          Quoted Repair / Scope
+                        </label>
+                        <input
+                          type="text"
+                          value={quotedServiceDesc}
+                          onChange={(e) => setQuotedServiceDesc(e.target.value)}
+                          placeholder="Service or diagnostic description"
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-indigo-600"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[11px] font-semibold text-slate-700 mb-1">
+                          Quoted Price (Pre-Tax $)
+                        </label>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={quotedPriceDollars}
+                          onChange={(e) => setQuotedPriceDollars(e.target.value)}
+                          placeholder="Leave blank if pending"
+                          className="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 focus:outline-none focus:border-indigo-600"
+                        />
+                      </div>
+                    </div>
+
+                    {validCents > 0 ? (
+                      <div className="bg-white border border-indigo-200/80 rounded-lg p-2.5 space-y-1 text-xs">
+                        <div className="flex justify-between text-slate-600">
+                          <span>Quoted Subtotal:</span>
+                          <span className="font-mono font-semibold">${(validCents / 100).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-500">
+                          <span>
+                            {shopTaxLabel} ({taxPctLabel}%):
+                          </span>
+                          <span className="font-mono">+${(taxCents / 100).toFixed(2)}</span>
+                        </div>
+                        <div className="flex justify-between font-bold text-indigo-900 pt-1 border-t border-slate-100">
+                          <span>Estimated Total:</span>
+                          <span className="font-mono">${(estimatedTotalCents / 100).toFixed(2)}</span>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px]">
+                          <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 font-bold border border-indigo-200">
+                            Pricing: Quote Provided
+                          </span>
+                          <span className="px-2 py-0.5 rounded bg-purple-50 text-purple-700 font-bold border border-purple-200">
+                            Approval: Awaiting Customer Approval
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 pt-0.5">
+                          Entering a quoted price never auto-approves the repair. Record customer approval on the work order once confirmed.
+                        </p>
+                      </div>
+                    ) : (
+                      <p className="text-[10px] text-slate-500">
+                        Leave Quoted Price blank if a diagnostic check is needed before quoting.
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Footer Actions */}
           <div className="pt-3 flex flex-col-reverse sm:flex-row sm:items-center sm:justify-end gap-2 sm:gap-2.5 border-t border-slate-100">

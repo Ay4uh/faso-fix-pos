@@ -28,6 +28,12 @@ import {
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
 import { printDeviceStickerLabel } from '../utils/receipt';
+import {
+  STANDARD_REPAIR_SERVICES,
+  deriveTicketQuoteState,
+  stripQuoteEventMeta,
+  isTicketPaidInFull,
+} from '../utils/repairPricing';
 import { SignaturePad } from './SignaturePad';
 import { PatternLockModal, PatternLockPreview } from './PatternLockModal';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -78,6 +84,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     setDiscountInput(
       ((initialTicket.totals ? initialTicket.totals.discountCents : initialTicket.discountCents) / 100).toFixed(2)
     );
+    setBaseLaborInput((initialTicket.laborCents / 100).toFixed(2));
   }, [initialTicket.id]);
 
   const applyTicketUpdate = (freshTicket: Ticket) => {
@@ -160,12 +167,19 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const [isAttachingPart, setIsAttachingPart] = useState(false);
   const [addItemError, setAddItemError] = useState<string | null>(null);
 
-  // Discount modal
+  // Discount & Base Quote modals + Separate Approval state
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
   const [discountInput, setDiscountInput] = useState(
     ((ticket.totals ? ticket.totals.discountCents : ticket.discountCents) / 100).toFixed(2)
   );
   const [isSavingDiscount, setIsSavingDiscount] = useState(false);
+  const [isBaseLaborModalOpen, setIsBaseLaborModalOpen] = useState(false);
+  const [baseLaborInput, setBaseLaborInput] = useState((ticket.laborCents / 100).toFixed(2));
+  const [isSavingBaseLabor, setIsSavingBaseLabor] = useState(false);
+  const [pendingApprovalAction, setPendingApprovalAction] = useState<{
+    status: 'APPROVED' | 'REJECTED';
+  } | null>(null);
+  const [isUpdatingApproval, setIsUpdatingApproval] = useState(false);
 
   // Load Inventory
   useEffect(() => {
@@ -202,8 +216,16 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
   const balanceOwing = totals.balanceCents / 100;
   const totalPaid = totals.paidCents / 100;
-  const isPaidInFull = totals.totalCents > 0 && totals.paidCents >= totals.totalCents;
-  const hasDepositCredit = totals.totalCents === 0 && totals.paidCents > 0;
+  const quoteState = ticket.quoteState ?? deriveTicketQuoteState(ticket, totals);
+  const isPaidInFull = isTicketPaidInFull(totals, quoteState);
+  const hasDepositCredit = !quoteState.hasPrice && totals.paidCents > 0;
+  const canEditPricing = !quoteState.isPriceLockedForNonAdmin || currentUser?.role === 'ADMIN';
+  const isChargeBlockedByApproval =
+    quoteState.approvalStatus === 'REJECTED' ||
+    (quoteState.requiresReapproval &&
+      quoteState.approvedTotalCents !== null &&
+      totals.totalCents > quoteState.approvedTotalCents &&
+      totals.paidCents >= quoteState.approvedTotalCents);
 
   const getErrorMessage = async (res: Response, fallback: string) => {
     const json = await res.json().catch(() => ({}));
@@ -662,6 +684,60 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
+  const handleSaveBaseLabor = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const val = parseFloat(baseLaborInput || '0');
+    if (isNaN(val) || val < 0) {
+      alert('Enter a valid non-negative service price');
+      return;
+    }
+    setIsSavingBaseLabor(true);
+    try {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          laborCents: Math.round(val * 100),
+          expectedUpdatedAt: ticket.updatedAt,
+        }),
+      });
+      if (res.status === 409) {
+        onRefresh();
+        throw new Error(await getErrorMessage(res, 'Conflict: Ticket changed elsewhere; refreshed latest data.'));
+      }
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Failed to update base quote'));
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
+      posAudio.playSuccessChime();
+      setIsBaseLaborModalOpen(false);
+    } catch (err: any) {
+      alert(err.message || 'Error updating base quote');
+    } finally {
+      setIsSavingBaseLabor(false);
+    }
+  };
+
+  const handleExecuteApproval = async (status: 'APPROVED' | 'REJECTED', note?: string) => {
+    setIsUpdatingApproval(true);
+    try {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/approval`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status, note: note || undefined }),
+      });
+      if (!res.ok) throw new Error(await getErrorMessage(res, 'Could not update approval status'));
+      const json = await res.json();
+      if (json.data) applyTicketUpdate(json.data);
+      if (status === 'APPROVED') posAudio.playSuccessChime();
+      else posAudio.playWarningBeep();
+      setPendingApprovalAction(null);
+    } catch (err: any) {
+      alert(err?.message || 'Error recording customer approval');
+    } finally {
+      setIsUpdatingApproval(false);
+    }
+  };
+
   const handleSaveSignature = async (dataUrl: string) => {
     try {
       const res = await fetchWithAuth(`/api/tickets/${ticket.id}`, {
@@ -727,7 +803,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         return (
           <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            COMPLETED / PAID
+            {isPaidInFull ? 'COMPLETED / PAID' : 'COMPLETED'}
           </span>
         );
       case 'DECLINED':
@@ -848,12 +924,20 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
             {balanceOwing > 0 && ticket.status !== 'CANCELLED' && ticket.status !== 'DECLINED' ? (
               <button
+                disabled={isChargeBlockedByApproval}
                 onClick={() => {
                   setPaymentAmount(balanceOwing.toFixed(2));
                   setPaymentIdempotencyKey(newPaymentKey());
                   setIsPaymentModalOpen(true);
                 }}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
+                title={
+                  quoteState.approvalStatus === 'REJECTED'
+                    ? 'Cannot charge a rejected quote'
+                    : isChargeBlockedByApproval
+                    ? 'Customer reapproval is required before charging above the approved quote'
+                    : 'Collect remaining balance'
+                }
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
               >
                 <CreditCard className="w-3.5 h-3.5" />
                 <span>Pay Balance (${balanceOwing.toFixed(2)})</span>
@@ -869,8 +953,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 Deposit Credited (${totalPaid.toFixed(2)})
               </span>
             ) : (
-              <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                Unbilled ($0.00)
+              <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                Price Pending Diagnosis
               </span>
             )}
 
@@ -1053,64 +1137,86 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 <span className="text-xs font-bold text-slate-800">
                   Pricing &amp; Ledger
                 </span>
-                <button
-                  onClick={() => setIsDiscountModalOpen(true)}
-                  className="text-[11px] text-indigo-600 hover:underline font-semibold cursor-pointer"
-                >
-                  Adjust Discount
-                </button>
+                {canEditPricing && quoteState.hasPrice && (
+                  <button
+                    onClick={() => setIsDiscountModalOpen(true)}
+                    className="text-[11px] text-indigo-600 hover:underline font-semibold cursor-pointer"
+                  >
+                    Adjust Discount
+                  </button>
+                )}
               </div>
 
-              <div className="flex justify-between items-center text-slate-600">
-                <span>Subtotal (Pre-Tax)</span>
-                <span className="font-mono font-medium tabular-nums text-right">${(totals.subtotalCents / 100).toFixed(2)}</span>
-              </div>
+              {!quoteState.hasPrice ? (
+                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 space-y-1">
+                  <div className="font-bold text-xs">Price Pending Diagnosis</div>
+                  <p className="text-[11px] text-amber-800">
+                    No repair price established yet. Add repair items or set a base quote once diagnosed.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Subtotal (Pre-Tax)</span>
+                    <span className="font-mono font-medium tabular-nums text-right">${(totals.subtotalCents / 100).toFixed(2)}</span>
+                  </div>
 
-              {totals.discountCents > 0 && (
-                <div className="flex justify-between items-center text-rose-600 font-semibold">
-                  <span>Discounts</span>
-                  <span className="font-mono tabular-nums text-right">-${(totals.discountCents / 100).toFixed(2)}</span>
+                  {totals.discountCents > 0 && (
+                    <div className="flex justify-between items-center text-rose-600 font-semibold">
+                      <span>Discounts</span>
+                      <span className="font-mono tabular-nums text-right">-${(totals.discountCents / 100).toFixed(2)}</span>
+                    </div>
+                  )}
+
+                  <div className="flex justify-between items-center text-slate-500">
+                    <span>HST ({((totals.taxRateBps || 1300) / 100).toFixed(1)}%)</span>
+                    <span className="font-mono tabular-nums text-right">+${(totals.taxCents / 100).toFixed(2)}</span>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-200 flex justify-between items-center font-bold text-sm text-indigo-900">
+                    <span>Total (Inc. Tax)</span>
+                    <span className="font-mono font-bold tabular-nums text-right">${(totals.totalCents / 100).toFixed(2)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center font-bold text-slate-800">
+                    <span>Paid</span>
+                    <span className="font-mono tabular-nums text-right">${(totals.paidCents / 100).toFixed(2)}</span>
+                  </div>
+
+                  <div className="flex justify-between items-center font-extrabold text-sm pt-1 border-t border-dashed border-slate-200 text-slate-900">
+                    <span>Balance Owing</span>
+                    <span className={`font-mono tabular-nums text-right ${balanceOwing > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                      ${balanceOwing.toFixed(2)}
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {quoteState.requiresReapproval && quoteState.approvedTotalCents !== null && (
+                <div className="p-2 bg-rose-50 border border-rose-200 rounded-lg text-[11px] text-rose-800 font-semibold">
+                  Approved cap: ${(quoteState.approvedTotalCents / 100).toFixed(2)}. Customer reapproval required for revised ${(totals.totalCents / 100).toFixed(2)} quote before charging more.
                 </div>
               )}
 
-              <div className="flex justify-between items-center text-slate-500">
-                <span>HST ({((totals.taxRateBps || 1300) / 100).toFixed(1)}%)</span>
-                <span className="font-mono tabular-nums text-right">+${(totals.taxCents / 100).toFixed(2)}</span>
-              </div>
-
-              <div className="pt-2 border-t border-slate-200 flex justify-between items-center font-bold text-sm text-indigo-900">
-                <span>Total (Inc. Tax)</span>
-                <span className="font-mono font-bold tabular-nums text-right">${(totals.totalCents / 100).toFixed(2)}</span>
-              </div>
-
-              <div className="flex justify-between items-center font-bold text-slate-800">
-                <span>Paid</span>
-                <span className="font-mono tabular-nums text-right">${(totals.paidCents / 100).toFixed(2)}</span>
-              </div>
-
-              <div className="flex justify-between items-center font-extrabold text-sm pt-1 border-t border-dashed border-slate-200 text-slate-900">
-                <span>Balance Owing</span>
-                <span className={`font-mono tabular-nums text-right ${balanceOwing > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
-                  ${balanceOwing.toFixed(2)}
-                </span>
-              </div>
-
-              {balanceOwing > 0 ? (
+              {balanceOwing > 0 && ticket.status !== 'CANCELLED' && ticket.status !== 'DECLINED' ? (
                 <div className="space-y-1.5 pt-1">
                   <button
+                    disabled={isChargeBlockedByApproval}
                     onClick={() => {
                       setPaymentAmount(balanceOwing.toFixed(2));
+                      setPaymentIdempotencyKey(newPaymentKey());
                       setIsPaymentModalOpen(true);
                     }}
-                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-1.5"
                   >
                     <CreditCard className="w-3.5 h-3.5" />
                     <span>Checkout &amp; Pay (${balanceOwing.toFixed(2)})</span>
                   </button>
 
                   <button
+                    disabled={quoteState.approvalStatus === 'REJECTED'}
                     onClick={() => setIsDepositModalOpen(true)}
-                    className="w-full py-1.5 bg-slate-200/80 hover:bg-slate-300 text-slate-800 rounded-lg text-xs font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1.5"
+                    className="w-full py-1.5 bg-slate-200/80 hover:bg-slate-300 disabled:opacity-45 text-slate-800 rounded-lg text-xs font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1.5"
                   >
                     <DollarSign className="w-3.5 h-3.5 text-indigo-600" />
                     <span>+ Take Part Deposit</span>
@@ -1126,11 +1232,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   <CheckCircle2 className="w-4 h-4 text-indigo-600" />
                   <span>Deposit Credit: ${totalPaid.toFixed(2)}</span>
                 </div>
-              ) : (
-                <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-center text-xs font-medium text-slate-500 flex items-center justify-center gap-1.5">
-                  <span>No Charges Added Yet</span>
-                </div>
-              )}
+              ) : null}
             </div>
 
             {/* Workstation Info */}
@@ -1233,6 +1335,88 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               </div>
             </div>
 
+            {/* PRICING & CUSTOMER APPROVAL GOVERNANCE BAR (Separate from Repair Price Entry) */}
+            <div className="bg-white rounded-xl border border-slate-200 p-3.5 sm:p-4 shadow-xs space-y-2.5">
+              <div className="flex flex-wrap items-center justify-between gap-2.5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                      quoteState.pricingStatus === 'REVISED_QUOTE'
+                        ? 'bg-amber-50 text-amber-800 border-amber-200'
+                        : quoteState.hasPrice
+                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
+                        : 'bg-slate-100 text-slate-700 border-slate-200'
+                    }`}
+                  >
+                    Pricing: {quoteState.pricingLabel}
+                  </span>
+
+                  <span
+                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
+                      quoteState.approvalStatus === 'APPROVED'
+                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
+                        : quoteState.approvalStatus === 'REJECTED' || quoteState.approvalStatus === 'REAPPROVAL_REQUIRED'
+                        ? 'bg-rose-50 text-rose-700 border-rose-200'
+                        : 'bg-purple-50 text-purple-700 border-purple-200'
+                    }`}
+                  >
+                    Approval: {quoteState.approvalLabel}
+                  </span>
+
+                  {quoteState.approvedAt && quoteState.approvedTotalCents !== null && (
+                    <span className="text-[11px] text-slate-500 font-mono">
+                      Approved ${(quoteState.approvedTotalCents / 100).toFixed(2)}
+                      {quoteState.approvedBy ? ` (${quoteState.approvedBy})` : ''}
+                    </span>
+                  )}
+                </div>
+
+                {quoteState.hasPrice && ticket.status !== 'CANCELLED' && (
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {quoteState.approvalStatus !== 'APPROVED' && (
+                      <button
+                        type="button"
+                        disabled={isUpdatingApproval}
+                        onClick={() => setPendingApprovalAction({ status: 'APPROVED' })}
+                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Mark Customer Approved</span>
+                      </button>
+                    )}
+                    {quoteState.approvalStatus !== 'REJECTED' && (
+                      <button
+                        type="button"
+                        disabled={isUpdatingApproval}
+                        onClick={() => setPendingApprovalAction({ status: 'REJECTED' })}
+                        className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                        <span>Mark Customer Rejected</span>
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {quoteState.requiresReapproval && quoteState.approvedTotalCents !== null && (
+                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-center justify-between gap-2">
+                  <span>
+                    <strong>Customer Reapproval Required:</strong> Quote changed from previously approved{' '}
+                    <strong className="font-mono">${(quoteState.approvedTotalCents / 100).toFixed(2)}</strong> to{' '}
+                    <strong className="font-mono">${(totals.totalCents / 100).toFixed(2)}</strong>. Charges above the approved amount are blocked until reapproved.
+                  </span>
+                </div>
+              )}
+
+              {quoteState.isPriceLockedForNonAdmin && currentUser?.role !== 'ADMIN' && (
+                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-700 flex items-center gap-1.5 font-medium">
+                  <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                  <span>Approved Quote Locked — Administrator authorization is required to change an already-approved quote.</span>
+                </div>
+              )}
+            </div>
+
             {/* 2. REALIGNED BILLING FLOW: WORK ORDER LINE ITEMS (Immediately adjacent) */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
               <div className="p-3.5 sm:p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
@@ -1242,30 +1426,41 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     Work Order Line Items (Parts &amp; Labor)
                   </h4>
                 </div>
-                {/* Prominent Primary CTA */}
-                <button
-                  type="button"
-                  onClick={() => setIsAddItemModalOpen(true)}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Attach Part / Labor</span>
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                  {canEditPricing && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setBaseLaborInput((ticket.laborCents / 100).toFixed(2));
+                        setIsBaseLaborModalOpen(true);
+                      }}
+                      className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold cursor-pointer transition"
+                    >
+                      <Pencil className="w-3 h-3" />
+                      <span>{ticket.laborCents > 0 ? 'Edit Base Quote' : '+ Set Base Quote'}</span>
+                    </button>
+                  )}
+                  {/* Prominent Primary CTA */}
+                  <button
+                    type="button"
+                    disabled={!canEditPricing}
+                    onClick={() => setIsAddItemModalOpen(true)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Attach Part / Labor</span>
+                  </button>
+                </div>
               </div>
 
               {/* Fast 1-Click Common Labor Presets */}
               <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-1.5 overflow-x-auto text-[11px]">
                 <span className="font-bold text-slate-500 whitespace-nowrap mr-1">Fast Labor:</span>
-                {[
-                  { name: 'Screen Labor', price: 85 },
-                  { name: 'Battery Replacement', price: 45 },
-                  { name: 'Diagnostic Inspection', price: 35 },
-                  { name: 'Thermal Paste / Clean', price: 25 },
-                  { name: 'Port / Micro-Soldering', price: 95 },
-                ].map((preset) => (
+                {STANDARD_REPAIR_SERVICES.map((preset) => (
                   <button
-                    key={preset.name}
+                    key={preset.id}
                     type="button"
+                    disabled={!canEditPricing}
                     onClick={async () => {
                       try {
                         const res = await fetchWithAuth(`/api/tickets/${ticket.id}/items`, {
@@ -1274,22 +1469,23 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                           body: JSON.stringify({
                             description: preset.name,
                             quantity: 1,
-                            unitPriceCents: preset.price * 100,
-                            unitCostCents: 0,
+                            unitPriceCents: preset.priceCents,
                           }),
                         });
                         if (res.ok) {
                           const json = await res.json();
                           if (json.data) applyTicketUpdate(json.data);
                           posAudio.playScanBeep();
+                        } else {
+                          alert(await getErrorMessage(res, 'Failed to attach labor'));
                         }
                       } catch {
                         alert('Failed to attach labor');
                       }
                     }}
-                    className="px-2.5 py-1 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 text-slate-700 hover:text-indigo-700 rounded-md font-semibold transition cursor-pointer whitespace-nowrap shadow-2xs"
+                    className="px-2.5 py-1 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 text-slate-700 hover:text-indigo-700 rounded-md font-semibold transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap shadow-2xs"
                   >
-                    + {preset.name} (${preset.price})
+                    + {preset.name} (${(preset.priceCents / 100).toFixed(0)})
                   </button>
                 ))}
               </div>
@@ -1308,43 +1504,64 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {/* Primary Quoted Labor Item */}
-                    <tr className="hover:bg-slate-50">
-                      <td className="py-2.5 px-3 font-mono font-bold text-indigo-600">
-                        WO-{String(ticket.ticketNumber).padStart(4, '0')}
-                      </td>
-                      <td className="py-2.5 px-3 font-semibold text-slate-900">
-                        {ticket.device?.name || 'Device'} Diagnostic &amp; Service Labor
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-100 text-emerald-800">
-                          Active Service
-                        </span>
-                      </td>
-                      <td className="py-2.5 px-3 font-mono">1</td>
-                      <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
-                        ${(ticket.laborCents / 100).toFixed(2)}
-                      </td>
-                      <td className="py-2.5 px-3 font-mono font-bold text-right text-slate-900">
-                        ${(ticket.laborCents / 100).toFixed(2)}
-                      </td>
-                      <td className="py-2.5 px-3 text-right text-slate-400 text-[10px]">
-                        Base Labor
-                      </td>
-                    </tr>
+                    {/* Primary Quoted Labor Item (shown when base labor > 0 OR no items exist yet) */}
+                    {(ticket.laborCents > 0 || !ticket.items || ticket.items.length === 0) && (
+                      <tr className="hover:bg-slate-50">
+                        <td className="py-2.5 px-3 font-mono font-bold text-indigo-600">
+                          WO-{String(ticket.ticketNumber).padStart(4, '0')}
+                        </td>
+                        <td className="py-2.5 px-3 font-semibold text-slate-900">
+                          {ticket.device?.name || 'Device'} Diagnostic &amp; Service Labor
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
+                              ticket.laborCents > 0
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : 'bg-amber-100 text-amber-800'
+                            }`}
+                          >
+                            {ticket.laborCents > 0 ? 'Base Service Quote' : 'Price Pending Diagnosis'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono">1</td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
+                          {ticket.laborCents > 0 ? `$${(ticket.laborCents / 100).toFixed(2)}` : 'Pending'}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono font-bold text-right text-slate-900">
+                          {ticket.laborCents > 0 ? `$${(ticket.laborCents / 100).toFixed(2)}` : 'Pending'}
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-slate-400 text-[10px]">
+                          {canEditPricing ? (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setBaseLaborInput((ticket.laborCents / 100).toFixed(2));
+                                setIsBaseLaborModalOpen(true);
+                              }}
+                              className="text-indigo-600 hover:underline font-semibold cursor-pointer"
+                            >
+                              {ticket.laborCents > 0 ? 'Edit' : 'Set Price'}
+                            </button>
+                          ) : (
+                            'Locked'
+                          )}
+                        </td>
+                      </tr>
+                    )}
 
                     {/* Attached Line Items / Parts from Database */}
                     {ticket.items?.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50">
                         <td className="py-2.5 px-3 font-mono font-bold text-indigo-600">
-                          {item.partId ? 'INVENTORY' : 'CUSTOM'}
+                          {item.partId ? 'INVENTORY' : 'SERVICE'}
                         </td>
                         <td className="py-2.5 px-3 font-semibold text-slate-900">
                           {item.description}
                         </td>
                         <td className="py-2.5 px-3">
                           <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800">
-                            {item.partId ? 'Part Installed' : 'Custom Service'}
+                            {item.partId ? 'Part Installed' : 'Quoted Service'}
                           </span>
                         </td>
                         <td className="py-2.5 px-3 font-mono">{item.quantity}</td>
@@ -1356,9 +1573,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                         </td>
                         <td className="py-2.5 px-3 text-right">
                           <button
+                            disabled={!canEditPricing}
                             onClick={() => handleRemoveItem(item.id, item.description)}
-                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded cursor-pointer transition"
-                            title="Remove Line Item"
+                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed rounded cursor-pointer transition"
+                            title={canEditPricing ? 'Remove Line Item' : 'Admin authorization required'}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -1846,7 +2064,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                                         return '📷 Device photo attached';
                                       }
                                     })()
-                                  : ev.message}
+                                  : stripQuoteEventMeta(ev.message)}
                               </td>
                             </tr>
                           ))}
@@ -2244,6 +2462,105 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           </div>
         </div>
       )}
+
+      {/* ========================================================
+          BASE QUOTE / SERVICE PRICE MODAL
+         ======================================================== */}
+      {isBaseLaborModalOpen && (
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-sm w-full max-h-[90dvh] overflow-y-auto my-auto p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-sm text-slate-900">
+                {ticket.laborCents > 0 ? 'Update Base Service Quote' : 'Set Base Service Quote'}
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsBaseLaborModalOpen(false)}
+                className="p-1 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {quoteState.approvalStatus === 'APPROVED' && (
+              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900">
+                Changing an already-approved quote requires customer reapproval before charging the updated total.
+              </div>
+            )}
+
+            <form onSubmit={handleSaveBaseLabor} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Base Service / Labor Price ($)
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  value={baseLaborInput}
+                  onChange={(e) => setBaseLaborInput(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono font-bold text-slate-900 focus:outline-none focus:border-indigo-600"
+                />
+              </div>
+
+              <div className="pt-2 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsBaseLaborModalOpen(false)}
+                  className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingBaseLabor}
+                  className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-50"
+                >
+                  {isSavingBaseLabor ? 'Saving...' : 'Save Quote'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ========================================================
+          CUSTOMER APPROVAL / REJECTION CONFIRMATION DIALOG
+         ======================================================== */}
+      <ConfirmDialog
+        isOpen={Boolean(pendingApprovalAction)}
+        tone={pendingApprovalAction?.status === 'APPROVED' ? 'warning' : 'danger'}
+        title={
+          pendingApprovalAction?.status === 'APPROVED'
+            ? `Record Customer Approval for WO #${ticket.ticketNumber}?`
+            : `Mark Quote Rejected for WO #${ticket.ticketNumber}?`
+        }
+        message={
+          pendingApprovalAction?.status === 'APPROVED' ? (
+            <>
+              Confirm the customer has explicitly approved the quoted total of{' '}
+              <strong className="text-slate-900">${(totals.totalCents / 100).toFixed(2)}</strong> (incl. tax).
+            </>
+          ) : (
+            <>
+              Confirm the customer rejected the quoted total of{' '}
+              <strong className="text-slate-900">${(totals.totalCents / 100).toFixed(2)}</strong>. Charges will be blocked unless a revised quote is approved.
+            </>
+          )
+        }
+        confirmLabel={
+          pendingApprovalAction?.status === 'APPROVED' ? 'Yes, Mark Approved' : 'Yes, Mark Rejected'
+        }
+        cancelLabel="No, Cancel"
+        isProcessing={isUpdatingApproval}
+        onCancel={() => setPendingApprovalAction(null)}
+        onConfirm={() => {
+          if (pendingApprovalAction) {
+            handleExecuteApproval(pendingApprovalAction.status);
+          }
+        }}
+      />
 
       {/* ========================================================
           ADJUST DISCOUNT MODAL

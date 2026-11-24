@@ -1,5 +1,6 @@
 import { Ticket } from '../types';
 import { fetchWithAuth } from './auth';
+import { deriveTicketQuoteState, isTicketPaidInFull } from './repairPricing';
 
 export interface ReceiptShop {
   shopName?: string;
@@ -59,14 +60,29 @@ export function buildReceiptHtml(ticket: Ticket, shop: ReceiptShop, width: Recei
     .map((e) => `<div class="note">• ${esc(e.message)}</div>`)
     .join('');
 
+  const quoteState =
+    ticket.quoteState ??
+    deriveTicketQuoteState(
+      ticket,
+      t || {
+        subtotalCents: ticket.laborCents || 0,
+        totalCents: ticket.laborCents || 0,
+        paidCents: 0,
+        balanceCents: ticket.laborCents || 0,
+      }
+    );
+  const isPaid = t ? isTicketPaidInFull(t, quoteState) : false;
+
   const paperPx = width === '58mm' ? '58mm' : '80mm';
   const status =
     ticket.status === 'CANCELLED'
       ? 'CANCELLED'
-      : ticket.status === 'DECLINED'
-      ? 'DECLINED'
+      : ticket.status === 'DECLINED' || quoteState.approvalStatus === 'REJECTED'
+      ? 'QUOTE REJECTED'
+      : !quoteState.hasPrice
+      ? 'PRICE PENDING DIAGNOSIS'
       : t
-      ? t.balanceCents <= 0
+      ? isPaid
         ? 'PAID IN FULL'
         : t.paidCents > 0
         ? 'PARTIALLY PAID'
@@ -101,19 +117,24 @@ ${ticket.device?.serialNumber ? row('Serial/IMEI', esc(ticket.device.serialNumbe
 ${ticket.isWarranty ? row('Coverage', 'WARRANTY REPAIR', true) : ''}
 <hr>
 <div class="b">Issue</div><div>${esc(ticket.faultDescription)}</div>
+${row('Pricing', esc(quoteState.pricingLabel))}
+${row('Approval', esc(quoteState.approvalLabel))}
 ${publicNotes ? `<hr><div class="b">Work Performed</div>${publicNotes}` : ''}
 <hr>
-${ticket.laborCents ? row('Labour', money(ticket.laborCents)) : ''}
+${!quoteState.hasPrice ? `<div class="c b" style="padding:4px 0">Price Pending Diagnosis</div>
+${payments ? `<hr><div class="b">Payments</div>${payments}` : ''}
+${t && t.paidCents > 0 ? row('Deposit Paid', money(t.paidCents)) : ''}
+<div class="c b" style="margin-top:4px">*** ${status} ***</div>` : `${ticket.laborCents ? row('Labour', money(ticket.laborCents)) : ''}
 ${items}
 ${t ? `<hr>
 ${row('Subtotal', money(t.subtotalCents))}
 ${t.discountCents ? row('Discount', money(-t.discountCents)) : ''}
 ${row(`${esc(shop.taxLabel || 'Tax')} (${taxPct}%)`, money(t.taxCents))}
-<div class="big">${row('TOTAL', money(t.totalCents), true)}</div>
+<div class="big">${row(isPaid ? 'TOTAL' : 'EST. TOTAL', money(t.totalCents), true)}</div>
 ${payments ? `<hr><div class="b">Payments</div>${payments}` : ''}
-${row('Paid', money(t.paidCents))}
+${t.paidCents > 0 ? row('Paid', money(t.paidCents)) : ''}
 <div class="big">${row('BALANCE', money(Math.max(t.balanceCents, 0)), true)}</div>
-<div class="c b" style="margin-top:4px">*** ${status} ***</div>` : ''}
+<div class="c b" style="margin-top:4px">*** ${status} ***</div>` : ''}`}
 <hr>
 <div class="c small">Thank you for your business!</div>
 </body></html>`;
@@ -152,6 +173,27 @@ body { margin: 0; width: 80mm; padding: 4mm 4mm 8mm; font: 12px/1.35 'Arial', sy
   ${ticket.device?.serialNumber ? `<div style="font-size:10px;color:#64748b">S/N: ${esc(ticket.device.serialNumber)}</div>` : ''}
 </div>
 <div class="desc">&ldquo;${esc(ticket.faultDescription)}&rdquo;</div>
+${(() => {
+  const t = ticket.totals;
+  const qs =
+    ticket.quoteState ??
+    deriveTicketQuoteState(
+      ticket,
+      t || {
+        subtotalCents: ticket.laborCents || 0,
+        totalCents: ticket.laborCents || 0,
+        paidCents: 0,
+        balanceCents: ticket.laborCents || 0,
+      }
+    );
+  const priceText = qs.hasPrice
+    ? `${shop.currencySymbol || '$'}${(qs.quotedTotalCents / 100).toFixed(2)}`
+    : 'Price Pending Diagnosis';
+  return `<div style="font-size:10px;border-top:1px dashed #cbd5e1;padding-top:4px;margin-top:4px">
+    <div><strong>Pricing:</strong> ${esc(qs.pricingLabel)} (${esc(priceText)})</div>
+    <div><strong>Approval:</strong> ${esc(qs.approvalLabel)}</div>
+  </div>`;
+})()}
 <div class="barcode-box">
   ${barcodeSvg}
   <div style="font-family:monospace;font-size:10px;font-weight:bold;margin-top:2px">*${woBarcode}*</div>
@@ -177,7 +219,8 @@ export function buildLetterInvoiceHtml(ticket: Ticket, shop: ReceiptShop): strin
     paymentStatus: 'UNPAID',
   };
 
-  const isPaid = t.balanceCents <= 0;
+  const quoteState = ticket.quoteState ?? deriveTicketQuoteState(ticket, t);
+  const isPaid = isTicketPaidInFull(t, quoteState);
   const woBarcode = `WO-${String(ticket.ticketNumber).padStart(4, '0')}`;
   const barcodeSvg = generateBarcodeSvg(woBarcode, 160, 36);
 
@@ -229,8 +272,8 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   </div>
   <div style="text-align:right">
     ${ticket.isWarranty ? `<div class="badge" style="background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;margin-right:4px">WARRANTY REPAIR</div>` : ''}
-    <div class="badge ${ticket.status === 'CANCELLED' || ticket.status === 'DECLINED' ? 'badge-due' : isPaid ? 'badge-paid' : 'badge-due'}">
-      ${ticket.status === 'CANCELLED' ? 'CANCELLED' : ticket.status === 'DECLINED' ? 'DECLINED' : isPaid ? 'PAID • READY FOR RELEASE' : 'INSPECTION / BALANCE DUE'}
+    <div class="badge ${ticket.status === 'CANCELLED' || ticket.status === 'DECLINED' || quoteState.approvalStatus === 'REJECTED' ? 'badge-due' : isPaid ? 'badge-paid' : 'badge-due'}">
+      ${ticket.status === 'CANCELLED' ? 'CANCELLED' : quoteState.approvalStatus === 'REJECTED' ? 'QUOTE REJECTED' : !quoteState.hasPrice ? 'PRICE PENDING DIAGNOSIS' : isPaid ? 'PAID • READY FOR RELEASE' : `${esc(quoteState.approvalLabel.toUpperCase())} • BALANCE DUE`}
     </div>
     <div style="margin-top:6px">${barcodeSvg}</div>
     <div style="font-family:monospace;font-size:10px;color:#64748b;margin-top:2px">*${woBarcode}*</div>
@@ -259,9 +302,9 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
     <div style="font-size:9px;color:#64748b">Station: ${esc(ticket.bench || 'Front Counter')}</div>
   </div>
   <div class="card">
-    <div class="card-label">Payment Status</div>
-    <div class="card-val" style="color:${isPaid ? '#059669' : '#d97706'}">${isPaid ? 'PAID IN FULL' : 'BALANCE DUE'}</div>
-    <div style="font-size:9px;color:#64748b">Ref: WO-${ticket.ticketNumber}</div>
+    <div class="card-label">Pricing &amp; Approval</div>
+    <div class="card-val" style="color:${!quoteState.hasPrice ? '#b45309' : isPaid ? '#059669' : quoteState.approvalStatus === 'REJECTED' ? '#e11d48' : '#d97706'}">${!quoteState.hasPrice ? 'PRICE PENDING' : isPaid ? 'PAID IN FULL' : esc(quoteState.approvalLabel.toUpperCase())}</div>
+    <div style="font-size:9px;color:#64748b">${esc(quoteState.pricingLabel)} • Ref: WO-${ticket.ticketNumber}</div>
   </div>
 </div>
 
@@ -292,6 +335,10 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
 <div class="card" style="margin-bottom:10px">
   <div class="card-label">Phase 1 • Initial Physical &amp; Digital Intake</div>
   <div style="font-size:11px;color:#1e293b;margin-top:2px"><strong>Reported Issue:</strong> ${esc(ticket.faultDescription)}</div>
+  <div style="font-size:10px;color:#475569;margin-top:4px">
+    <strong>Pricing Status:</strong> ${esc(quoteState.pricingLabel)} &nbsp;|&nbsp;
+    <strong>Approval Status:</strong> ${esc(quoteState.approvalLabel)}
+  </div>
 </div>
 
 <table style="margin-bottom:10px">
@@ -304,16 +351,26 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
     </tr>
   </thead>
   <tbody>
+    ${!quoteState.hasPrice ? `
+    <tr>
+      <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">
+        <strong>Diagnostic Evaluation &amp; Repair Scope</strong>
+        <div style="font-size:9px;color:#64748b">${esc(ticket.faultDescription)}</div>
+      </td>
+      <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">1</td>
+      <td colspan="2" style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:bold;color:#b45309">Price Pending Diagnosis</td>
+    </tr>` : `
+    ${t.laborCents > 0 ? `
     <tr>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0">
         <strong>Bench Labor &amp; Diagnostic Calibration</strong>
-        <div style="font-size:9px;color:#64748b">Disassembly, microscopic board inspection, testing &amp; quality assurance</div>
+        <div style="font-size:9px;color:#64748b">Disassembly, inspection, testing &amp; quality assurance</div>
       </td>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:center">1</td>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right">${money(t.laborCents)}</td>
       <td style="padding:6px 8px;border-bottom:1px solid #e2e8f0;text-align:right;font-weight:bold">${money(t.laborCents)}</td>
-    </tr>
-    ${itemsHtml}
+    </tr>` : ''}
+    ${itemsHtml}`}
   </tbody>
 </table>
 
@@ -321,14 +378,27 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   <div class="card">
     <div class="card-label">Payment &amp; Transaction Ledger</div>
     ${paymentsHtml || '<div style="font-size:10px;color:#64748b;padding:4px 0">No prior deposits recorded</div>'}
-    <div style="margin-top:8px;padding-top:6px;border-top:1px dashed #cbd5e1;display:flex;justify-content:space-between;font-weight:bold;font-size:11px">
+    ${(quoteState.hasPrice || t.paidCents > 0) ? `<div style="margin-top:8px;padding-top:6px;border-top:1px dashed #cbd5e1;display:flex;justify-content:space-between;font-weight:bold;font-size:11px">
       <span>Total Paid to Date:</span>
       <span style="color:#059669">${money(t.paidCents)}</span>
-    </div>
+    </div>` : ''}
   </div>
 
   <div class="card">
     <div class="card-label">Invoice Calculation Summary</div>
+    ${!quoteState.hasPrice ? `
+    <div class="totals-row">
+      <span>Pricing Status:</span>
+      <span style="font-weight:bold;color:#b45309">${esc(quoteState.pricingLabel)}</span>
+    </div>
+    <div class="totals-row">
+      <span>Approval Status:</span>
+      <span style="font-weight:bold">${esc(quoteState.approvalLabel)}</span>
+    </div>
+    <div class="total-highlight" style="color:#b45309">
+      <span>ESTIMATED TOTAL:</span>
+      <span>Price Pending Diagnosis</span>
+    </div>` : `
     <div class="totals-row">
       <span>Parts Subtotal:</span>
       <span>${money(t.itemsCents)}</span>
@@ -350,14 +420,18 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
       <span>${esc(shop.taxLabel || 'Sales Tax')} (${((t.taxRateBps ?? ticket.taxRateBps ?? 1300) / 100).toFixed(1)}%):</span>
       <span>+${money(t.taxCents)}</span>
     </div>
+    <div class="totals-row" style="font-size:10px">
+      <span>Approval Status:</span>
+      <span style="font-weight:bold">${esc(quoteState.approvalLabel)}</span>
+    </div>
     <div class="total-highlight">
-      <span>TOTAL INVOICE:</span>
+      <span>${isPaid ? 'TOTAL INVOICE:' : 'ESTIMATED TOTAL:'}</span>
       <span>${money(t.totalCents)}</span>
     </div>
     <div style="display:flex;justify-content:space-between;font-size:11px;font-weight:bold;margin-top:4px;color:${t.balanceCents > 0 ? '#d97706' : '#059669'}">
       <span>BALANCE DUE:</span>
       <span>${money(Math.max(t.balanceCents, 0))}</span>
-    </div>
+    </div>`}
   </div>
 </div>
 

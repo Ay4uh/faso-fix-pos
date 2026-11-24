@@ -1,3 +1,6 @@
+import type { PricingStatus, ApprovalStatus, TicketQuoteState } from './utils/repairPricing';
+export type { PricingStatus, ApprovalStatus, TicketQuoteState };
+
 export type TicketStatus =
   | 'CHECKED_IN'
   | 'DIAGNOSING'
@@ -11,7 +14,7 @@ export type TicketStatus =
   | 'IN_PROGRESS';
 export type TicketPriority = 'LOW' | 'STANDARD' | 'URGENT';
 export type PaymentMethod = 'CASH' | 'CARD' | 'CREDIT' | 'DEBIT' | 'E_TRANSFER' | 'OTHER';
-export type EventKind = 'STATUS' | 'CUSTOMER_NOTE' | 'INTERNAL_NOTE' | 'PAYMENT' | 'ITEM' | 'MESSAGE' | 'SYSTEM' | 'PHOTO';
+export type EventKind = 'STATUS' | 'CUSTOMER_NOTE' | 'INTERNAL_NOTE' | 'PAYMENT' | 'ITEM' | 'MESSAGE' | 'SYSTEM' | 'PHOTO' | 'PRICING' | 'APPROVAL';
 export type PaymentStatus = 'UNPAID' | 'PARTIAL' | 'PARTIALLY_PAID' | 'PAID' | 'OVERPAID';
 
 export interface Totals {
@@ -126,6 +129,7 @@ export interface Ticket {
   payments: Payment[];
   events?: TicketEvent[];
   totals: Totals;
+  quoteState?: TicketQuoteState;
   otherTickets?: TicketSummary[];
 }
 
