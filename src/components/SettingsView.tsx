@@ -74,11 +74,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [benches, setBenches] = useState('');
 
   // User Profile & Account State
-  const [fullName, setFullName] = useState(currentUser?.name || 'Alex Mercer');
+  const [fullName, setFullName] = useState(currentUser?.name || '');
   const [userEmail, setUserEmail] = useState(currentUser?.email || '');
-  const [userPhone, setUserPhone] = useState(currentUser?.phone || '(647) 740-0566');
-  const [userBench, setUserBench] = useState(currentUser?.bench || 'Bench #04');
-  const [userBio, setUserBio] = useState(currentUser?.bio || 'Hardware & microsoldering specialist');
+  const [userPhone, setUserPhone] = useState(currentUser?.phone || '');
+  const [userBench, setUserBench] = useState(currentUser?.bench || '');
+  const [userBio, setUserBio] = useState(currentUser?.bio || '');
 
   // Password Change State
   const [currentPassword, setCurrentPassword] = useState('');
@@ -134,7 +134,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setFullName(currentUser.name);
       setUserEmail(currentUser.email);
       setUserPhone(currentUser.phone || '');
-      setUserBench(currentUser.bench || 'Bench #01');
+      setUserBench(currentUser.bench || '');
       setUserBio(currentUser.bio || '');
       setTwoFactorStatus((prev) => ({ ...prev, enabled: Boolean(currentUser.twoFactorEnabled) }));
 
@@ -187,18 +187,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         const data: ShopSettings = json.data;
         setSettings(data);
 
-        setShopName(data.shopName || 'Faso Fix Repair Center');
-        setPhone(data.phone || '(647) 740-0566');
+        setShopName(data.shopName || 'Faso Fix');
+        setPhone(data.phone || '');
         setEmail(data.email || '');
-        setAddress(data.address || '123 Tech Boulevard, Suite 400');
-        setReceiptFooter(data.receiptFooter || 'Thank you for your business!');
+        setAddress(data.address || '');
+        setReceiptFooter(data.receiptFooter || '');
         setTaxLabel(data.taxLabel || 'HST');
         setTaxRatePercent(((data.taxRateBps || 1300) / 100).toFixed(2));
         setWarrantyDays(data.warrantyDays || 90);
         setDefaultLaborRate(((data.defaultLaborRateCents || 8500) / 100).toFixed(2));
         setCurrencySymbol(data.currencySymbol || '$');
-        setTechnicians(data.technicians || 'Alex Mercer (Lead Tech)\nSarah Jenkins (Diagnostics)\nMarcus Vance (Hardware)');
-        setBenches(data.benches || 'Bench #01 (Intake)\nBench #02 (Assembly)\nBench #03 (Microsoldering)\nBench #04 (Diagnostics)');
+        setTechnicians(data.technicians || '');
+        setBenches(data.benches || '');
       }
     } catch (err) {
       console.error(err);
@@ -631,7 +631,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       required
                       value={fullName}
                       onChange={(e) => setFullName(e.target.value)}
-                      placeholder="Alex Mercer"
+                      placeholder="Enter full name"
                       className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 transition"
                     />
                   </div>
@@ -641,7 +641,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     <input
                       type="text"
                       disabled
-                      value={currentUser?.username || 'tech'}
+                      value={currentUser?.username || ''}
                       className="w-full px-3 py-2 text-xs bg-slate-100 border border-slate-200 rounded-xl text-slate-500 font-mono cursor-not-allowed"
                     />
                     <span className="text-[10px] text-slate-400">Usernames are immutable for audit traceability.</span>
@@ -656,10 +656,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       required
                       value={userEmail}
                       onChange={(e) => setUserEmail(e.target.value)}
-                      placeholder="name@gmail.com or name@icloud.com"
+                      placeholder="Enter email address"
                       className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 transition"
                     />
-                    <span className="text-[10px] text-slate-400">Any email domain works (@gmail.com, @icloud.com, @outlook.com, etc.).</span>
+                    <span className="text-[10px] text-slate-400">Any personal or business email domain works.</span>
                   </div>
 
                   <div className="space-y-1">
@@ -668,7 +668,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                       type="text"
                       value={userPhone}
                       onChange={(e) => setUserPhone(e.target.value)}
-                      placeholder="(647) 740-0566"
+                      placeholder="Enter phone number"
                       className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 font-mono transition"
                     />
                   </div>
@@ -680,7 +680,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     type="text"
                     value={userBench}
                     onChange={(e) => setUserBench(e.target.value)}
-                    placeholder="Bench #04 (Alex Mercer)"
+                    placeholder="Workstation or bench"
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 transition"
                   />
                 </div>
@@ -691,7 +691,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     rows={3}
                     value={userBio}
                     onChange={(e) => setUserBio(e.target.value)}
-                    placeholder="Describe diagnostic focus (e.g. microsoldering, Apple logic board traces, battery replacements)..."
+                    placeholder="Optional diagnostic specialty or technician notes"
                     className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 transition resize-none"
                   />
                 </div>
@@ -1367,7 +1367,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         required
                         value={shopName}
                         onChange={(e) => setShopName(e.target.value)}
-                        placeholder="Faso Fix Repair Center"
+                        placeholder="Enter business name"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white"
                       />
                     </div>
@@ -1378,7 +1378,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         type="text"
                         value={phone}
                         onChange={(e) => setPhone(e.target.value)}
-                        placeholder="(647) 740-0566"
+                        placeholder="Enter business phone"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-mono"
                       />
                     </div>
@@ -1391,7 +1391,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         type="email"
                         value={email}
                         onChange={(e) => setEmail(e.target.value)}
-                        placeholder="shop@gmail.com or your business email"
+                        placeholder="Enter business email"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white"
                       />
                     </div>
@@ -1402,7 +1402,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         type="text"
                         value={address}
                         onChange={(e) => setAddress(e.target.value)}
-                        placeholder="123 Tech Boulevard, Suite 400"
+                        placeholder="Enter business address"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white"
                       />
                     </div>
@@ -1464,6 +1464,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         rows={3}
                         value={technicians}
                         onChange={(e) => setTechnicians(e.target.value)}
+                        placeholder="One technician per line"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-mono resize-none"
                       />
                     </div>
@@ -1474,6 +1475,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         rows={3}
                         value={benches}
                         onChange={(e) => setBenches(e.target.value)}
+                        placeholder="One workstation per line"
                         className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-mono resize-none"
                       />
                     </div>

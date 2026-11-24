@@ -1104,8 +1104,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
             {/* Workstation Info */}
             <div className="text-xs text-slate-500 pt-2 border-t border-slate-100 flex items-center justify-between">
-              <span>Station: <strong className="text-slate-800">{ticket.bench || 'Bench #01'}</strong></span>
-              <span>Tech: <strong className="text-slate-800">{ticket.technician || 'Alex Mercer'}</strong></span>
+              <span>Station: <strong className="text-slate-800">{ticket.bench || 'Unassigned'}</strong></span>
+              <span>Tech: <strong className="text-slate-800">{ticket.technician || 'Unassigned'}</strong></span>
             </div>
           </div>
 
@@ -1460,8 +1460,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                         onChange={(e) => setNewNote(e.target.value)}
                         placeholder={
                           noteKind === 'INTERNAL_NOTE'
-                            ? "Enter tech notes (e.g. Screw stripped on bottom left, motherboard shield missing...)"
-                            : "Enter public note for customer receipt (e.g. Replaced display assembly and tested functions OK)..."
+                            ? "Enter internal technician notes..."
+                            : "Enter public note visible on customer receipt..."
                         }
                         className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition"
                       />
@@ -1899,7 +1899,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     setCustomItemDesc(e.target.value);
                     if (e.target.value) setSelectedPartId('');
                   }}
-                  placeholder="e.g. OEM Battery Adhesive Strip"
+                  placeholder="Part or service description"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-indigo-600"
                 />
               </div>
@@ -2301,7 +2301,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   required
                   value={emailTo}
                   onChange={(e) => setEmailTo(e.target.value)}
-                  placeholder="customer@example.com"
+                  placeholder="Recipient email address"
                   className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-indigo-600"
                 />
               </div>

@@ -410,7 +410,7 @@ export const AdminPayrollTab: React.FC = () => {
                     <td className="py-2.5 px-3 font-sans font-bold text-slate-900">
                       {ps.user?.name}
                       <span className="block text-[10px] font-mono font-normal text-slate-400">
-                        {ps.user?.employeeNumber || 'FF-001'}
+                        {ps.user?.employeeNumber || '—'}
                       </span>
                     </td>
                     <td className="py-2.5 px-3 text-right text-slate-800">{ps.regularHours}h</td>
@@ -752,7 +752,7 @@ export const AdminPayrollTab: React.FC = () => {
                   type="text"
                   value={editNotes}
                   onChange={(e) => setEditNotes(e.target.value)}
-                  placeholder="e.g. Performance bonus for phone repairs"
+                  placeholder="Reason for pay adjustment"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg"
                 />
               </div>

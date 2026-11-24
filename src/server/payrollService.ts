@@ -1548,9 +1548,9 @@ export async function buildPaystubHtml(paystubId: string, isAdmin = false, curre
 <body>
   <div class="header">
     <div class="company">
-      <h1>${escHtml(settings.shopName || 'Faso Fix POS')}</h1>
-      <p>${escHtml(settings.address || 'Ontario, Canada')}</p>
-      <p>Tel: ${escHtml(settings.phone || '647-740-0566')}${settings.email ? ` • Email: ${escHtml(settings.email)}` : ''}</p>
+      <h1>${escHtml(settings.shopName || 'Faso Fix')}</h1>
+      ${settings.address ? `<p>${escHtml(settings.address)}</p>` : ''}
+      ${(settings.phone || settings.email) ? `<p>${[settings.phone ? `Tel: ${escHtml(settings.phone)}` : '', settings.email ? `Email: ${escHtml(settings.email)}` : ''].filter(Boolean).join(' • ')}</p>` : ''}
     </div>
     <div class="title">
       <h2>EMPLOYEE EARNINGS STATEMENT</h2>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShieldAlert, Lock, User, Eye, EyeOff, X, KeyRound, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ShieldAlert, Lock, User, Eye, EyeOff, X, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { markSessionActive } from '../utils/auth';
 import { posAudio } from '../utils/audio';
 import { User as UserType } from '../types';
@@ -140,11 +140,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
     }
   };
 
-  const handleFillDemoAdmin = () => {
-    setUsernameOrEmail('admin');
-    setErrorMessage(null);
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
       <div
@@ -195,7 +190,7 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                   autoFocus
                   value={usernameOrEmail}
                   onChange={(e) => setUsernameOrEmail(e.target.value)}
-                  placeholder="e.g. admin or you@gmail.com"
+                  placeholder="Administrator username or email"
                   className="w-full px-3.5 py-2.5 text-xs bg-slate-50/80 border border-slate-200 rounded-xl text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-600 transition"
                   required
                 />
@@ -241,28 +236,6 @@ export const AdminLoginModal: React.FC<AdminLoginModalProps> = ({
                 placeholder="123456 or ABCD-EFGH"
                 className="w-full px-3.5 py-2.5 text-sm tracking-widest text-center font-mono bg-slate-50 border border-slate-200 rounded-xl focus:bg-white"
               />
-            </div>
-          )}
-
-          {/* Quick Default Admin Credentials Tip — dev only */}
-          {import.meta.env.DEV && (
-            <div className="p-3 bg-purple-50/70 border border-purple-100 rounded-xl text-xs text-purple-900 flex items-center justify-between">
-              <div className="space-y-0.5">
-                <span className="font-bold flex items-center gap-1 text-[11px] text-purple-800">
-                  <KeyRound className="w-3.5 h-3.5" />
-                  Provisioned Admin Account:
-                </span>
-                <p className="text-[11px] text-purple-600 font-mono">
-                  admin &bull; Admin@FasoFix2026!
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={handleFillDemoAdmin}
-                className="px-2 py-1 bg-white border border-purple-200 text-purple-700 rounded-lg text-[10px] font-bold shadow-2xs hover:bg-purple-50 cursor-pointer"
-              >
-                Fill
-              </button>
             </div>
           )}
 

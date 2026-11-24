@@ -2096,6 +2096,8 @@ export async function getAdminOverview() {
     inventoryCount,
     lowStockParts,
     revenueAgg,
+    settingBenches,
+    activeBenchUsers,
   ] = await Promise.all([
     prisma.user.count(),
     prisma.user.count({ where: { status: 'ACTIVE' } }),
@@ -2118,7 +2120,16 @@ export async function getAdminOverview() {
     prisma.inventoryPart.count(),
     prisma.inventoryPart.count({ where: { stock: { lte: 2 } } }),
     prisma.payment.aggregate({ _sum: { amountCents: true } }),
+    prisma.setting.findUnique({ where: { id: 1 }, select: { benches: true } }),
+    prisma.user.findMany({ where: { status: 'ACTIVE', bench: { not: null } }, select: { bench: true } }),
   ]);
+
+  const configuredBenches = (settingBenches?.benches || '')
+    .split(/\r?\n/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const assignedUserBenches = new Set(activeBenchUsers.map((u) => (u.bench || '').trim()).filter(Boolean));
+  const activeWorkstations = Math.max(configuredBenches.length, assignedUserBenches.size);
 
   return {
     users: {
@@ -2137,7 +2148,7 @@ export async function getAdminOverview() {
           ? 'PostgreSQL (Supabase ACID)'
           : 'ACID Relational SQLite',
       serverTime: new Date().toISOString(),
-      activeWorkstations: 4,
+      activeWorkstations,
     },
     shop: {
       totalTickets: ticketsCount,

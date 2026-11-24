@@ -503,7 +503,7 @@ async function recordAudit(params) {
 async function ensureAdminProvisioning() {
 	if (await prisma.user.count({ where: { role: "ADMIN" } }) === 0) {
 		const adminUser = process.env.ADMIN_USERNAME || "admin";
-		const adminEmail = process.env.ADMIN_EMAIL || "admin@fasofix.ca";
+		const adminEmail = process.env.ADMIN_EMAIL || "admin@fasodesk.repair";
 		const adminPass = process.env.ADMIN_PASSWORD || "Admin@FasoFix2026!";
 		const adminName = "Lead Shop Administrator";
 		const hashedPassword = hashPassword(adminPass);
@@ -2310,7 +2310,7 @@ async function listAuditLogsPaginated(params) {
 	};
 }
 async function getAdminOverview() {
-	const [totalUsers, activeUsers, disabledUsers, adminUsers, standardUsers, recentUsers, recentAudits, ticketsCount, activeTicketsCount, completedTicketsCount, customersCount, inventoryCount, lowStockParts, revenueAgg] = await Promise.all([
+	const [totalUsers, activeUsers, disabledUsers, adminUsers, standardUsers, recentUsers, recentAudits, ticketsCount, activeTicketsCount, completedTicketsCount, customersCount, inventoryCount, lowStockParts, revenueAgg, settingBenches, activeBenchUsers] = await Promise.all([
 		prisma.user.count(),
 		prisma.user.count({ where: { status: "ACTIVE" } }),
 		prisma.user.count({ where: { status: "DISABLED" } }),
@@ -2346,8 +2346,22 @@ async function getAdminOverview() {
 		prisma.customer.count(),
 		prisma.inventoryPart.count(),
 		prisma.inventoryPart.count({ where: { stock: { lte: 2 } } }),
-		prisma.payment.aggregate({ _sum: { amountCents: true } })
+		prisma.payment.aggregate({ _sum: { amountCents: true } }),
+		prisma.setting.findUnique({
+			where: { id: 1 },
+			select: { benches: true }
+		}),
+		prisma.user.findMany({
+			where: {
+				status: "ACTIVE",
+				bench: { not: null }
+			},
+			select: { bench: true }
+		})
 	]);
+	const configuredBenches = (settingBenches?.benches || "").split(/\r?\n/).map((s) => s.trim()).filter(Boolean);
+	const assignedUserBenches = new Set(activeBenchUsers.map((u) => (u.bench || "").trim()).filter(Boolean));
+	const activeWorkstations = Math.max(configuredBenches.length, assignedUserBenches.size);
 	return {
 		users: {
 			total: totalUsers,
@@ -2361,7 +2375,7 @@ async function getAdminOverview() {
 			status: "OPERATIONAL",
 			database: process.env.DATABASE_URL?.startsWith("postgres://") || process.env.DATABASE_URL?.startsWith("postgresql://") ? "PostgreSQL (Supabase ACID)" : "ACID Relational SQLite",
 			serverTime: (/* @__PURE__ */ new Date()).toISOString(),
-			activeWorkstations: 4
+			activeWorkstations
 		},
 		shop: {
 			totalTickets: ticketsCount,
@@ -4662,9 +4676,9 @@ async function buildPaystubHtml(paystubId, isAdmin = false, currentUserId) {
 <body>
   <div class="header">
     <div class="company">
-      <h1>${escHtml(settings.shopName || "Faso Fix POS")}</h1>
-      <p>${escHtml(settings.address || "Ontario, Canada")}</p>
-      <p>Tel: ${escHtml(settings.phone || "647-740-0566")}${settings.email ? ` • Email: ${escHtml(settings.email)}` : ""}</p>
+      <h1>${escHtml(settings.shopName || "Faso Fix")}</h1>
+      ${settings.address ? `<p>${escHtml(settings.address)}</p>` : ""}
+      ${settings.phone || settings.email ? `<p>${[settings.phone ? `Tel: ${escHtml(settings.phone)}` : "", settings.email ? `Email: ${escHtml(settings.email)}` : ""].filter(Boolean).join(" • ")}</p>` : ""}
     </div>
     <div class="title">
       <h2>EMPLOYEE EARNINGS STATEMENT</h2>
@@ -6501,7 +6515,7 @@ body { margin: 0; width: 80mm; padding: 4mm 4mm 8mm; font: 12px/1.35 'Arial', sy
 <div class="barcode-box">
   ${barcodeSvg}
   <div style="font-family:monospace;font-size:10px;font-weight:bold;margin-top:2px">*${woBarcode}*</div>
-  <div class="footer">DUE: ${new Date(ticket.dueDate).toLocaleDateString()} • BENCH #${esc(ticket.bench || "01")}</div>
+  <div class="footer">DUE: ${new Date(ticket.dueDate).toLocaleDateString()}${ticket.bench ? ` • ${esc(ticket.bench)}` : ""}</div>
 </div>
 </body></html>`;
 }
@@ -6563,9 +6577,9 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
 
 <div class="header">
   <div>
-    <div class="shop-name">${esc(shop.shopName || "Faso Fix POS")}</div>
-    <div style="font-size:11px;color:#64748b;margin-top:2px">Diagnostics • Board-Level Repair • Micro-Soldering Lab</div>
-    <div style="font-size:10px;color:#64748b">${esc(shop.address || "Ontario, Canada")}</div>
+    <div class="shop-name">${esc(shop.shopName || "Faso Fix")}</div>
+    <div style="font-size:11px;color:#64748b;margin-top:2px">Device Repair &amp; Diagnostics</div>
+    ${shop.address ? `<div style="font-size:10px;color:#64748b">${esc(shop.address)}</div>` : ""}
     ${shop.phone || shop.email ? `<div style="font-size:10px;color:#4f46e5;font-weight:600">${[shop.phone ? `Tel: ${esc(shop.phone)}` : "", shop.email ? esc(shop.email) : ""].filter(Boolean).join(" • ")}</div>` : ""}
   </div>
   <div style="text-align:right">
@@ -6599,13 +6613,13 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   </div>
   <div class="card">
     <div class="card-label">Lead Technician</div>
-    <div class="card-val">${esc(ticket.technician || "Shop Technician")}</div>
-    <div style="font-size:9px;color:#64748b">Station: ${esc(ticket.bench || "Bench #01")}</div>
+    <div class="card-val">${esc(ticket.technician || "Unassigned")}</div>
+    <div style="font-size:9px;color:#64748b">Station: ${esc(ticket.bench || "Front Counter")}</div>
   </div>
   <div class="card">
     <div class="card-label">Payment Status</div>
     <div class="card-val" style="color:${isPaid ? "#059669" : "#d97706"}">${isPaid ? "PAID IN FULL" : "BALANCE DUE"}</div>
-    <div style="font-size:9px;color:#64748b">Ref: #TXN-${ticket.ticketNumber}89</div>
+    <div style="font-size:9px;color:#64748b">Ref: WO-${ticket.ticketNumber}</div>
   </div>
 </div>
 
@@ -6709,8 +6723,8 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   <div>
     <div class="card-label">Lead Technician Sign-off</div>
     <div class="sig-box">
-      <div style="font-weight:bold;font-style:italic;color:#4338ca;font-size:12px">${esc(ticket.technician || "Shop Technician")}</div>
-      <div style="font-size:9px;color:#64748b;font-family:monospace">DIGITALLY CERTIFIED • ${esc(ticket.bench || "Bench 01")}</div>
+      <div style="font-weight:bold;font-style:italic;color:#4338ca;font-size:12px">${esc(ticket.technician || "Authorized Technician")}</div>
+      <div style="font-size:9px;color:#64748b;font-family:monospace">DIGITALLY CERTIFIED • ${esc(ticket.bench || "Front Counter")}</div>
     </div>
   </div>
   <div>

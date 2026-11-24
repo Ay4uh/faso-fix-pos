@@ -262,7 +262,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                   autoFocus
                   value={phoneNumber}
                   onChange={(e) => handlePhoneOrNameSearch(e.target.value, 'phone')}
-                  placeholder="(555) 019-2834"
+                  placeholder="Customer phone number"
                   className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 font-mono transition"
                 />
               </div>
@@ -278,7 +278,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                   required
                   value={fullName}
                   onChange={(e) => handlePhoneOrNameSearch(e.target.value, 'name')}
-                  placeholder="e.g. John Doe"
+                  placeholder="Customer full name"
                   className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
                 />
               </div>
@@ -320,7 +320,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                 type="tel"
                 value={altPhone}
                 onChange={(e) => setAltPhone(e.target.value)}
-                placeholder="e.g. (555) 987-6543 (Work, Spouse, or Home)"
+                placeholder="Secondary phone number (optional)"
                 className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 font-mono transition"
               />
             </div>
@@ -344,7 +344,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                   required
                   value={deviceName}
                   onChange={(e) => setDeviceName(e.target.value)}
-                  placeholder="e.g. iPhone 15 Pro / MacBook Air"
+                  placeholder="Device make and model"
                   className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
                 />
               </div>
@@ -369,7 +369,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                   type="text"
                   value={passcode}
                   onChange={(e) => setPasscode(e.target.value)}
-                  placeholder="e.g. 1234 or None"
+                  placeholder="Passcode (optional)"
                   className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 font-mono transition"
                 />
                 {pattern && (
@@ -402,7 +402,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
                 type="text"
                 value={serialNumber}
                 onChange={(e) => setSerialNumber(e.target.value)}
-                placeholder="e.g. 354892019482910 or C02G..."
+                placeholder="Serial number or IMEI (optional)"
                 className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 font-mono transition"
               />
             </div>
@@ -419,7 +419,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
               rows={2}
               value={issue}
               onChange={(e) => setIssue(e.target.value)}
-              placeholder="e.g. Cracked screen, battery draining fast, liquid spill on keyboard..."
+              placeholder="Describe reported issue or requested repair"
               className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition resize-none"
             />
           </div>

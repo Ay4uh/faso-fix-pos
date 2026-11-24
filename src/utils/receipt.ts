@@ -155,7 +155,7 @@ body { margin: 0; width: 80mm; padding: 4mm 4mm 8mm; font: 12px/1.35 'Arial', sy
 <div class="barcode-box">
   ${barcodeSvg}
   <div style="font-family:monospace;font-size:10px;font-weight:bold;margin-top:2px">*${woBarcode}*</div>
-  <div class="footer">DUE: ${new Date(ticket.dueDate).toLocaleDateString()} • BENCH #${esc(ticket.bench || '01')}</div>
+  <div class="footer">DUE: ${new Date(ticket.dueDate).toLocaleDateString()}${ticket.bench ? ` • ${esc(ticket.bench)}` : ''}</div>
 </div>
 </body></html>`;
 }
@@ -222,9 +222,9 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
 
 <div class="header">
   <div>
-    <div class="shop-name">${esc(shop.shopName || 'Faso Fix POS')}</div>
-    <div style="font-size:11px;color:#64748b;margin-top:2px">Diagnostics • Board-Level Repair • Micro-Soldering Lab</div>
-    <div style="font-size:10px;color:#64748b">${esc(shop.address || 'Ontario, Canada')}</div>
+    <div class="shop-name">${esc(shop.shopName || 'Faso Fix')}</div>
+    <div style="font-size:11px;color:#64748b;margin-top:2px">Device Repair &amp; Diagnostics</div>
+    ${shop.address ? `<div style="font-size:10px;color:#64748b">${esc(shop.address)}</div>` : ''}
     ${(shop.phone || shop.email) ? `<div style="font-size:10px;color:#4f46e5;font-weight:600">${[shop.phone ? `Tel: ${esc(shop.phone)}` : '', shop.email ? esc(shop.email) : ''].filter(Boolean).join(' • ')}</div>` : ''}
   </div>
   <div style="text-align:right">
@@ -255,13 +255,13 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   </div>
   <div class="card">
     <div class="card-label">Lead Technician</div>
-    <div class="card-val">${esc(ticket.technician || 'Shop Technician')}</div>
-    <div style="font-size:9px;color:#64748b">Station: ${esc(ticket.bench || 'Bench #01')}</div>
+    <div class="card-val">${esc(ticket.technician || 'Unassigned')}</div>
+    <div style="font-size:9px;color:#64748b">Station: ${esc(ticket.bench || 'Front Counter')}</div>
   </div>
   <div class="card">
     <div class="card-label">Payment Status</div>
     <div class="card-val" style="color:${isPaid ? '#059669' : '#d97706'}">${isPaid ? 'PAID IN FULL' : 'BALANCE DUE'}</div>
-    <div style="font-size:9px;color:#64748b">Ref: #TXN-${ticket.ticketNumber}89</div>
+    <div style="font-size:9px;color:#64748b">Ref: WO-${ticket.ticketNumber}</div>
   </div>
 </div>
 
@@ -365,8 +365,8 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   <div>
     <div class="card-label">Lead Technician Sign-off</div>
     <div class="sig-box">
-      <div style="font-weight:bold;font-style:italic;color:#4338ca;font-size:12px">${esc(ticket.technician || 'Shop Technician')}</div>
-      <div style="font-size:9px;color:#64748b;font-family:monospace">DIGITALLY CERTIFIED • ${esc(ticket.bench || 'Bench 01')}</div>
+      <div style="font-weight:bold;font-style:italic;color:#4338ca;font-size:12px">${esc(ticket.technician || 'Authorized Technician')}</div>
+      <div style="font-size:9px;color:#64748b;font-family:monospace">DIGITALLY CERTIFIED • ${esc(ticket.bench || 'Front Counter')}</div>
     </div>
   </div>
   <div>
@@ -395,8 +395,8 @@ export async function loadShop(): Promise<ReceiptShop> {
     }
   } catch {}
   return {
-    shopName: 'Faso Fix POS',
-    address: 'Ontario, Canada',
+    shopName: 'Faso Fix',
+    address: '',
     phone: '',
     email: '',
     taxLabel: 'HST',

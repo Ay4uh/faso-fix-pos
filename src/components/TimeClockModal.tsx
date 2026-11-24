@@ -724,7 +724,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                   type="text"
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  placeholder="Optional shift notes (e.g. Completed screen replacements at Bench #01)..."
+                  placeholder="Optional shift notes"
                   className="w-full text-xs px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500/20 focus:border-[#0284c7]"
                 />
               )}
@@ -1145,7 +1145,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                         type="text"
                         value={swapForm.reason}
                         onChange={(e) => setSwapForm({ ...swapForm, reason: e.target.value })}
-                        placeholder="e.g. Schedule conflict with family event"
+                        placeholder="Reason for shift swap (optional)"
                         className="w-full p-2 border border-slate-300 rounded-lg"
                       />
                     </div>

@@ -11,8 +11,8 @@ interface PaystubModalProps {
 export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) => {
   const printAreaRef = useRef<HTMLDivElement>(null);
   const [shop, setShop] = useState<ReceiptShop>({
-    shopName: 'Faso Fix POS',
-    address: 'Ontario, Canada',
+    shopName: 'Faso Fix',
+    address: '',
     phone: '',
     email: '',
   });
@@ -105,11 +105,13 @@ export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) 
                   {shop.shopName || 'Faso Fix POS'}
                 </span>
               </div>
-              <p className="text-xs text-slate-500 mt-1">Device Repair &amp; Retail Operations CRM</p>
-              <p className="text-xs text-slate-500">{shop.address || 'Ontario, Canada'}</p>
-              <p className="text-xs text-slate-500">
-                {[shop.phone ? `Tel: ${shop.phone}` : '', shop.email || ''].filter(Boolean).join(' • ') || 'CRA Payroll Compliance'}
-              </p>
+              <p className="text-xs text-slate-500 mt-1">Device Repair &amp; Retail Operations</p>
+              {shop.address && <p className="text-xs text-slate-500">{shop.address}</p>}
+              {(shop.phone || shop.email) && (
+                <p className="text-xs text-slate-500">
+                  {[shop.phone ? `Tel: ${shop.phone}` : '', shop.email || ''].filter(Boolean).join(' • ')}
+                </p>
+              )}
             </div>
             <div className="text-left sm:text-right space-y-1">
               <span className={`inline-block px-2.5 py-1 text-xs font-bold uppercase tracking-wider rounded-md ${
@@ -133,7 +135,7 @@ export const PaystubModal: React.FC<PaystubModalProps> = ({ paystub, onClose }) 
             <div className="space-y-1">
               <p className="text-slate-500 font-bold uppercase tracking-wider text-[10px]">Employee Information</p>
               <p className="text-sm font-bold text-slate-900">{user.name || 'Technician'}</p>
-              <p className="text-slate-600 font-mono">ID: {user.employeeNumber || 'FF-001'}</p>
+              <p className="text-slate-600 font-mono">ID: {user.employeeNumber || '—'}</p>
               <p className="text-slate-600">Email: {user.email || '—'}</p>
               <p className="text-slate-600">Role: {user.role || 'TECHNICIAN'}</p>
             </div>

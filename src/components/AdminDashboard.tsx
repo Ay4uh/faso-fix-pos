@@ -1300,7 +1300,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
   const [password, setPassword] = useState('');
   const [role, setRole] = useState<'ADMIN' | 'USER'>('USER');
   const [phone, setPhone] = useState('');
-  const [bench, setBench] = useState('Bench #01');
+  const [bench, setBench] = useState('');
   const [bio, setBio] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1366,7 +1366,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
                 required
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="Marcus Vance"
+                placeholder="Full name"
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               />
             </div>
@@ -1378,7 +1378,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
                 required
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="marcus"
+                placeholder="Username"
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
               />
             </div>
@@ -1392,10 +1392,10 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. name@gmail.com or name@icloud.com"
+                placeholder="Email address (any provider)"
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               />
-              <p className="text-[10px] text-slate-400">Use any email provider (@gmail.com, @icloud.com, @outlook.com, etc.). Staff can sign in with username OR email.</p>
+              <p className="text-[10px] text-slate-400">Supports Gmail, iCloud, Outlook, or custom domains. Staff can sign in with username or email.</p>
             </div>
 
             <div className="space-y-1">
@@ -1404,7 +1404,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
                 type="text"
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
-                placeholder="(555) 019-2834"
+                placeholder="Phone number (optional)"
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 font-mono"
               />
             </div>
@@ -1429,7 +1429,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
                 type="text"
                 value={bench}
                 onChange={(e) => setBench(e.target.value)}
-                placeholder="Bench #02"
+                placeholder="Assigned bench (optional)"
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20"
               />
             </div>
@@ -1441,7 +1441,7 @@ const CreateUserModal: React.FC<CreateUserModalProps> = ({ onClose, onSuccess })
               rows={2}
               value={bio}
               onChange={(e) => setBio(e.target.value)}
-              placeholder="e.g. Master soldering technician, mobile screen specialist..."
+              placeholder="Role notes or specialization (optional)"
               className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white resize-none"
             />
           </div>
@@ -1617,10 +1617,10 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="e.g. name@gmail.com or name@icloud.com"
+                placeholder="Email address (any provider)"
                 className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white"
               />
-              <p className="text-[10px] text-slate-400">Any email domain works (@gmail.com, @icloud.com, etc.).</p>
+              <p className="text-[10px] text-slate-400">Supports Gmail, iCloud, Outlook, or custom domains.</p>
             </div>
 
             <div className="space-y-1">
@@ -1702,7 +1702,7 @@ const EditUserModal: React.FC<EditUserModalProps> = ({ user, onClose, onSuccess 
                   required
                   value={wageReason}
                   onChange={(e) => setWageReason(e.target.value)}
-                  placeholder="e.g. Annual merit increase / certification"
+                  placeholder="Reason for adjustment"
                   className="w-full px-2.5 py-1.5 text-xs bg-white border border-red-200 rounded-lg"
                 />
               </div>

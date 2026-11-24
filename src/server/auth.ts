@@ -300,7 +300,7 @@ export async function ensureAdminProvisioning(): Promise<void> {
 
   if (adminCount === 0) {
     const adminUser = process.env.ADMIN_USERNAME || 'admin';
-    const adminEmail = process.env.ADMIN_EMAIL || 'admin@fasofix.ca';
+    const adminEmail = process.env.ADMIN_EMAIL || 'admin@fasodesk.repair';
     const adminPass = process.env.ADMIN_PASSWORD || 'Admin@FasoFix2026!';
     const adminName = 'Lead Shop Administrator';
 

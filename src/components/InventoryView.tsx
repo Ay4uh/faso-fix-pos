@@ -486,7 +486,7 @@ export const InventoryView: React.FC = () => {
                   required
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  placeholder="e.g. iPhone 15 Pro OLED Screen"
+                  placeholder="Part name"
                   className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                 />
               </div>
@@ -500,7 +500,7 @@ export const InventoryView: React.FC = () => {
                     type="text"
                     value={sku}
                     onChange={(e) => setSku(e.target.value)}
-                    placeholder="PRT-15P-SCR"
+                    placeholder="SKU or part number"
                     className="w-full px-3 py-1.5 text-xs font-mono uppercase bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                   />
                 </div>
@@ -592,7 +592,7 @@ export const InventoryView: React.FC = () => {
                   type="text"
                   value={supplier}
                   onChange={(e) => setSupplier(e.target.value)}
-                  placeholder="e.g. MobileSentrix, Injured Gadgets"
+                  placeholder="Supplier or vendor name"
                   className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
                 />
               </div>

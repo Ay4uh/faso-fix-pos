@@ -297,7 +297,7 @@ export const AdminAttendanceTab: React.FC = () => {
                 <div>
                   <p className="text-xs font-bold text-slate-900 truncate">{emp.name}</p>
                   <p className="text-[10px] text-slate-500 font-mono">
-                    ID: {emp.employeeNumber || 'FF-001'} • {emp.bench || 'Bench #01'}
+                    ID: {emp.employeeNumber || '—'} • {emp.bench || 'Unassigned'}
                   </p>
                 </div>
                 <span
@@ -441,7 +441,7 @@ export const AdminAttendanceTab: React.FC = () => {
                       <td className="py-3 px-4 font-sans">
                         <p className="font-bold text-slate-900">{s.user?.name || 'Technician'}</p>
                         <p className="text-[10px] text-slate-400 font-mono">
-                          ID: {s.user?.employeeNumber || 'FF-001'}
+                          ID: {s.user?.employeeNumber || '—'}
                         </p>
                       </td>
                       <td className="py-3 px-4 text-slate-700">
@@ -589,7 +589,7 @@ export const AdminAttendanceTab: React.FC = () => {
                   type="text"
                   value={formReason}
                   onChange={(e) => setFormReason(e.target.value)}
-                  placeholder="e.g. Employee forgot to clock in after client call"
+                  placeholder="Enter audit reason for manual shift entry"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg"
                   required
                 />
@@ -686,7 +686,7 @@ export const AdminAttendanceTab: React.FC = () => {
                   type="text"
                   value={formReason}
                   onChange={(e) => setFormReason(e.target.value)}
-                  placeholder="e.g. Corrected 15-minute clock-in discrepancy"
+                  placeholder="Enter audit reason for time adjustment"
                   className="w-full px-3 py-2 border border-slate-200 rounded-lg"
                   required
                 />

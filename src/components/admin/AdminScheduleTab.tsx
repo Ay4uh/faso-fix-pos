@@ -162,8 +162,8 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
     endTime: '17:00',
     breakMinutes: 30,
     breakType: 'UNPAID_MEAL' as 'UNPAID_MEAL' | 'PAID_REST',
-    roleOrStation: 'Bench #01',
-    branchLocation: 'Main Shop - Toronto',
+    roleOrStation: '',
+    branchLocation: 'Main Shop',
     recurrenceRule: 'NONE' as 'NONE' | 'DAILY' | 'WEEKLY' | 'BIWEEKLY',
     recurrenceCount: 4,
     isPublished: true,
@@ -301,8 +301,8 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
       endTime: '17:00',
       breakMinutes: 30,
       breakType: 'UNPAID_MEAL',
-      roleOrStation: 'Bench #01',
-      branchLocation: 'Main Shop - Toronto',
+      roleOrStation: '',
+      branchLocation: 'Main Shop',
       recurrenceRule: 'NONE',
       recurrenceCount: 4,
       isPublished: true,
@@ -322,8 +322,8 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
       endTime: shift.endTime,
       breakMinutes: shift.breakMinutes,
       breakType: shift.breakType,
-      roleOrStation: shift.roleOrStation || 'Bench #01',
-      branchLocation: shift.branchLocation || 'Main Shop - Toronto',
+      roleOrStation: shift.roleOrStation || '',
+      branchLocation: shift.branchLocation || 'Main Shop',
       recurrenceRule: 'NONE',
       recurrenceCount: 1,
       isPublished: shift.isPublished !== false,
@@ -952,7 +952,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                           </div>
 
                           <div className="text-[10px] text-slate-500 truncate flex items-center justify-between">
-                            <span>{shift.roleOrStation || 'Bench #01'}</span>
+                            <span>{shift.roleOrStation || 'Technician'}</span>
                             <span className="text-[9px] font-semibold text-slate-400">{shift.breakMinutes}m brk</span>
                           </div>
 
@@ -1223,7 +1223,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                         <div>
                           <div className="font-bold text-slate-900 text-sm">{shift.user?.name}</div>
                           <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
-                            <span className="font-medium text-slate-700">{shift.roleOrStation || 'Bench #01'}</span>
+                            <span className="font-medium text-slate-700">{shift.roleOrStation || 'Technician'}</span>
                             <span>•</span>
                             <span>{shift.branchLocation || 'Main Shop'}</span>
                           </div>
@@ -1337,7 +1337,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                       {s.user?.name || 'Technician'}
                     </td>
                     <td className="py-3 px-4 text-slate-500">
-                      {s.roleOrStation || 'Bench #01'}
+                      {s.roleOrStation || 'Technician'}
                     </td>
                     <td className="py-3 px-4 font-mono">
                       {s.startTime} – {s.endTime}
@@ -1713,7 +1713,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                     type="text"
                     value={shiftForm.roleOrStation}
                     onChange={(e) => setShiftForm({ ...shiftForm, roleOrStation: e.target.value })}
-                    placeholder="e.g. Bench #01"
+                    placeholder="Assigned workstation or role"
                     className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:border-[#0284c7]"
                   />
                 </div>
@@ -1832,7 +1832,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                   type="text"
                   value={shiftForm.notes}
                   onChange={(e) => setShiftForm({ ...shiftForm, notes: e.target.value })}
-                  placeholder="e.g. Lead morning intake & bench diagnostic assignments"
+                  placeholder="Optional shift instructions or notes"
                   className="w-full text-xs px-3 py-2 bg-white border border-slate-300 rounded-xl text-slate-800 focus:outline-none focus:border-[#0284c7]"
                 />
               </div>

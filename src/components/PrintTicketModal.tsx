@@ -39,8 +39,8 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
   const [isEscPosPrinting, setIsEscPosPrinting] = useState(false);
   const [escPosStatus, setEscPosStatus] = useState<string | null>(null);
   const [shop, setShop] = useState<ReceiptShop>({
-    shopName: 'Faso Fix POS',
-    address: 'Ontario, Canada',
+    shopName: 'Faso Fix',
+    address: '',
     phone: '',
     email: '',
     taxLabel: 'HST',
@@ -244,11 +244,13 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                     {shop.shopName || 'Faso Fix POS'}
                   </span>
                   <span className="text-xs text-slate-500 font-medium">
-                    Diagnostics • Board-Level Repair • Micro-Soldering Lab
+                    Device Diagnostics &amp; Repair Services
                   </span>
-                  <span className="text-xs text-slate-500">
-                    {shop.address || 'Ontario, Canada'}
-                  </span>
+                  {shop.address && (
+                    <span className="text-xs text-slate-500">
+                      {shop.address}
+                    </span>
+                  )}
                   {(shop.phone || shop.email) && (
                     <span className="font-mono text-[11px] text-indigo-600 mt-0.5">
                       {[shop.phone ? `Tel: ${shop.phone}` : '', shop.email || ''].filter(Boolean).join(' • ')}
@@ -331,10 +333,10 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                   Lead Technician
                 </span>
                 <span className="font-bold text-slate-900 mt-0.5">
-                  {ticket.technician || 'Alex Mercer'}
+                  {ticket.technician || 'Unassigned'}
                 </span>
                 <span className="font-mono text-[10px] text-slate-500">
-                  Station: {ticket.bench || 'Bench #04'}
+                  Station: {ticket.bench || 'Front Counter'}
                 </span>
               </div>
 
@@ -524,7 +526,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                     Bench Tech Labor: Diagnostics, Repair & Pressure Regasket
                   </div>
                   <div className="font-mono text-[10px] text-slate-400">
-                    Station {ticket.bench || 'Bench #04'} • Lead Tech {ticket.technician || 'Alex Mercer'}
+                    Station {ticket.bench || 'Front Counter'} • Tech {ticket.technician || 'Unassigned'}
                   </div>
                 </div>
                 <div className="flex items-center gap-8 shrink-0 font-mono text-xs">
@@ -587,11 +589,11 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Payment Ref:</span>
-                      <span>TXN_{ticket.ticketNumber}89</span>
+                      <span>WO-{ticket.ticketNumber}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Service Station:</span>
-                      <span>{ticket.bench || 'Bench #04'} (Alex Mercer)</span>
+                      <span>{[ticket.bench || 'Front Counter', ticket.technician].filter(Boolean).join(' • ')}</span>
                     </div>
                     <div className="flex items-center justify-between">
                       <span className="text-slate-400">Timestamp:</span>
@@ -659,9 +661,9 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                 <div className="flex flex-col justify-end">
                   <div className="flex items-center justify-between mb-1">
                     <span className="font-mono text-[10px] uppercase text-slate-400 font-bold">
-                      Lead Technician Sign-off
+                      Technician Sign-off
                     </span>
-                    <span className="font-mono text-[10px] text-emerald-600 font-bold">ID #2084 VALID</span>
+                    <span className="font-mono text-[10px] text-emerald-600 font-bold">VERIFIED</span>
                   </div>
                   <div className="h-12 bg-white border border-slate-200 rounded-lg p-2 flex items-center justify-between shadow-2xs">
                     <div className="flex items-center gap-2">
@@ -670,10 +672,10 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                       </div>
                       <div>
                         <div className="font-bold text-xs text-indigo-700 italic">
-                          {ticket.technician || 'Alex Mercer'}
+                          {ticket.technician || 'Authorized Technician'}
                         </div>
                         <div className="font-mono text-[9px] text-slate-400">
-                          Digitally Certified • Station {ticket.bench || 'Bench 04'}
+                          Digitally Certified • Station {ticket.bench || 'Front Counter'}
                         </div>
                       </div>
                     </div>

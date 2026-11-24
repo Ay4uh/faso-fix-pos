@@ -132,12 +132,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
     }
   };
 
-  const handleFillAdmin = () => {
-    setIsAdminMode(true);
-    setUsernameOrEmail('admin');
-    setErrorMessage(null);
-  };
-
   return (
     <div className="relative min-h-screen overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-100/80 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-800 select-none">
       {/* Soft Ambient Glows */}
@@ -266,7 +260,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
                       autoCorrect="off"
                       value={usernameOrEmail}
                       onChange={(e) => setUsernameOrEmail(e.target.value)}
-                      placeholder={isAdminMode ? 'admin or you@gmail.com' : 'Username or Email (e.g. alex, @gmail.com, @icloud.com)'}
+                      placeholder={isAdminMode ? 'Administrator username or email' : 'Username or email'}
                       className="w-full pl-10 pr-3.5 py-3 sm:py-2.5 bg-slate-50/80 border border-slate-200 rounded-xl text-base sm:text-xs text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
                     />
                   </div>
@@ -364,22 +358,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
               )}
             </button>
           </form>
-
-          {/* Dev Demo Fill Helper (Dev only) */}
-          {import.meta.env.DEV && (
-            <div className="px-6 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-              <span className="font-semibold text-slate-500">Dev Helper:</span>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={handleFillAdmin}
-                  className="px-2.5 py-1 rounded-lg bg-white border border-slate-200 text-purple-700 font-semibold shadow-2xs hover:bg-purple-50 transition cursor-pointer"
-                >
-                  Admin Mode
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
     </div>
