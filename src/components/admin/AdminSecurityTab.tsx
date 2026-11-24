@@ -35,6 +35,7 @@ interface SecurityPosture {
   provider: string;
   rls: { total: number; enabled: number; allEnabled: boolean };
   auditChain: { checked: number; intact: boolean; tamperedCount: number };
+  twoFactorAvailable?: boolean;
   users: {
     totalActive: number;
     twoFactorEnabled: number;
@@ -75,6 +76,7 @@ export const AdminSecurityTab: React.FC = () => {
   const [pendingSessionAction, setPendingSessionAction] = useState<
     | { type: 'kick'; sessionId: string; device: string; username: string }
     | { type: 'logoutAll'; userId: string; username: string }
+    | { type: 'toggle2fa'; nextAvailable: boolean }
     | null
   >(null);
 
@@ -134,6 +136,32 @@ export const AdminSecurityTab: React.FC = () => {
         setNotice(`Terminated all active sessions for @${username}.`);
         setTimeout(() => setNotice(null), 3500);
         await loadData();
+      }
+    } catch {
+      posAudio.playWarningBeep();
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleToggleTwoFactorAvailability = async (nextAvailable: boolean) => {
+    setBusyId('toggle2fa');
+    try {
+      const res = await fetchWithAuth('/api/admin/security/2fa-availability', {
+        method: 'POST',
+        body: JSON.stringify({ available: nextAvailable }),
+      });
+      if (res.ok) {
+        posAudio.playSuccessChime();
+        setNotice(
+          nextAvailable
+            ? 'Two-Factor Authentication is now available for staff enrollment.'
+            : 'Two-Factor Authentication has been temporarily disabled.'
+        );
+        setTimeout(() => setNotice(null), 4000);
+        await loadData();
+      } else {
+        posAudio.playWarningBeep();
       }
     } catch {
       posAudio.playWarningBeep();
@@ -227,17 +255,47 @@ export const AdminSecurityTab: React.FC = () => {
               </div>
             </div>
 
-            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-1.5">
-              <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between">
-                <span>2FA Enrollment</span>
-                <KeyRound className="w-4 h-4 text-purple-600" />
+            <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-2 flex flex-col justify-between">
+              <div className="space-y-1.5">
+                <div className="text-[11px] font-bold text-slate-500 flex items-center justify-between gap-2">
+                  <span>2FA Enrollment</span>
+                  <span
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      posture.twoFactorAvailable
+                        ? 'bg-emerald-100 text-emerald-700'
+                        : 'bg-amber-100 text-amber-800'
+                    }`}
+                  >
+                    {posture.twoFactorAvailable ? 'Available' : 'Paused'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="text-xl font-black text-slate-900 font-mono">
+                    {posture.users.twoFactorEnabled}/{posture.users.totalActive}
+                  </div>
+                  <KeyRound className="w-4 h-4 text-purple-600" />
+                </div>
+                <div className="text-[11px] text-slate-500">
+                  Admins w/ 2FA: {posture.users.adminTwoFactorEnabled}/{posture.users.adminTotal}
+                </div>
               </div>
-              <div className="text-xl font-black text-slate-900 font-mono">
-                {posture.users.twoFactorEnabled}/{posture.users.totalActive}
-              </div>
-              <div className="text-[11px] text-slate-500">
-                Admins w/ 2FA: {posture.users.adminTwoFactorEnabled}/{posture.users.adminTotal}
-              </div>
+              <button
+                type="button"
+                disabled={busyId === 'toggle2fa'}
+                onClick={() =>
+                  setPendingSessionAction({
+                    type: 'toggle2fa',
+                    nextAvailable: !posture.twoFactorAvailable,
+                  })
+                }
+                className={`w-full px-2.5 py-1.5 rounded-xl text-[11px] font-bold cursor-pointer disabled:opacity-50 transition ${
+                  posture.twoFactorAvailable
+                    ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200'
+                    : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-2xs'
+                }`}
+              >
+                {posture.twoFactorAvailable ? 'Temporarily Disable' : 'Turn 2FA Back On'}
+              </button>
             </div>
 
             <div className="bg-white p-4 rounded-2xl border border-slate-200/90 shadow-xs space-y-1.5">
@@ -413,8 +471,12 @@ export const AdminSecurityTab: React.FC = () => {
         title={
           pendingSessionAction?.type === 'kick'
             ? 'Terminate Active Session?'
-            : pendingSessionAction
+            : pendingSessionAction?.type === 'logoutAll'
             ? `Sign Out All Sessions for @${pendingSessionAction.username}?`
+            : pendingSessionAction?.type === 'toggle2fa'
+            ? pendingSessionAction.nextAvailable
+              ? 'Turn Two-Factor Authentication Back On?'
+              : 'Temporarily Disable Two-Factor Authentication?'
             : ''
         }
         message={
@@ -423,15 +485,33 @@ export const AdminSecurityTab: React.FC = () => {
               Are you sure you want to terminate <strong className="text-slate-900">{pendingSessionAction.device}</strong>{' '}
               for @{pendingSessionAction.username}?
             </>
-          ) : pendingSessionAction ? (
+          ) : pendingSessionAction?.type === 'logoutAll' ? (
             <>
               Are you sure you want to sign out every active session for{' '}
               <strong className="text-slate-900">@{pendingSessionAction.username}</strong>?
             </>
+          ) : pendingSessionAction?.type === 'toggle2fa' ? (
+            pendingSessionAction.nextAvailable ? (
+              <>
+                Are you sure you want to re-enable 2FA enrollment so staff can set up authenticator apps in Settings?
+              </>
+            ) : (
+              <>
+                Are you sure you want to temporarily disable 2FA enrollment until you turn it back on manually?
+              </>
+            )
           ) : null
         }
         confirmLabel={
-          pendingSessionAction?.type === 'kick' ? 'Yes, Terminate' : 'Yes, Sign Out All'
+          pendingSessionAction?.type === 'kick'
+            ? 'Yes, Terminate'
+            : pendingSessionAction?.type === 'logoutAll'
+            ? 'Yes, Sign Out All'
+            : pendingSessionAction?.type === 'toggle2fa'
+            ? pendingSessionAction.nextAvailable
+              ? 'Yes, Turn On'
+              : 'Yes, Disable Temporarily'
+            : 'Confirm'
         }
         cancelLabel="No, Cancel"
         isProcessing={Boolean(busyId)}
@@ -440,8 +520,10 @@ export const AdminSecurityTab: React.FC = () => {
           if (!pendingSessionAction) return;
           if (pendingSessionAction.type === 'kick') {
             await handleRevokeSession(pendingSessionAction.sessionId);
-          } else {
+          } else if (pendingSessionAction.type === 'logoutAll') {
             await handleForceLogoutUser(pendingSessionAction.userId, pendingSessionAction.username);
+          } else if (pendingSessionAction.type === 'toggle2fa') {
+            await handleToggleTwoFactorAvailability(pendingSessionAction.nextAvailable);
           }
           setPendingSessionAction(null);
         }}

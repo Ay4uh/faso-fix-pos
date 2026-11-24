@@ -763,6 +763,18 @@ app.get('/api/admin/security/posture', requireAdmin, wrap(async (_req, res) => {
   res.json({ success: true, data: posture });
 }));
 
+app.post('/api/admin/security/2fa-availability', requireAdmin, wrap(async (req, res) => {
+  if (typeof req.body?.available !== 'boolean') {
+    throw new HttpError(400, 'Boolean field "available" is required.');
+  }
+  const data = await securityService.setTwoFactorEnrollmentAvailability(
+    req.body.available,
+    { id: req.user!.id, name: req.user!.name },
+    getClientIp(req)
+  );
+  res.json({ success: true, data });
+}));
+
 app.get('/api/admin/sessions', requireAdmin, wrap(async (req, res) => {
   const sessions = await securityService.listAllActiveSessions(req.token);
   res.json({ success: true, data: sessions });

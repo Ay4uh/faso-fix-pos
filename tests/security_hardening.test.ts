@@ -456,7 +456,56 @@ describe('Security Hardening Suite (11/10 Controls)', () => {
     assert.equal(failRows, 5, '5 failed attempts must be persisted in AuditLog');
   });
 
-  test('7. RFC 6238 TOTP 2FA lifecycle: local SVG QR, challenge gate, replay block, recovery codes, disable', async () => {
+  test('7. RFC 6238 TOTP 2FA lifecycle: default paused gate, admin toggle, local SVG QR, challenge gate, replay block, recovery codes, disable', async () => {
+    // 7-pre. By default (with no policy override), 2FA enrollment is temporarily unavailable
+    const pausedStatus = await req('/api/auth/2fa/status', {
+      headers: { Authorization: `Bearer ${techToken}` },
+    });
+    assert.equal(pausedStatus.status, 200);
+    assert.equal(pausedStatus.json.data.available, false);
+    assert.equal(pausedStatus.json.data.enabled, false);
+
+    const blockedSetup = await req('/api/auth/2fa/setup', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+    });
+    assert.equal(blockedSetup.status, 403);
+
+    const blockedConfirm = await req('/api/auth/2fa/confirm', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+      body: { code: '123456' },
+    });
+    assert.equal(blockedConfirm.status, 403);
+
+    const nonAdminToggle = await req('/api/admin/security/2fa-availability', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+      body: { available: true },
+    });
+    assert.equal(nonAdminToggle.status, 403);
+
+    const pausedPosture = await req('/api/admin/security/posture', {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(pausedPosture.status, 200);
+    assert.equal(pausedPosture.json.data.twoFactorAvailable, false);
+
+    // Admin manually turns 2FA enrollment back on
+    const enableToggle = await req('/api/admin/security/2fa-availability', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: { available: true },
+    });
+    assert.equal(enableToggle.status, 200);
+    assert.equal(enableToggle.json.data.available, true);
+
+    const activeStatus = await req('/api/auth/2fa/status', {
+      headers: { Authorization: `Bearer ${techToken}` },
+    });
+    assert.equal(activeStatus.status, 200);
+    assert.equal(activeStatus.json.data.available, true);
+
     // 7a. Begin setup -> local SVG QR & manual Base32 secret
     const setupRes = await req('/api/auth/2fa/setup', {
       method: 'POST',
@@ -550,6 +599,21 @@ describe('Security Hardening Suite (11/10 Controls)', () => {
     });
     assert.equal(disableOk.status, 200);
     assert.equal(disableOk.json.data.enabled, false);
+
+    // 7g. Admin can manually pause 2FA enrollment again and setup is immediately blocked
+    const disableToggle = await req('/api/admin/security/2fa-availability', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${adminToken}` },
+      body: { available: false },
+    });
+    assert.equal(disableToggle.status, 200);
+    assert.equal(disableToggle.json.data.available, false);
+
+    const blockedAgain = await req('/api/auth/2fa/setup', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${techToken}` },
+    });
+    assert.equal(blockedAgain.status, 403);
   });
 
   test('8. Active device session tracking, revoke other devices & auto-kill on disable', async () => {

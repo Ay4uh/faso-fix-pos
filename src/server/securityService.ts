@@ -20,6 +20,38 @@ import {
   verifyTotpCode,
 } from './totp';
 
+const TWO_FACTOR_POLICY_ENABLED_ACTION = 'TWO_FACTOR_POLICY_ENABLED';
+const TWO_FACTOR_POLICY_DISABLED_ACTION = 'TWO_FACTOR_POLICY_DISABLED';
+
+export async function isTwoFactorEnrollmentAvailable(): Promise<boolean> {
+  const latest = await prisma.auditLog.findFirst({
+    where: {
+      action: { in: [TWO_FACTOR_POLICY_ENABLED_ACTION, TWO_FACTOR_POLICY_DISABLED_ACTION] },
+    },
+    orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    select: { action: true },
+  });
+  if (latest) return latest.action === TWO_FACTOR_POLICY_ENABLED_ACTION;
+  return process.env.ENABLE_2FA === 'true';
+}
+
+export async function setTwoFactorEnrollmentAvailability(
+  available: boolean,
+  actor: { id: string; name: string },
+  ipAddress?: string | null
+) {
+  await recordAudit({
+    userId: actor.id,
+    actorName: actor.name,
+    action: available ? TWO_FACTOR_POLICY_ENABLED_ACTION : TWO_FACTOR_POLICY_DISABLED_ACTION,
+    details: available
+      ? 'Administrator enabled Two-Factor Authentication enrollment'
+      : 'Administrator temporarily disabled Two-Factor Authentication enrollment',
+    ipAddress,
+  });
+  return { available };
+}
+
 function stripSensitiveUserFields<T extends Record<string, any>>(user: T) {
   const {
     passwordHash: _ph,
@@ -142,16 +174,20 @@ export async function verifyTwoFactorLogin(
 }
 
 export async function getTwoFactorStatus(userId: string) {
-  const user = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      twoFactorEnabled: true,
-      twoFactorSecret: true,
-      twoFactorRecoveryCodes: true,
-    },
-  });
+  const [user, available] = await Promise.all([
+    prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        twoFactorEnabled: true,
+        twoFactorSecret: true,
+        twoFactorRecoveryCodes: true,
+      },
+    }),
+    isTwoFactorEnrollmentAvailable(),
+  ]);
   if (!user) throw new HttpError(404, 'User not found');
   return {
+    available,
     enabled: Boolean(user.twoFactorEnabled),
     hasPendingSetup: !user.twoFactorEnabled && Boolean(user.twoFactorSecret),
     recoveryCodesRemaining: parseRecoveryHashes(user.twoFactorRecoveryCodes).length,
@@ -159,6 +195,9 @@ export async function getTwoFactorStatus(userId: string) {
 }
 
 export async function beginTwoFactorSetup(userId: string) {
+  if (!(await isTwoFactorEnrollmentAvailable())) {
+    throw new HttpError(403, 'Two-Factor Authentication is temporarily disabled by the administrator.');
+  }
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, username: true, email: true, twoFactorEnabled: true },
@@ -190,6 +229,9 @@ export async function confirmTwoFactorSetup(
   actorName: string,
   ipAddress?: string | null
 ) {
+  if (!(await isTwoFactorEnrollmentAvailable())) {
+    throw new HttpError(403, 'Two-Factor Authentication is temporarily disabled by the administrator.');
+  }
   const user = await prisma.user.findUnique({
     where: { id: userId },
     select: { id: true, username: true, twoFactorSecret: true },
@@ -570,7 +612,7 @@ export async function verifyTerminalUnlock(
 
 export async function getAdminSecurityPosture() {
   const since24h = new Date(Date.now() - 24 * 60 * 60_000);
-  const [users, activeSessionsCount, auditChain, failedLogins24h, recentAlerts, rlsRows] = await Promise.all([
+  const [users, activeSessionsCount, auditChain, failedLogins24h, recentAlerts, rlsRows, twoFactorAvailable] = await Promise.all([
     prisma.user.findMany({
       where: { status: 'ACTIVE' },
       select: { id: true, username: true, role: true, passwordHash: true, twoFactorEnabled: true },
@@ -606,6 +648,7 @@ export async function getAdminSecurityPosture() {
           `SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`
         ) as Promise<Array<{ tablename: string; rowsecurity: boolean }>>)
       : Promise.resolve([]),
+    isTwoFactorEnrollmentAvailable(),
   ]);
 
   const twoFactorEnabledCount = users.filter((u) => u.twoFactorEnabled).length;
@@ -630,7 +673,14 @@ export async function getAdminSecurityPosture() {
     { id: 'audit-chain', label: 'Tamper-Evident Audit Log SHA-256 Chain', ok: auditChain.intact, detail: `${auditChain.checked} entries verified, ${auditChain.tamperedCount} tampered` },
     { id: 'brute-force', label: 'Persistent DB Brute-Force Lockout & Rate Limiting', ok: true, detail: `${failedLogins24h} blocked/failed event(s) in 24h` },
     { id: 'csv-xss', label: 'CSV Formula Injection & Stored HTML XSS Guards', ok: true, detail: 'CWE-1236 & escaped HTML outputs' },
-    { id: 'totp-2fa', label: 'TOTP Authenticator 2FA Enrollment', ok: adminTwoFactorCount > 0, detail: `${twoFactorEnabledCount}/${users.length} active staff enrolled` },
+    {
+      id: 'totp-2fa',
+      label: 'TOTP Authenticator 2FA Enrollment',
+      ok: twoFactorAvailable ? adminTwoFactorCount > 0 : false,
+      detail: twoFactorAvailable
+        ? `${twoFactorEnabledCount}/${users.length} active staff enrolled`
+        : 'Temporarily disabled by administrator (can be turned back on manually)',
+    },
     { id: 'default-passwords', label: 'All Staff Rotated Off Bootstrap Passwords', ok: defaultPasswordAccounts.length === 0, detail: defaultPasswordAccounts.length === 0 ? 'All unique credentials' : `Still using default password: ${defaultPasswordAccounts.join(', ')}` },
     { id: 'env-db', label: 'Dedicated Production DATABASE_URL Configured', ok: databaseUrlConfigured, detail: databaseUrlConfigured ? 'Configured in env' : 'Using fallback URL until rotated' },
     { id: 'env-vault', label: 'Dedicated FIELD_ENCRYPTION_KEY Configured', ok: fieldEncryptionKeyConfigured, detail: fieldEncryptionKeyConfigured ? 'v2 vault key active' : 'Using v1 app-scoped key' },
@@ -640,6 +690,7 @@ export async function getAdminSecurityPosture() {
     provider: isPostgres ? 'postgresql' : 'sqlite',
     rls: { total: rlsTotal, enabled: rlsProtected, allEnabled: rlsTotal > 0 && rlsProtected === rlsTotal },
     auditChain,
+    twoFactorAvailable,
     users: {
       totalActive: users.length,
       twoFactorEnabled: twoFactorEnabledCount,

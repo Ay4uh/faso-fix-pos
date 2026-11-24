@@ -88,10 +88,12 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   // Two-Factor Authentication & Active Sessions State
   const [twoFactorStatus, setTwoFactorStatus] = useState<{
+    available: boolean;
     enabled: boolean;
     hasPendingSetup?: boolean;
     recoveryCodesRemaining: number;
   }>({
+    available: false,
     enabled: Boolean(currentUser?.twoFactorEnabled),
     recoveryCodesRemaining: 0,
   });
@@ -166,7 +168,14 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       ]);
       if (tfRes.ok) {
         const tfJson = await tfRes.json();
-        if (tfJson.data) setTwoFactorStatus(tfJson.data);
+        if (tfJson.data) {
+          setTwoFactorStatus({
+            available: Boolean(tfJson.data.available),
+            enabled: Boolean(tfJson.data.enabled),
+            hasPendingSetup: Boolean(tfJson.data.hasPendingSetup),
+            recoveryCodesRemaining: Number(tfJson.data.recoveryCodesRemaining || 0),
+          });
+        }
       }
       if (sessRes.ok) {
         const sessJson = await sessRes.json();
@@ -349,6 +358,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const handleStartTwoFactorSetup = async () => {
+    if (!twoFactorStatus.available) return;
     setTwoFactorBusy(true);
     setErrorMessage(null);
     try {
@@ -379,7 +389,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       setSetupData(null);
       setConfirmCode('');
       setRecoveryCodes(json.data.recoveryCodes || []);
-      setTwoFactorStatus({ enabled: true, recoveryCodesRemaining: (json.data.recoveryCodes || []).length });
+      setTwoFactorStatus((prev) => ({
+        ...prev,
+        enabled: true,
+        recoveryCodesRemaining: (json.data.recoveryCodes || []).length,
+      }));
       if (currentUser && onUserUpdated) {
         onUserUpdated({ ...currentUser, twoFactorEnabled: true });
       }
@@ -410,7 +424,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         setTwoFactorStatus((s) => ({ ...s, recoveryCodesRemaining: (json.data.recoveryCodes || []).length }));
         triggerToast('Fresh recovery codes generated');
       } else {
-        setTwoFactorStatus({ enabled: false, recoveryCodesRemaining: 0 });
+        setTwoFactorStatus((s) => ({ ...s, enabled: false, recoveryCodesRemaining: 0 }));
         setRecoveryCodes(null);
         if (currentUser && onUserUpdated) {
           onUserUpdated({ ...currentUser, twoFactorEnabled: false });
@@ -830,33 +844,52 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               <div className="p-4 sm:p-5 bg-slate-50 rounded-2xl border border-slate-200 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div className="space-y-0.5">
-                    <div className="flex items-center gap-2">
-                      <ShieldCheck className={`w-4 h-4 ${twoFactorStatus.enabled ? 'text-emerald-600' : 'text-indigo-600'}`} />
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <ShieldCheck className={`w-4 h-4 ${twoFactorStatus.enabled ? 'text-emerald-600' : twoFactorStatus.available ? 'text-indigo-600' : 'text-amber-600'}`} />
                       <span className="text-xs font-bold text-slate-900">Two-Factor Authentication (Authenticator App)</span>
                       <span
                         className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                           twoFactorStatus.enabled
                             ? 'bg-emerald-100 text-emerald-800'
+                            : !twoFactorStatus.available
+                            ? 'bg-amber-100 text-amber-800'
                             : 'bg-slate-200 text-slate-600'
                         }`}
                       >
-                        {twoFactorStatus.enabled ? 'ENABLED' : 'OFF'}
+                        {twoFactorStatus.enabled
+                          ? 'ENABLED'
+                          : !twoFactorStatus.available
+                          ? 'TEMPORARILY UNAVAILABLE'
+                          : 'OFF'}
                       </span>
                     </div>
                     <p className="text-[11px] text-slate-500">
-                      Protect your account with a 6-digit TOTP authenticator code (Google Authenticator, 1Password, Apple Passwords) and single-use recovery codes.
+                      {!twoFactorStatus.enabled && !twoFactorStatus.available
+                        ? 'Two-Factor Authentication is temporarily disabled by your administrator. Sign-ins currently use username and password only.'
+                        : 'Protect your account with a 6-digit TOTP authenticator code (Google Authenticator, 1Password, Apple Passwords) and single-use recovery codes.'}
                     </p>
                   </div>
 
                   {!twoFactorStatus.enabled && !setupData && (
-                    <button
-                      type="button"
-                      disabled={twoFactorBusy}
-                      onClick={handleStartTwoFactorSetup}
-                      className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer shrink-0 disabled:opacity-50"
-                    >
-                      Enable 2FA
-                    </button>
+                    twoFactorStatus.available ? (
+                      <button
+                        type="button"
+                        disabled={twoFactorBusy}
+                        onClick={handleStartTwoFactorSetup}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-xs cursor-pointer shrink-0 disabled:opacity-50"
+                      >
+                        Enable 2FA
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled
+                        aria-disabled="true"
+                        className="px-4 py-2 bg-slate-200 text-slate-500 rounded-xl text-xs font-bold shrink-0 cursor-not-allowed"
+                      >
+                        Temporarily Unavailable
+                      </button>
+                    )
                   )}
 
                   {twoFactorStatus.enabled && manageMode === 'none' && (

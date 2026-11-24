@@ -6238,6 +6238,27 @@ function consumeRecoveryCode(rawCode, hashedJson) {
 	};
 }
 // src/server/securityService.ts
+var TWO_FACTOR_POLICY_ENABLED_ACTION = "TWO_FACTOR_POLICY_ENABLED";
+var TWO_FACTOR_POLICY_DISABLED_ACTION = "TWO_FACTOR_POLICY_DISABLED";
+async function isTwoFactorEnrollmentAvailable() {
+	const latest = await prisma.auditLog.findFirst({
+		where: { action: { in: [TWO_FACTOR_POLICY_ENABLED_ACTION, TWO_FACTOR_POLICY_DISABLED_ACTION] } },
+		orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+		select: { action: true }
+	});
+	if (latest) return latest.action === TWO_FACTOR_POLICY_ENABLED_ACTION;
+	return process.env.ENABLE_2FA === "true";
+}
+async function setTwoFactorEnrollmentAvailability(available, actor, ipAddress) {
+	await recordAudit({
+		userId: actor.id,
+		actorName: actor.name,
+		action: available ? TWO_FACTOR_POLICY_ENABLED_ACTION : TWO_FACTOR_POLICY_DISABLED_ACTION,
+		details: available ? "Administrator enabled Two-Factor Authentication enrollment" : "Administrator temporarily disabled Two-Factor Authentication enrollment",
+		ipAddress
+	});
+	return { available };
+}
 function stripSensitiveUserFields(user) {
 	const { passwordHash: _ph, sin: _sin, twoFactorSecret: _tfs, twoFactorRecoveryCodes: _tfr, twoFactorLastCounter: _tflc, ...safe } = user;
 	return safe;
@@ -6327,22 +6348,24 @@ async function verifyTwoFactorLogin(challengeToken, code, ipAddress, userAgent) 
 	};
 }
 async function getTwoFactorStatus(userId) {
-	const user = await prisma.user.findUnique({
+	const [user, available] = await Promise.all([prisma.user.findUnique({
 		where: { id: userId },
 		select: {
 			twoFactorEnabled: true,
 			twoFactorSecret: true,
 			twoFactorRecoveryCodes: true
 		}
-	});
+	}), isTwoFactorEnrollmentAvailable()]);
 	if (!user) throw new HttpError(404, "User not found");
 	return {
+		available,
 		enabled: Boolean(user.twoFactorEnabled),
 		hasPendingSetup: !user.twoFactorEnabled && Boolean(user.twoFactorSecret),
 		recoveryCodesRemaining: parseRecoveryHashes(user.twoFactorRecoveryCodes).length
 	};
 }
 async function beginTwoFactorSetup(userId) {
+	if (!await isTwoFactorEnrollmentAvailable()) throw new HttpError(403, "Two-Factor Authentication is temporarily disabled by the administrator.");
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
 		select: {
@@ -6370,6 +6393,7 @@ async function beginTwoFactorSetup(userId) {
 	};
 }
 async function confirmTwoFactorSetup(userId, code, actorName, ipAddress) {
+	if (!await isTwoFactorEnrollmentAvailable()) throw new HttpError(403, "Two-Factor Authentication is temporarily disabled by the administrator.");
 	const user = await prisma.user.findUnique({
 		where: { id: userId },
 		select: {
@@ -6656,7 +6680,7 @@ async function verifyTerminalUnlock(userId, password, code, ipAddress) {
 }
 async function getAdminSecurityPosture() {
 	const since24h = /* @__PURE__ */ new Date(Date.now() - 864e5);
-	const [users, activeSessionsCount, auditChain, failedLogins24h, recentAlerts, rlsRows] = await Promise.all([
+	const [users, activeSessionsCount, auditChain, failedLogins24h, recentAlerts, rlsRows, twoFactorAvailable] = await Promise.all([
 		prisma.user.findMany({
 			where: { status: "ACTIVE" },
 			select: {
@@ -6698,7 +6722,8 @@ async function getAdminSecurityPosture() {
 				createdAt: true
 			}
 		}),
-		isPostgres ? prisma.$queryRawUnsafe(`SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`) : Promise.resolve([])
+		isPostgres ? prisma.$queryRawUnsafe(`SELECT tablename, rowsecurity FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename`) : Promise.resolve([]),
+		isTwoFactorEnrollmentAvailable()
 	]);
 	const twoFactorEnabledCount = users.filter((u) => u.twoFactorEnabled).length;
 	const adminUsers = users.filter((u) => u.role === "ADMIN");
@@ -6755,8 +6780,8 @@ async function getAdminSecurityPosture() {
 		{
 			id: "totp-2fa",
 			label: "TOTP Authenticator 2FA Enrollment",
-			ok: adminTwoFactorCount > 0,
-			detail: `${twoFactorEnabledCount}/${users.length} active staff enrolled`
+			ok: twoFactorAvailable ? adminTwoFactorCount > 0 : false,
+			detail: twoFactorAvailable ? `${twoFactorEnabledCount}/${users.length} active staff enrolled` : "Temporarily disabled by administrator (can be turned back on manually)"
 		},
 		{
 			id: "default-passwords",
@@ -6785,6 +6810,7 @@ async function getAdminSecurityPosture() {
 			allEnabled: rlsTotal > 0 && rlsProtected === rlsTotal
 		},
 		auditChain,
+		twoFactorAvailable,
 		users: {
 			totalActive: users.length,
 			twoFactorEnabled: twoFactorEnabledCount,
@@ -7840,6 +7866,17 @@ app.get("/api/admin/security/posture", requireAdmin, wrap(async (_req, res) => {
 	res.json({
 		success: true,
 		data: posture
+	});
+}));
+app.post("/api/admin/security/2fa-availability", requireAdmin, wrap(async (req, res) => {
+	if (typeof req.body?.available !== "boolean") throw new HttpError(400, "Boolean field \"available\" is required.");
+	const data = await setTwoFactorEnrollmentAvailability(req.body.available, {
+		id: req.user.id,
+		name: req.user.name
+	}, getClientIp(req));
+	res.json({
+		success: true,
+		data
 	});
 }));
 app.get("/api/admin/sessions", requireAdmin, wrap(async (req, res) => {
