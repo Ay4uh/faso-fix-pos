@@ -109,7 +109,12 @@ const ticketListSelect = {
   items: { orderBy: { createdAt: 'asc' } },
   payments: { orderBy: { createdAt: 'asc' } },
   events: {
-    where: { kind: { in: ['PRICING', 'APPROVAL'] } },
+    where: {
+      OR: [
+        { kind: { in: ['PRICING', 'APPROVAL'] } },
+        { kind: 'STATUS', message: { startsWith: 'Work order #' } },
+      ],
+    },
     orderBy: { createdAt: 'asc' },
   },
 } satisfies Prisma.TicketSelect;
@@ -120,12 +125,34 @@ const ticketInclude = {
   items: { orderBy: { createdAt: 'asc' } },
   payments: { orderBy: { createdAt: 'asc' } },
   events: {
-    where: { kind: { in: ['PRICING', 'APPROVAL'] } },
+    where: {
+      OR: [
+        { kind: { in: ['PRICING', 'APPROVAL'] } },
+        { kind: 'STATUS', message: { startsWith: 'Work order #' } },
+      ],
+    },
     orderBy: { createdAt: 'asc' },
   },
 } satisfies Prisma.TicketInclude;
 
 type TicketWithRelations = Prisma.TicketGetPayload<{ include: typeof ticketInclude }>;
+
+function extractCreatedBy(t: {
+  events?: Array<{ kind: string; message: string; author?: string | null; createdAt?: Date | string }>;
+  technician?: string | null;
+}): string | null {
+  const events = t.events || [];
+  const creationEvent = events.find(
+    (e) => e.kind === 'STATUS' && /^Work order #\d+.*created/i.test(e.message) && e.author?.trim()
+  );
+  if (creationEvent?.author?.trim()) return creationEvent.author.trim();
+  const sorted = [...events].sort(
+    (a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()
+  );
+  const earliestWithAuthor = sorted.find((e) => e.author?.trim());
+  if (earliestWithAuthor?.author?.trim()) return earliestWithAuthor.author.trim();
+  return t.technician?.trim() || null;
+}
 
 function withTotals<T extends Omit<TicketWithRelations, 'signature'> & { signature?: string | null }>(t: T) {
   let diagnostics: Record<string, 'PASS' | 'FAIL'> = {};
@@ -136,7 +163,8 @@ function withTotals<T extends Omit<TicketWithRelations, 'signature'> & { signatu
   }
   const totals = computeTotals(t);
   const quoteState = deriveTicketQuoteState(t, totals);
-  return { ...t, signature: t.signature ?? null, diagnostics, totals, quoteState };
+  const createdBy = extractCreatedBy(t);
+  return { ...t, signature: t.signature ?? null, diagnostics, totals, quoteState, createdBy };
 }
 
 // ---------------------------------------------------------------------------
@@ -269,6 +297,7 @@ export async function listTicketsPaginated(params: {
       { device: { name: ciContains(q) } },
       { device: { serialNumber: ciContains(q) } },
       { faultDescription: ciContains(q) },
+      { events: { some: { kind: 'STATUS', message: { startsWith: 'Work order #' }, author: ciContains(q) } } },
     ];
     if (/^\d+$/.test(numeric)) or.push({ ticketNumber: Number(numeric) });
     if (digits.length >= 3) or.push({ customer: { phoneDigits: { contains: digits } } });
@@ -315,7 +344,7 @@ export async function listTickets(params: { view?: string; search?: string; benc
 
 const TX_OPTIONS = { maxWait: 15000, timeout: 20000 };
 
-export async function createTicket(input: unknown, actor?: { id?: string; name?: string }) {
+export async function createTicket(input: unknown, actor?: { id?: string; name?: string; username?: string }) {
   const data = createTicketSchema.parse(input);
   const phoneDigits = digitsOnly(data.customer.phone);
 
@@ -404,7 +433,7 @@ export async function createTicket(input: unknown, actor?: { id?: string; name?:
     createdNumber = ticketNumber;
     customerName = customer.fullName;
     deviceName = device.name;
-    const eventAuthor = actor?.name || data.technician;
+    const eventAuthor = actor?.name?.trim() || actor?.username?.trim() || data.technician?.trim() || 'POS Staff';
     await logEvent(
       tx,
       ticket.id,

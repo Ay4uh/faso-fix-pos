@@ -930,7 +930,7 @@ app.get('/api/tickets/:id/print', requireAuth, wrap(async (req, res) => {
 }));
 
 app.post('/api/tickets', requireAuth, wrap(async (req, res) => {
-  const actor = { id: req.user!.id, name: req.user!.name };
+  const actor = { id: req.user!.id, name: req.user!.name, username: req.user!.username };
   const ticket = await createTicket(req.body, actor);
   broadcastLiveEvent('ticket_created', ticket);
   res.status(201).json({ success: true, data: ticket });

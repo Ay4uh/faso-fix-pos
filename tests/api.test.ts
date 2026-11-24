@@ -92,12 +92,15 @@ describe('Authentication & access control', () => {
 
 describe('Tickets', () => {
   let tech = '';
+  let techName = '';
   let admin = '';
   let ticketId = '';
 
   before(async () => {
     tech = await login(TECH);
     admin = await login(ADMIN, true);
+    const me = await call('/api/auth/me', { token: tech });
+    techName = me.json.user.name;
   });
 
   test('technician creates a ticket with optional alt phone', async () => {
@@ -115,6 +118,29 @@ describe('Tickets', () => {
     ticketId = r.json.data.id;
     assert.ok(ticketId);
     assert.equal(r.json.data.customer.altPhone, '(555) 000-2222');
+    assert.equal(r.json.data.createdBy, techName);
+  });
+
+  test('ticket preserves original createdBy after admin edits and is searchable by creator', async () => {
+    const updated = await call(`/api/tickets/${ticketId}`, {
+      method: 'PUT',
+      token: admin,
+      body: { status: 'DIAGNOSING' },
+    });
+    assert.equal(updated.status, 200, JSON.stringify(updated.json));
+    assert.equal(updated.json.data.createdBy, techName);
+
+    const fetched = await call(`/api/tickets/${ticketId}`, { token: tech });
+    assert.equal(fetched.status, 200);
+    assert.equal(fetched.json.data.createdBy, techName);
+
+    const searched = await call(`/api/tickets?view=ALL&search=${encodeURIComponent(techName)}`, {
+      token: tech,
+    });
+    assert.equal(searched.status, 200);
+    const matched = (searched.json.data || []).find((t: any) => t.id === ticketId);
+    assert.ok(matched, 'Ticket should appear when searching by creator name');
+    assert.equal(matched.createdBy, techName);
   });
 
   test('missing required fields are rejected', async () => {

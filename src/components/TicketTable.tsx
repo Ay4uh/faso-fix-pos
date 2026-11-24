@@ -14,6 +14,7 @@ import {
   Trash2,
   ChevronLeft,
   ChevronRight,
+  User as UserIcon,
 } from 'lucide-react';
 import { deriveTicketQuoteState, isTicketPaidInFull } from '../utils/repairPricing';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -263,6 +264,15 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                               </span>
                             )}
                           </div>
+                          {ticket.createdBy && (
+                            <div
+                              className="text-[10px] font-sans font-medium text-slate-500 flex items-center gap-1 mt-0.5 max-w-[110px]"
+                              title={`Created by ${ticket.createdBy}`}
+                            >
+                              <UserIcon className="w-2.5 h-2.5 text-slate-400 shrink-0" />
+                              <span className="truncate">By {ticket.createdBy}</span>
+                            </div>
+                          )}
                         </td>
 
                         {/* Customer */}
@@ -614,6 +624,15 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                       <span className="font-semibold text-slate-800 shrink-0">{ticket.device?.name || 'Device'}</span>
                       <span className="truncate text-slate-500 text-[10px]">{ticket.faultDescription}</span>
                     </div>
+
+                    {ticket.createdBy && (
+                      <div className="text-[10px] text-slate-500 flex items-center gap-1">
+                        <UserIcon className="w-3 h-3 text-slate-400 shrink-0" />
+                        <span>
+                          Created by <strong className="font-semibold text-slate-700">{ticket.createdBy}</strong>
+                        </span>
+                      </div>
+                    )}
 
                     <div className="flex flex-wrap items-center justify-between gap-2 pt-1" onClick={(e) => e.stopPropagation()}>
                       <div>

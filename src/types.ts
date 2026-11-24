@@ -120,6 +120,7 @@ export interface Ticket {
   completedAt?: string | null;
   deletedAt?: string | null;
   isWarranty?: boolean;
+  createdBy?: string | null;
   createdAt: string;
   updatedAt: string;
 

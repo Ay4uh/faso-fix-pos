@@ -852,6 +852,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                     <th className="py-3 px-4">Ticket #</th>
                     <th className="py-3 px-4">Customer</th>
                     <th className="py-3 px-4">Device</th>
+                    <th className="py-3 px-4">Created By</th>
                     <th className="py-3 px-4">Reported Issue</th>
                     <th className="py-3 px-4">Status</th>
                     <th className="py-3 px-4 text-right">Balance</th>
@@ -861,7 +862,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                 <tbody className="divide-y divide-slate-100">
                   {tickets.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="text-center py-12 text-slate-400 italic">
+                      <td colSpan={8} className="text-center py-12 text-slate-400 italic">
                         No work orders found matching your search.
                       </td>
                     </tr>
@@ -887,6 +888,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                             </td>
                             <td className="py-3 px-4">
                               <span className="font-semibold text-slate-800">{ticket.device?.name || 'Device'}</span>
+                            </td>
+                            <td className="py-3 px-4 whitespace-nowrap">
+                              <span className="text-xs font-medium text-slate-700">
+                                {ticket.createdBy || '—'}
+                              </span>
                             </td>
                             <td className="py-3 px-4 max-w-xs truncate text-slate-600" title={ticket.faultDescription}>
                               {ticket.faultDescription}

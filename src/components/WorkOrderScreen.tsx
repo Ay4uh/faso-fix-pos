@@ -879,6 +879,15 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 WO #{ticket.ticketNumber}
               </h1>
               {getStatusBadge()}
+              {ticket.createdBy && (
+                <span
+                  className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 max-w-[240px] whitespace-nowrap"
+                  title={`Created by ${ticket.createdBy}`}
+                >
+                  <span className="text-slate-400 shrink-0">Created by</span>
+                  <span className="text-slate-800 truncate">{ticket.createdBy}</span>
+                </span>
+              )}
             </div>
 
             {/* Quick Status Dropdown (6-Stage Pipeline) */}
@@ -1115,6 +1124,15 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 <span className="text-slate-500">Intake Date:</span>
                 <span className="font-mono text-slate-800 font-semibold">
                   {new Date(ticket.createdAt).toLocaleDateString()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-slate-500 shrink-0">Created By:</span>
+                <span
+                  className="font-semibold text-slate-800 truncate max-w-[175px] text-right"
+                  title={ticket.createdBy || 'Unknown'}
+                >
+                  {ticket.createdBy || 'Unknown'}
                 </span>
               </div>
               <div className="flex justify-between items-center">

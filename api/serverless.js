@@ -801,7 +801,10 @@ var ticketListSelect = {
 	items: { orderBy: { createdAt: "asc" } },
 	payments: { orderBy: { createdAt: "asc" } },
 	events: {
-		where: { kind: { in: ["PRICING", "APPROVAL"] } },
+		where: { OR: [{ kind: { in: ["PRICING", "APPROVAL"] } }, {
+			kind: "STATUS",
+			message: { startsWith: "Work order #" }
+		}] },
 		orderBy: { createdAt: "asc" }
 	}
 };
@@ -811,10 +814,21 @@ var ticketInclude = {
 	items: { orderBy: { createdAt: "asc" } },
 	payments: { orderBy: { createdAt: "asc" } },
 	events: {
-		where: { kind: { in: ["PRICING", "APPROVAL"] } },
+		where: { OR: [{ kind: { in: ["PRICING", "APPROVAL"] } }, {
+			kind: "STATUS",
+			message: { startsWith: "Work order #" }
+		}] },
 		orderBy: { createdAt: "asc" }
 	}
 };
+function extractCreatedBy(t) {
+	const events = t.events || [];
+	const creationEvent = events.find((e) => e.kind === "STATUS" && /^Work order #\d+.*created/i.test(e.message) && e.author?.trim());
+	if (creationEvent?.author?.trim()) return creationEvent.author.trim();
+	const earliestWithAuthor = [...events].sort((a, b) => new Date(a.createdAt || 0).getTime() - new Date(b.createdAt || 0).getTime()).find((e) => e.author?.trim());
+	if (earliestWithAuthor?.author?.trim()) return earliestWithAuthor.author.trim();
+	return t.technician?.trim() || null;
+}
 function withTotals(t) {
 	let diagnostics = {};
 	try {
@@ -824,12 +838,14 @@ function withTotals(t) {
 	}
 	const totals = computeTotals(t);
 	const quoteState = deriveTicketQuoteState(t, totals);
+	const createdBy = extractCreatedBy(t);
 	return {
 		...t,
 		signature: t.signature ?? null,
 		diagnostics,
 		totals,
-		quoteState
+		quoteState,
+		createdBy
 	};
 }
 var settingsInFlight = null;
@@ -951,7 +967,12 @@ async function listTicketsPaginated(params) {
 			{ customer: { fullName: ciContains(q) } },
 			{ device: { name: ciContains(q) } },
 			{ device: { serialNumber: ciContains(q) } },
-			{ faultDescription: ciContains(q) }
+			{ faultDescription: ciContains(q) },
+			{ events: { some: {
+				kind: "STATUS",
+				message: { startsWith: "Work order #" },
+				author: ciContains(q)
+			} } }
 		];
 		if (/^\d+$/.test(numeric)) or.push({ ticketNumber: Number(numeric) });
 		if (digits.length >= 3) or.push({ customer: { phoneDigits: { contains: digits } } });
@@ -1065,7 +1086,7 @@ async function createTicket(input, actor) {
 		createdNumber = ticketNumber;
 		customerName = customer.fullName;
 		deviceName = device.name;
-		const eventAuthor = actor?.name || data.technician;
+		const eventAuthor = actor?.name?.trim() || actor?.username?.trim() || data.technician?.trim() || "POS Staff";
 		await logEvent(tx, ticket.id, "STATUS", `Work order #${ticketNumber}${data.isWarranty ? " (WARRANTY)" : ""} created for ${device.name}`, eventAuthor);
 		const createdItems = [];
 		if (data.initialItems?.length) for (const item of data.initialItems) {
@@ -8030,7 +8051,8 @@ app.get("/api/tickets/:id/print", requireAuth, wrap(async (req, res) => {
 app.post("/api/tickets", requireAuth, wrap(async (req, res) => {
 	const actor = {
 		id: req.user.id,
-		name: req.user.name
+		name: req.user.name,
+		username: req.user.username
 	};
 	const ticket = await createTicket(req.body, actor);
 	broadcastLiveEvent("ticket_created", ticket);
