@@ -30,6 +30,7 @@ import { fetchWithAuth } from '../utils/auth';
 import { printDeviceStickerLabel } from '../utils/receipt';
 import { SignaturePad } from './SignaturePad';
 import { PatternLockModal, PatternLockPreview } from './PatternLockModal';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface InventoryItem {
   id: string;
@@ -131,6 +132,17 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const [paymentIdempotencyKey, setPaymentIdempotencyKey] = useState('');
   const [isTogglingWarranty, setIsTogglingWarranty] = useState(false);
   const [isRefunding, setIsRefunding] = useState(false);
+  const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
+  const [refundAmount, setRefundAmount] = useState('');
+  const [refundReason, setRefundReason] = useState('Customer refund');
+  const [refundError, setRefundError] = useState<string | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<
+    | { type: 'item'; itemId: string; itemDesc: string }
+    | { type: 'note'; noteId: string; preview: string }
+    | { type: 'payment'; paymentId: string; amountCents: number }
+    | null
+  >(null);
+  const [isConfirmBusy, setIsConfirmBusy] = useState(false);
   const newPaymentKey = () => `pay-${ticket.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
   const [isDepositModalOpen, setIsDepositModalOpen] = useState(false);
@@ -315,8 +327,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
-  const handleDeleteNote = async (noteId: string) => {
-    if (!window.confirm('Are you sure you want to delete this note?')) return;
+  const handleDeleteNote = (noteId: string, preview = '') => {
+    setPendingConfirm({ type: 'note', noteId, preview });
+  };
+
+  const executeDeleteNote = async (noteId: string) => {
     try {
       setIsDeletingNoteId(noteId);
       const res = await fetchWithAuth(`/api/tickets/${ticket.id}/notes/${noteId}`, {
@@ -448,8 +463,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
-  const handleVoidPayment = async (paymentId: string, amountCents: number) => {
-    if (!window.confirm(`Void payment of $${(amountCents / 100).toFixed(2)}?`)) return;
+  const handleVoidPayment = (paymentId: string, amountCents: number) => {
+    setPendingConfirm({ type: 'payment', paymentId, amountCents });
+  };
+
+  const executeVoidPayment = async (paymentId: string) => {
     try {
       setIsVoidingPaymentId(paymentId);
       const res = await fetchWithAuth(`/api/tickets/${ticket.id}/payments/${paymentId}`, {
@@ -466,19 +484,29 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
-  const handleIssueRefund = async () => {
+  const handleIssueRefund = () => {
     const netPaidDollars = (totals.paidCents / 100).toFixed(2);
-    const amountStr = window.prompt(`Enter refund amount (max $${netPaidDollars}):`, netPaidDollars);
-    if (!amountStr) return;
-    const amountVal = parseFloat(amountStr);
-    if (!amountVal || amountVal <= 0) {
-      alert('Invalid refund amount');
+    setRefundAmount(netPaidDollars);
+    setRefundReason('Customer refund');
+    setRefundError(null);
+    setIsRefundModalOpen(true);
+  };
+
+  const submitRefund = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const amountVal = parseFloat(refundAmount);
+    const maxDollars = totals.paidCents / 100;
+    if (!amountVal || amountVal <= 0 || amountVal > maxDollars + 0.001) {
+      setRefundError(`Enter a valid refund amount between $0.01 and $${maxDollars.toFixed(2)}`);
       return;
     }
-    const reason = window.prompt('Reason for refund:', 'Customer refund');
-    if (!reason || !reason.trim()) return;
+    if (!refundReason.trim()) {
+      setRefundError('Please enter a reason for the refund');
+      return;
+    }
 
     setIsRefunding(true);
+    setRefundError(null);
     try {
       const key = `ref-${ticket.id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
       const res = await fetchWithAuth(`/api/tickets/${ticket.id}/refund`, {
@@ -487,7 +515,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         body: JSON.stringify({
           amountCents: Math.round(amountVal * 100),
           method: 'CARD',
-          reason: reason.trim(),
+          reason: refundReason.trim(),
           idempotencyKey: key,
         }),
       });
@@ -495,8 +523,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       const json = await res.json();
       if (json.data) applyTicketUpdate(json.data);
       posAudio.playWarningBeep();
+      setIsRefundModalOpen(false);
     } catch (err: any) {
-      alert(err?.message || 'Could not process refund');
+      setRefundError(err?.message || 'Could not process refund');
     } finally {
       setIsRefunding(false);
     }
@@ -583,9 +612,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
-  const handleRemoveItem = async (itemId: string, itemDesc: string) => {
-    if (!window.confirm(`Remove "${itemDesc}" from work order?`)) return;
+  const handleRemoveItem = (itemId: string, itemDesc: string) => {
+    setPendingConfirm({ type: 'item', itemId, itemDesc });
+  };
 
+  const executeRemoveItem = async (itemId: string) => {
     try {
       const res = await fetchWithAuth(`/api/tickets/${ticket.id}/items/${itemId}`, {
         method: 'DELETE',
@@ -1599,7 +1630,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                                       </button>
                                       <button
                                         type="button"
-                                        onClick={() => handleDeleteNote(ev.id)}
+                                        onClick={() => handleDeleteNote(ev.id, ev.message)}
                                         disabled={isDeletingNoteId === ev.id}
                                         className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition"
                                         title="Delete note"
@@ -2327,44 +2358,172 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         </div>
       )}
 
-      {/* Confirmation Modal for Admin Ticket Deletion */}
-      {isDeleteConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
-          <div className="bg-white rounded-2xl p-5 sm:p-6 max-w-sm w-full max-h-[90dvh] overflow-y-auto my-auto space-y-4 shadow-2xl border border-red-200">
-            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
-              <Trash2 className="w-6 h-6" />
-            </div>
-            <div className="text-center space-y-1">
-              <h3 className="text-base font-bold text-slate-900">
-                Delete Work Order #{ticket.ticketNumber}?
+      {/* ========================================================
+          ISSUE REFUND MODAL (ADMIN)
+         ======================================================== */}
+      {isRefundModalOpen && (
+        <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-sm w-full max-h-[90dvh] overflow-y-auto my-auto p-4 sm:p-5 shadow-2xl border border-rose-200 space-y-4 animate-in zoom-in-95">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                <RotateCcw className="w-4 h-4 text-rose-600" />
+                Issue Payment Refund?
               </h3>
-              <p className="text-xs text-slate-500">
-                Only shop administrators are permitted to delete work orders. All attached items, payments, and diagnostics will be removed.
-              </p>
-            </div>
-            <div className="flex items-center space-x-2 pt-2">
               <button
                 type="button"
-                onClick={() => setIsDeleteConfirmOpen(false)}
-                className="flex-1 py-2 border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-semibold cursor-pointer"
+                onClick={() => setIsRefundModalOpen(false)}
+                className="p-1 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
               >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (onDeleteTicket) onDeleteTicket(ticket.id);
-                  setIsDeleteConfirmOpen(false);
-                  onClose();
-                }}
-                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Confirm Delete
+                <X className="w-4 h-4" />
               </button>
             </div>
+
+            {refundError && (
+              <div className="p-2.5 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg font-medium">
+                {refundError}
+              </div>
+            )}
+
+            <form onSubmit={submitRefund} className="space-y-3 text-xs">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Refund Amount (USD/CAD, max ${(totals.paidCents / 100).toFixed(2)})
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  max={(totals.paidCents / 100).toFixed(2)}
+                  required
+                  value={refundAmount}
+                  onChange={(e) => setRefundAmount(e.target.value)}
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg font-mono text-xs focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                  Reason for Refund *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={refundReason}
+                  onChange={(e) => setRefundReason(e.target.value)}
+                  placeholder="Enter reason for refund"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:outline-none focus:border-rose-500"
+                />
+              </div>
+
+              <div className="pt-2 grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsRefundModalOpen(false)}
+                  disabled={isRefunding}
+                  className="min-h-[40px] px-3 py-2 text-xs font-bold border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl transition cursor-pointer"
+                >
+                  No, Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isRefunding || !refundReason.trim()}
+                  className="min-h-[40px] px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
+                >
+                  {isRefunding ? 'Refunding...' : 'Yes, Issue Refund'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
+
+      {/* Confirmation Dialog for In-Ticket Destructive Actions */}
+      <ConfirmDialog
+        isOpen={Boolean(pendingConfirm)}
+        title={
+          pendingConfirm?.type === 'item'
+            ? 'Remove line item?'
+            : pendingConfirm?.type === 'note'
+            ? 'Delete this note?'
+            : pendingConfirm?.type === 'payment'
+            ? `Void payment of $${(pendingConfirm.amountCents / 100).toFixed(2)}?`
+            : ''
+        }
+        message={
+          pendingConfirm?.type === 'item' ? (
+            <>
+              Are you sure you want to remove <strong className="text-slate-900">{pendingConfirm.itemDesc}</strong>{' '}
+              from work order #{ticket.ticketNumber}?
+            </>
+          ) : pendingConfirm?.type === 'note' ? (
+            <>
+              Are you sure you want to permanently delete this note?
+              {pendingConfirm.preview && (
+                <span className="block mt-1.5 px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-600 italic truncate">
+                  &ldquo;{pendingConfirm.preview.slice(0, 80)}&rdquo;
+                </span>
+              )}
+            </>
+          ) : pendingConfirm?.type === 'payment' ? (
+            <>
+              Are you sure you want to void this{' '}
+              <strong className="text-slate-900">${(pendingConfirm.amountCents / 100).toFixed(2)}</strong>{' '}
+              payment entry?
+            </>
+          ) : null
+        }
+        confirmLabel={
+          pendingConfirm?.type === 'item'
+            ? 'Yes, Remove Item'
+            : pendingConfirm?.type === 'note'
+            ? 'Yes, Delete Note'
+            : 'Yes, Void Payment'
+        }
+        cancelLabel={
+          pendingConfirm?.type === 'item'
+            ? 'No, Keep Item'
+            : pendingConfirm?.type === 'note'
+            ? 'No, Keep Note'
+            : 'No, Keep Payment'
+        }
+        requireAcknowledge={pendingConfirm?.type === 'payment'}
+        acknowledgeLabel="Yes, I am sure I want to void this payment"
+        isProcessing={isConfirmBusy}
+        onCancel={() => setPendingConfirm(null)}
+        onConfirm={async () => {
+          if (!pendingConfirm) return;
+          setIsConfirmBusy(true);
+          try {
+            if (pendingConfirm.type === 'item') {
+              await executeRemoveItem(pendingConfirm.itemId);
+            } else if (pendingConfirm.type === 'note') {
+              await executeDeleteNote(pendingConfirm.noteId);
+            } else if (pendingConfirm.type === 'payment') {
+              await executeVoidPayment(pendingConfirm.paymentId);
+            }
+            setPendingConfirm(null);
+          } finally {
+            setIsConfirmBusy(false);
+          }
+        }}
+      />
+
+      {/* Confirmation Modal for Admin Ticket Deletion */}
+      <ConfirmDialog
+        isOpen={isDeleteConfirmOpen}
+        title={`Delete Work Order #${ticket.ticketNumber}?`}
+        message="Only shop administrators are permitted to delete work orders. All attached items, payments, and diagnostics will be permanently removed."
+        confirmLabel="Yes, Delete Permanently"
+        cancelLabel="No, Keep Ticket"
+        requireAcknowledge={true}
+        acknowledgeLabel="Yes, I am sure I want to permanently delete this work order"
+        onCancel={() => setIsDeleteConfirmOpen(false)}
+        onConfirm={() => {
+          if (onDeleteTicket) onDeleteTicket(ticket.id);
+          setIsDeleteConfirmOpen(false);
+          onClose();
+        }}
+      />
       {/* Interactive 3x3 Android Pattern Lock Modal */}
       <PatternLockModal
         isOpen={isPatternModalOpen}

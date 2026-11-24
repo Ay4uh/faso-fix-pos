@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
+import { ConfirmDialog } from './ConfirmDialog';
 
 export interface InventoryItem {
   id: string;
@@ -50,6 +51,8 @@ export const InventoryView: React.FC = () => {
   const [isPoModalOpen, setIsPoModalOpen] = useState(false);
   const [poSupplierFilter, setPoSupplierFilter] = useState('ALL');
   const [poQuantities, setPoQuantities] = useState<Record<string, number>>({});
+  const [deletingPart, setDeletingPart] = useState<{ id: string; name: string } | null>(null);
+  const [isDeletingPart, setIsDeletingPart] = useState(false);
 
   const handleOpenPoModal = () => {
     const initial: Record<string, number> = {};
@@ -270,17 +273,25 @@ export const InventoryView: React.FC = () => {
     }
   };
 
-  const handleDeletePart = async (partId: string, partName: string) => {
-    if (!window.confirm(`Delete ${partName} from inventory catalog?`)) return;
+  const handleDeletePart = (partId: string, partName: string) => {
+    setDeletingPart({ id: partId, name: partName });
+  };
+
+  const executeDeletePart = async () => {
+    if (!deletingPart) return;
+    setIsDeletingPart(true);
     try {
-      const res = await fetchWithAuth(`/api/inventory/${partId}`, { method: 'DELETE' });
+      const res = await fetchWithAuth(`/api/inventory/${deletingPart.id}`, { method: 'DELETE' });
       if (!res.ok) {
         const json = await res.json();
         throw new Error(json.error || 'Delete failed');
       }
+      setDeletingPart(null);
       fetchInventory();
     } catch (err: any) {
       alert(err.message || 'Could not delete part');
+    } finally {
+      setIsDeletingPart(false);
     }
   };
 
@@ -781,6 +792,24 @@ export const InventoryView: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(deletingPart)}
+        title="Delete Inventory Part?"
+        message={
+          deletingPart && (
+            <>
+              Are you sure you want to delete <strong className="text-slate-900">{deletingPart.name}</strong>{' '}
+              from the inventory catalog?
+            </>
+          )
+        }
+        confirmLabel="Yes, Delete Part"
+        cancelLabel="No, Keep Part"
+        isProcessing={isDeletingPart}
+        onCancel={() => setDeletingPart(null)}
+        onConfirm={executeDeletePart}
+      />
     </div>
   );
 };

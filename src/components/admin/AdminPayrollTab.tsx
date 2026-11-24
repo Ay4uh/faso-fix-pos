@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { fetchWithAuth } from '../../utils/auth';
 import { PaystubModal } from '../PaystubModal';
+import { ConfirmDialog } from '../ConfirmDialog';
 
 export const AdminPayrollTab: React.FC = () => {
   const [overview, setOverview] = useState<any | null>(null);
@@ -41,6 +42,7 @@ export const AdminPayrollTab: React.FC = () => {
   const [editBonusCents, setEditBonusCents] = useState(0);
   const [editOtherDeductionsCents, setEditOtherDeductionsCents] = useState(0);
   const [editNotes, setEditNotes] = useState('');
+  const [finalizingPeriodId, setFinalizingPeriodId] = useState<string | null>(null);
 
   useEffect(() => {
     loadPayrollOverview();
@@ -160,11 +162,13 @@ export const AdminPayrollTab: React.FC = () => {
     }
   };
 
-  const handleFinalizePeriod = async (periodId: string) => {
-    const ok = window.confirm(
-      'FINALIZATION & LOCK NOTICE:\n\nFinalizing this payroll period will permanently lock all paystubs against ordinary modification and release official statements to employee portals. Are you sure you wish to proceed?'
-    );
-    if (!ok) return;
+  const handleFinalizePeriod = (periodId: string) => {
+    setFinalizingPeriodId(periodId);
+  };
+
+  const executeFinalizePeriod = async () => {
+    if (!finalizingPeriodId) return;
+    const periodId = finalizingPeriodId;
 
     setLoading(true);
     try {
@@ -174,6 +178,7 @@ export const AdminPayrollTab: React.FC = () => {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Failed to finalize period');
 
+      setFinalizingPeriodId(null);
       setToastMsg('Payroll period successfully finalized and locked against edits.');
       await loadPeriods();
       await loadPayrollOverview();
@@ -784,6 +789,20 @@ export const AdminPayrollTab: React.FC = () => {
           onClose={() => setSelectedPaystub(null)}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(finalizingPeriodId)}
+        tone="warning"
+        title="Finalize & Lock Payroll Period?"
+        message="Finalizing this payroll period will permanently lock all paystubs against edits and release official statements to staff portals. Are you sure you want to proceed?"
+        confirmLabel="Yes, Finalize & Lock"
+        cancelLabel="No, Keep Draft"
+        requireAcknowledge={true}
+        acknowledgeLabel="Yes, I am sure — lock this payroll period permanently"
+        isProcessing={loading}
+        onCancel={() => setFinalizingPeriodId(null)}
+        onConfirm={executeFinalizePeriod}
+      />
     </div>
   );
 };

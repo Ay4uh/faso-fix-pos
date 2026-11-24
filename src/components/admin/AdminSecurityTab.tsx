@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { fetchWithAuth } from '../../utils/auth';
 import { posAudio } from '../../utils/audio';
+import { ConfirmDialog } from '../ConfirmDialog';
 
 interface PostureControl {
   id: string;
@@ -71,6 +72,11 @@ export const AdminSecurityTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [pendingSessionAction, setPendingSessionAction] = useState<
+    | { type: 'kick'; sessionId: string; device: string; username: string }
+    | { type: 'logoutAll'; userId: string; username: string }
+    | null
+  >(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -331,7 +337,14 @@ export const AdminSecurityTab: React.FC = () => {
                           <button
                             type="button"
                             disabled={busyId === s.id}
-                            onClick={() => handleRevokeSession(s.id)}
+                            onClick={() =>
+                              setPendingSessionAction({
+                                type: 'kick',
+                                sessionId: s.id,
+                                device: s.device,
+                                username: s.user.username,
+                              })
+                            }
                             className="px-2.5 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 text-[11px] font-bold inline-flex items-center gap-1 cursor-pointer disabled:opacity-50"
                           >
                             <LogOut className="w-3 h-3" />
@@ -341,7 +354,13 @@ export const AdminSecurityTab: React.FC = () => {
                         <button
                           type="button"
                           disabled={busyId === `user:${s.user.id}`}
-                          onClick={() => handleForceLogoutUser(s.user.id, s.user.username)}
+                          onClick={() =>
+                            setPendingSessionAction({
+                              type: 'logoutAll',
+                              userId: s.user.id,
+                              username: s.user.username,
+                            })
+                          }
                           className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold cursor-pointer disabled:opacity-50"
                         >
                           Logout All
@@ -387,6 +406,46 @@ export const AdminSecurityTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingSessionAction)}
+        tone="warning"
+        title={
+          pendingSessionAction?.type === 'kick'
+            ? 'Terminate Active Session?'
+            : pendingSessionAction
+            ? `Sign Out All Sessions for @${pendingSessionAction.username}?`
+            : ''
+        }
+        message={
+          pendingSessionAction?.type === 'kick' ? (
+            <>
+              Are you sure you want to terminate <strong className="text-slate-900">{pendingSessionAction.device}</strong>{' '}
+              for @{pendingSessionAction.username}?
+            </>
+          ) : pendingSessionAction ? (
+            <>
+              Are you sure you want to sign out every active session for{' '}
+              <strong className="text-slate-900">@{pendingSessionAction.username}</strong>?
+            </>
+          ) : null
+        }
+        confirmLabel={
+          pendingSessionAction?.type === 'kick' ? 'Yes, Terminate' : 'Yes, Sign Out All'
+        }
+        cancelLabel="No, Cancel"
+        isProcessing={Boolean(busyId)}
+        onCancel={() => setPendingSessionAction(null)}
+        onConfirm={async () => {
+          if (!pendingSessionAction) return;
+          if (pendingSessionAction.type === 'kick') {
+            await handleRevokeSession(pendingSessionAction.sessionId);
+          } else {
+            await handleForceLogoutUser(pendingSessionAction.userId, pendingSessionAction.username);
+          }
+          setPendingSessionAction(null);
+        }}
+      />
     </div>
   );
 };

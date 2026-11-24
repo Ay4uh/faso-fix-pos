@@ -1,5 +1,6 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { Eraser, PenTool } from 'lucide-react';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface SignaturePadProps {
   initialSignature?: string | null;
@@ -19,6 +20,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [hasSignature, setHasSignature] = useState(!!initialSignature);
+  const [isClearConfirmOpen, setIsClearConfirmOpen] = useState(false);
 
   // Setup canvas size with DPI scaling
   useEffect(() => {
@@ -148,7 +150,7 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
             {hasSignature && (
               <button
                 type="button"
-                onClick={handleClear}
+                onClick={() => setIsClearConfirmOpen(true)}
                 className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-slate-600 bg-white/90 hover:bg-slate-100 rounded-md border border-slate-200 shadow-2xs transition-colors cursor-pointer"
                 title="Clear Signature"
               >
@@ -163,6 +165,19 @@ export const SignaturePad: React.FC<SignaturePadProps> = ({
       <p className="text-[10px] text-slate-400 leading-tight">
         Authorized customer signature confirms device intake condition and diagnostic authorization.
       </p>
+
+      <ConfirmDialog
+        isOpen={isClearConfirmOpen}
+        title="Clear customer signature?"
+        message="Are you sure you want to remove this saved customer authorization signature?"
+        confirmLabel="Yes, Clear Signature"
+        cancelLabel="No, Keep Signature"
+        onCancel={() => setIsClearConfirmOpen(false)}
+        onConfirm={() => {
+          handleClear();
+          setIsClearConfirmOpen(false);
+        }}
+      />
     </div>
   );
 };

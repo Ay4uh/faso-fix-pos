@@ -9,6 +9,7 @@ import {
   X,
 } from 'lucide-react';
 import { fetchWithAuth } from '../../utils/auth';
+import { ConfirmDialog } from '../ConfirmDialog';
 
 export const AdminAttendanceTab: React.FC = () => {
   const [liveRoster, setLiveRoster] = useState<any[]>([]);
@@ -27,6 +28,8 @@ export const AdminAttendanceTab: React.FC = () => {
   // Modals
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingShift, setEditingShift] = useState<any | null>(null);
+  const [deletingShift, setDeletingShift] = useState<any | null>(null);
+  const [isDeletingShift, setIsDeletingShift] = useState(false);
 
   // Form states for manual add/edit
   const [formUserId, setFormUserId] = useState('');
@@ -178,10 +181,9 @@ export const AdminAttendanceTab: React.FC = () => {
     }
   };
 
-  const handleDeleteShift = async (shiftId: string) => {
-    const reason = prompt('Please enter the reason for deleting this attendance record:');
+  const executeDeleteShift = async (shiftId: string, reason: string) => {
     if (!reason || !reason.trim()) return;
-
+    setIsDeletingShift(true);
     try {
       const res = await fetchWithAuth(`/api/admin/attendance/shifts/${shiftId}`, {
         method: 'DELETE',
@@ -192,11 +194,14 @@ export const AdminAttendanceTab: React.FC = () => {
         const json = await res.json();
         throw new Error(json.error || 'Failed to delete shift');
       }
+      setDeletingShift(null);
       setToastMsg('Shift deleted and logged to audit log.');
       await loadShifts();
       await loadLiveRoster();
     } catch (err: any) {
       setErrorMsg(err.message || 'Error deleting shift');
+    } finally {
+      setIsDeletingShift(false);
     }
   };
 
@@ -498,7 +503,7 @@ export const AdminAttendanceTab: React.FC = () => {
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
                           <button
-                            onClick={() => handleDeleteShift(s.id)}
+                            onClick={() => setDeletingShift(s)}
                             title="Delete shift"
                             className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition cursor-pointer"
                           >
@@ -711,6 +716,38 @@ export const AdminAttendanceTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(deletingShift)}
+        title="Delete Attendance Record?"
+        message={
+          deletingShift && (
+            <>
+              Are you sure you want to delete the attendance record for{' '}
+              <strong className="text-slate-900">{deletingShift.user?.name || 'Technician'}</strong>{' '}
+              on{' '}
+              <strong className="text-slate-900">
+                {new Date(deletingShift.clockIn).toLocaleDateString('en-CA')}
+              </strong>{' '}
+              ({new Date(deletingShift.clockIn).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})?
+            </>
+          )
+        }
+        requireReason={true}
+        reasonLabel="Audit Reason for Deletion *"
+        reasonPlaceholder="Explain why this attendance record is being removed"
+        requireAcknowledge={true}
+        acknowledgeLabel="Yes, I am sure I want to permanently delete this attendance shift"
+        confirmLabel="Yes, Delete Shift"
+        cancelLabel="No, Keep Shift"
+        isProcessing={isDeletingShift}
+        onCancel={() => setDeletingShift(null)}
+        onConfirm={(reason) => {
+          if (deletingShift && reason) {
+            executeDeleteShift(deletingShift.id, reason);
+          }
+        }}
+      />
     </div>
   );
 };

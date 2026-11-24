@@ -24,6 +24,7 @@ import {
 import { fetchWithAuth } from '../../utils/auth';
 import { posAudio } from '../../utils/audio';
 import { User } from '../../types';
+import { ConfirmDialog } from '../ConfirmDialog';
 
 interface ScheduledShift {
   id: string;
@@ -173,6 +174,8 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
   const [savedWithWarnings, setSavedWithWarnings] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [actionMessage, setActionMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [deletingShift, setDeletingShift] = useState<ScheduledShift | null>(null);
+  const [isDeletingShift, setIsDeletingShift] = useState(false);
 
   const activeUsers = users.filter((u) => u.status !== 'DISABLED');
 
@@ -389,12 +392,13 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
     }
   };
 
-  const handleDeleteShift = async (shiftId: string) => {
-    if (!window.confirm('Are you sure you want to cancel and remove this shift from the schedule?')) return;
+  const executeDeleteShift = async (shiftId: string) => {
+    setIsDeletingShift(true);
     try {
       const res = await fetchWithAuth(`/api/schedules/${shiftId}`, { method: 'DELETE' });
       if (res.ok) {
         posAudio.playSuccessChime();
+        setDeletingShift(null);
         setActionMessage({ type: 'success', text: 'Shift removed from calendar.' });
         loadShifts();
       } else {
@@ -402,6 +406,8 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
       }
     } catch (err: any) {
       setActionMessage({ type: 'error', text: err.message });
+    } finally {
+      setIsDeletingShift(false);
     }
   };
 
@@ -999,7 +1005,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                                 <Edit2 className="w-3 h-3" />
                               </button>
                               <button
-                                onClick={() => handleDeleteShift(shift.id)}
+                                onClick={() => setDeletingShift(shift)}
                                 title="Delete shift"
                                 className="p-1 text-slate-400 hover:text-rose-600 rounded cursor-pointer"
                               >
@@ -1283,7 +1289,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                             <Edit2 className="w-4 h-4" />
                           </button>
                           <button
-                            onClick={() => handleDeleteShift(shift.id)}
+                            onClick={() => setDeletingShift(shift)}
                             className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg cursor-pointer"
                             title="Delete"
                           >
@@ -1385,7 +1391,7 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
                         <Edit2 className="w-3.5 h-3.5" />
                       </button>
                       <button
-                        onClick={() => handleDeleteShift(s.id)}
+                        onClick={() => setDeletingShift(s)}
                         className="p-1 text-slate-400 hover:text-rose-600 cursor-pointer"
                         title="Delete"
                       >
@@ -1879,6 +1885,28 @@ export const AdminScheduleTab: React.FC<AdminScheduleTabProps> = ({ users }) => 
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        isOpen={Boolean(deletingShift)}
+        title="Remove Scheduled Shift?"
+        message={
+          deletingShift && (
+            <>
+              Are you sure you want to remove{' '}
+              <strong className="text-slate-900">{deletingShift.user?.name || 'Technician'}</strong>&apos;s
+              shift on <strong className="text-slate-900">{deletingShift.shiftDate.slice(0, 10)}</strong> (
+              {deletingShift.startTime} – {deletingShift.endTime})?
+            </>
+          )
+        }
+        confirmLabel="Yes, Remove Shift"
+        cancelLabel="No, Keep Shift"
+        isProcessing={isDeletingShift}
+        onCancel={() => setDeletingShift(null)}
+        onConfirm={() => {
+          if (deletingShift) executeDeleteShift(deletingShift.id);
+        }}
+      />
     </div>
   );
 };

@@ -37,6 +37,7 @@ import { AdminPayrollTab } from './admin/AdminPayrollTab';
 import { AdminScheduleTab } from './admin/AdminScheduleTab';
 import { AdminSalesLaborTab } from './admin/AdminSalesLaborTab';
 import { AdminSecurityTab } from './admin/AdminSecurityTab';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface AdminDashboardProps {
   currentUser: User;
@@ -90,6 +91,11 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
   const [passwordResetUser, setPasswordResetUser] = useState<User | null>(null);
   const [deletingUser, setDeletingUser] = useState<User | null>(null);
   const [deletingTicket, setDeletingTicket] = useState<Ticket | null>(null);
+  const [pendingUserAction, setPendingUserAction] = useState<{
+    type: 'toggleStatus' | 'forceLogout' | 'reset2fa';
+    user: User;
+  } | null>(null);
+  const [isProcessingConfirm, setIsProcessingConfirm] = useState(false);
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -222,6 +228,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
 
   const handleDeleteUser = async () => {
     if (!deletingUser) return;
+    setIsProcessingConfirm(true);
     try {
       const res = await fetchWithAuth(`/api/admin/users/${deletingUser.id}`, {
         method: 'DELETE',
@@ -237,6 +244,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } catch (err: any) {
       posAudio.playWarningBeep();
       showToast(`Delete Error: ${err.message}`);
+    } finally {
+      setIsProcessingConfirm(false);
     }
   };
 
@@ -271,8 +280,26 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     }
   };
 
+  const executePendingUserAction = async () => {
+    if (!pendingUserAction) return;
+    setIsProcessingConfirm(true);
+    try {
+      if (pendingUserAction.type === 'toggleStatus') {
+        await handleToggleStatus(pendingUserAction.user);
+      } else if (pendingUserAction.type === 'forceLogout') {
+        await handleForceLogoutUser(pendingUserAction.user);
+      } else if (pendingUserAction.type === 'reset2fa') {
+        await handleAdminResetTwoFactor(pendingUserAction.user);
+      }
+      setPendingUserAction(null);
+    } finally {
+      setIsProcessingConfirm(false);
+    }
+  };
+
   const handleDeleteTicket = async () => {
     if (!deletingTicket) return;
+    setIsProcessingConfirm(true);
     try {
       const res = await fetchWithAuth(`/api/tickets/${deletingTicket.id}`, {
         method: 'DELETE',
@@ -288,6 +315,8 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
     } catch (err: any) {
       posAudio.playWarningBeep();
       showToast(`Delete Error: ${err.message}`);
+    } finally {
+      setIsProcessingConfirm(false);
     }
   };
 
@@ -685,7 +714,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                           </td>
                           <td className="py-3.5 px-4">
                             <button
-                              onClick={() => handleToggleStatus(u)}
+                              onClick={() => setPendingUserAction({ type: 'toggleStatus', user: u })}
                               disabled={isSelf}
                               title={isSelf ? 'Cannot disable your own account' : 'Click to toggle status'}
                               className={`px-2.5 py-1 rounded-full text-[10px] font-bold flex items-center space-x-1 cursor-pointer disabled:opacity-50 transition ${
@@ -730,7 +759,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                                 <KeyRound className="w-4 h-4" />
                               </button>
                               <button
-                                onClick={() => handleForceLogoutUser(u)}
+                                onClick={() => setPendingUserAction({ type: 'forceLogout', user: u })}
                                 disabled={isSelf}
                                 title={isSelf ? 'Use Sign Out above for your current session' : 'Force Logout Active Sessions'}
                                 className="p-1.5 text-slate-500 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
@@ -739,7 +768,7 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
                               </button>
                               {u.twoFactorEnabled && (
                                 <button
-                                  onClick={() => handleAdminResetTwoFactor(u)}
+                                  onClick={() => setPendingUserAction({ type: 'reset2fa', user: u })}
                                   title="Reset User 2FA"
                                   className="p-1.5 text-slate-500 hover:text-purple-600 hover:bg-purple-50 rounded-lg transition cursor-pointer"
                                 >
@@ -1213,73 +1242,113 @@ export const AdminDashboard: React.FC<AdminDashboardProps> = ({
       {/* ========================================================
           MODAL: DELETE USER CONFIRMATION
          ======================================================== */}
-      {deletingUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-red-200">
-            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
-              <Trash2 className="w-6 h-6" />
-            </div>
-            <div className="text-center space-y-1">
-              <h3 className="text-base font-bold text-slate-900">
-                Permanently Delete User?
-              </h3>
-              <p className="text-xs text-slate-500">
-                Are you sure you want to delete <strong className="text-slate-800">{deletingUser.name}</strong> (@{deletingUser.username})? This action cannot be undone.
-              </p>
-            </div>
-            <div className="flex items-center space-x-2 pt-2">
-              <button
-                onClick={() => setDeletingUser(null)}
-                className="flex-1 py-2 border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-semibold cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleDeleteUser}
-                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold cursor-pointer"
-              >
-                Confirm Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={Boolean(deletingUser)}
+        title="Permanently Delete User?"
+        message={
+          deletingUser && (
+            <>
+              Are you sure you want to permanently delete{' '}
+              <strong className="text-slate-900">{deletingUser.name}</strong> (@{deletingUser.username})? This
+              action cannot be undone.
+            </>
+          )
+        }
+        confirmLabel="Yes, Delete Permanently"
+        cancelLabel="No, Keep User"
+        requireAcknowledge={true}
+        acknowledgeLabel="Yes, I am sure — permanently delete this staff account"
+        isProcessing={isProcessingConfirm}
+        onCancel={() => setDeletingUser(null)}
+        onConfirm={handleDeleteUser}
+      />
+
+      {/* ========================================================
+          MODAL: USER ACCOUNT SECURITY / STATUS CONFIRMATION
+         ======================================================== */}
+      <ConfirmDialog
+        isOpen={Boolean(pendingUserAction)}
+        tone={pendingUserAction?.type === 'reset2fa' ? 'danger' : 'warning'}
+        title={
+          pendingUserAction?.type === 'toggleStatus'
+            ? pendingUserAction.user.status === 'ACTIVE'
+              ? 'Disable Staff Account?'
+              : 'Reactivate Staff Account?'
+            : pendingUserAction?.type === 'forceLogout'
+            ? `Force Sign Out @${pendingUserAction.user.username}?`
+            : pendingUserAction?.type === 'reset2fa'
+            ? `Reset 2FA for @${pendingUserAction.user.username}?`
+            : ''
+        }
+        message={
+          pendingUserAction?.type === 'toggleStatus' ? (
+            pendingUserAction.user.status === 'ACTIVE' ? (
+              <>
+                Are you sure you want to disable login access for{' '}
+                <strong className="text-slate-900">{pendingUserAction.user.name}</strong> (@
+                {pendingUserAction.user.username})? Active sessions will be revoked.
+              </>
+            ) : (
+              <>
+                Are you sure you want to restore login access for{' '}
+                <strong className="text-slate-900">{pendingUserAction.user.name}</strong> (@
+                {pendingUserAction.user.username})?
+              </>
+            )
+          ) : pendingUserAction?.type === 'forceLogout' ? (
+            <>
+              Are you sure you want to sign out all active sessions for{' '}
+              <strong className="text-slate-900">{pendingUserAction.user.name}</strong> (@
+              {pendingUserAction.user.username})?
+            </>
+          ) : pendingUserAction?.type === 'reset2fa' ? (
+            <>
+              Are you sure you want to remove two-factor authentication for{' '}
+              <strong className="text-slate-900">{pendingUserAction.user.name}</strong> (@
+              {pendingUserAction.user.username}) and terminate active sessions?
+            </>
+          ) : null
+        }
+        confirmLabel={
+          pendingUserAction?.type === 'toggleStatus'
+            ? pendingUserAction.user.status === 'ACTIVE'
+              ? 'Yes, Disable Account'
+              : 'Yes, Reactivate'
+            : pendingUserAction?.type === 'forceLogout'
+            ? 'Yes, Sign Out All'
+            : 'Yes, Reset 2FA'
+        }
+        cancelLabel="No, Cancel"
+        requireAcknowledge={pendingUserAction?.type === 'reset2fa'}
+        acknowledgeLabel="Yes, I am sure I want to reset 2FA and revoke active sessions"
+        isProcessing={isProcessingConfirm}
+        onCancel={() => setPendingUserAction(null)}
+        onConfirm={executePendingUserAction}
+      />
+
       {/* ========================================================
           MODAL: DELETE TICKET CONFIRMATION (ADMIN)
          ======================================================== */}
-      {deletingTicket && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-xs animate-in fade-in duration-150">
-          <div className="bg-white rounded-2xl p-6 max-w-sm w-full space-y-4 shadow-2xl border border-red-200 animate-in zoom-in-95 duration-150">
-            <div className="w-12 h-12 rounded-full bg-red-100 text-red-600 flex items-center justify-center mx-auto">
-              <Trash2 className="w-6 h-6" />
-            </div>
-            <div className="text-center space-y-1">
-              <h3 className="text-base font-bold text-slate-900">
-                Delete Work Order #{deletingTicket.ticketNumber}?
-              </h3>
-              <p className="text-xs text-slate-500 leading-relaxed">
-                Are you sure you want to delete this repair order for <strong className="text-slate-800">{deletingTicket.customer.fullName}</strong>? Any inventory parts will be returned to stock.
-              </p>
-            </div>
-            <div className="flex items-center space-x-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setDeletingTicket(null)}
-                className="flex-1 py-2 border border-slate-200 text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-semibold cursor-pointer"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteTicket}
-                className="flex-1 py-2 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold cursor-pointer shadow-xs"
-              >
-                Confirm Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        isOpen={Boolean(deletingTicket)}
+        title={deletingTicket ? `Delete Work Order #${deletingTicket.ticketNumber}?` : ''}
+        message={
+          deletingTicket && (
+            <>
+              Are you sure you want to permanently delete this repair order for{' '}
+              <strong className="text-slate-900">{deletingTicket.customer.fullName}</strong>? Any inventory
+              parts will be returned to stock.
+            </>
+          )
+        }
+        confirmLabel="Yes, Delete Permanently"
+        cancelLabel="No, Keep Ticket"
+        requireAcknowledge={true}
+        acknowledgeLabel="Yes, I am sure — permanently delete this work order"
+        isProcessing={isProcessingConfirm}
+        onCancel={() => setDeletingTicket(null)}
+        onConfirm={handleDeleteTicket}
+      />
     </div>
   );
 };

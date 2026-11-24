@@ -32,6 +32,7 @@ import {
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth, hasActiveSession } from '../utils/auth';
 import { ShopSettings, User as UserType, UserPreferences } from '../types';
+import { ConfirmDialog } from './ConfirmDialog';
 
 interface SettingsViewProps {
   currentUser: UserType | null;
@@ -103,6 +104,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [twoFactorBusy, setTwoFactorBusy] = useState(false);
   const [sessionsList, setSessionsList] = useState<any[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
+  const [pendingSessionRevoke, setPendingSessionRevoke] = useState<
+    { type: 'single'; sessionId: string; device: string } | { type: 'other' } | null
+  >(null);
+  const [isRevokingSession, setIsRevokingSession] = useState(false);
 
   // User Preferences & Notification Toggles
   let initialPrefs: UserPreferences = {
@@ -1052,7 +1057,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     {sessionsList.filter((s) => !s.isCurrent).length > 0 && (
                       <button
                         type="button"
-                        onClick={handleRevokeOtherSessions}
+                        onClick={() => setPendingSessionRevoke({ type: 'other' })}
                         className="px-2.5 py-1 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg text-[11px] font-bold text-rose-700 cursor-pointer"
                       >
                         Sign Out Other Devices
@@ -1084,7 +1089,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                         {!s.isCurrent && (
                           <button
                             type="button"
-                            onClick={() => handleRevokeSession(s.id)}
+                            onClick={() =>
+                              setPendingSessionRevoke({
+                                type: 'single',
+                                sessionId: s.id,
+                                device: s.device,
+                              })
+                            }
                             className="px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-rose-50 hover:text-rose-700 text-slate-700 text-[11px] font-bold cursor-pointer shrink-0"
                           >
                             Revoke
@@ -1583,6 +1594,44 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={Boolean(pendingSessionRevoke)}
+        tone="warning"
+        title={
+          pendingSessionRevoke?.type === 'other'
+            ? 'Sign Out Other Devices?'
+            : 'Revoke Device Session?'
+        }
+        message={
+          pendingSessionRevoke?.type === 'other' ? (
+            'Are you sure you want to sign out all other active devices? Your current session will remain signed in.'
+          ) : pendingSessionRevoke ? (
+            <>
+              Are you sure you want to revoke access for{' '}
+              <strong className="text-slate-900">{pendingSessionRevoke.device}</strong>?
+            </>
+          ) : null
+        }
+        confirmLabel="Yes, Sign Out"
+        cancelLabel="No, Cancel"
+        isProcessing={isRevokingSession}
+        onCancel={() => setPendingSessionRevoke(null)}
+        onConfirm={async () => {
+          if (!pendingSessionRevoke) return;
+          setIsRevokingSession(true);
+          try {
+            if (pendingSessionRevoke.type === 'other') {
+              await handleRevokeOtherSessions();
+            } else {
+              await handleRevokeSession(pendingSessionRevoke.sessionId);
+            }
+            setPendingSessionRevoke(null);
+          } finally {
+            setIsRevokingSession(false);
+          }
+        }}
+      />
     </div>
   );
 };
