@@ -143,6 +143,53 @@ describe('Tickets', () => {
     assert.equal(matched.createdBy, techName);
   });
 
+  test('GET /api/tickets filters accurately by from/to date range and returns totals', async () => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).toISOString();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999).toISOString();
+    const inMonth = await call(
+      `/api/tickets?view=ALL&sort=createdAt&from=${encodeURIComponent(monthStart)}&to=${encodeURIComponent(monthEnd)}`,
+      { token: tech }
+    );
+    assert.equal(inMonth.status, 200);
+    const foundInMonth = (inMonth.json.data || []).find((t: any) => t.id === ticketId);
+    assert.ok(foundInMonth, 'Created ticket must appear in current month range');
+    assert.ok(foundInMonth.totals && typeof foundInMonth.totals.totalCents === 'number');
+    assert.ok(Array.isArray(foundInMonth.payments));
+
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth() - 2, 1, 0, 0, 0, 0).toISOString();
+    const prevMonthEnd = new Date(now.getFullYear(), now.getMonth() - 1, 0, 23, 59, 59, 999).toISOString();
+    const outOfRange = await call(
+      `/api/tickets?view=ALL&from=${encodeURIComponent(prevMonthStart)}&to=${encodeURIComponent(prevMonthEnd)}`,
+      { token: tech }
+    );
+    assert.equal(outOfRange.status, 200);
+    const foundOld = (outOfRange.json.data || []).find((t: any) => t.id === ticketId);
+    assert.equal(foundOld, undefined, 'Newly created ticket must not appear in an earlier month range');
+  });
+
+  test('GET /api/reports returns Master Report financials, daily/weekly series & performance breakdowns', async () => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0).toISOString();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999).toISOString();
+    const res = await call(
+      `/api/reports?from=${encodeURIComponent(monthStart)}&to=${encodeURIComponent(monthEnd)}`,
+      { token: admin }
+    );
+    assert.equal(res.status, 200, JSON.stringify(res.json));
+    const r = res.json.data;
+    assert.equal(typeof r.revenueCents, 'number');
+    assert.equal(typeof r.netRevenueCents, 'number');
+    assert.equal(typeof r.grossProfitCents, 'number');
+    assert.equal(typeof r.newCustomersCount, 'number');
+    assert.equal(typeof r.returningCustomersCount, 'number');
+    assert.ok(r.ticketsCreated >= 1, 'Expected at least 1 ticket created in month report');
+    assert.ok(Array.isArray(r.daily) && r.daily.length >= 1);
+    assert.ok(Array.isArray(r.weekly) && r.weekly.length >= 1);
+    assert.ok(Array.isArray(r.staffPerformance) && r.staffPerformance.length >= 1);
+    assert.ok(Array.isArray(r.devicePerformance) && r.devicePerformance.some((d: any) => d.name === 'iPhone 13'));
+  });
+
   test('missing required fields are rejected', async () => {
     const r = await call('/api/tickets', { method: 'POST', token: tech, body: { customer: {}, device: {} } });
     assert.equal(r.status, 400);

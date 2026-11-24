@@ -15,6 +15,7 @@ import {
   updateTicketApproval,
   deleteTicket,
   addItem,
+  updateItem,
   removeItem,
   addPayment,
   refundPayment,
@@ -838,7 +839,9 @@ app.get('/api/stats', requireAuth, wrap(async (_req, res) => {
 
 app.get('/api/reports', requireAuth, wrap(async (req, res) => {
   const days = req.query.days ? parseInt(req.query.days as string, 10) : 30;
-  const data = await getReport(days);
+  const from = req.query.from as string | undefined;
+  const to = req.query.to as string | undefined;
+  const data = await getReport(from || to ? { days, from, to } : days);
   res.json({ success: true, data });
 }));
 
@@ -868,6 +871,8 @@ app.get('/api/tickets', requireAuth, wrap(async (req, res) => {
   const bench = req.query.bench as string | undefined;
   const sort = req.query.sort as string | undefined;
   const warranty = req.query.warranty as string | undefined;
+  const from = req.query.from as string | undefined;
+  const to = req.query.to as string | undefined;
   const hasPage = req.query.page !== undefined;
   const page = hasPage ? parseInt(req.query.page as string, 10) || 1 : 1;
   const pageSize = req.query.pageSize
@@ -877,7 +882,7 @@ app.get('/api/tickets', requireAuth, wrap(async (req, res) => {
     : hasPage
     ? 25
     : 200;
-  const result = await listTicketsPaginated({ view, search, bench, sort, warranty, page, pageSize });
+  const result = await listTicketsPaginated({ view, search, bench, sort, warranty, from, to, page, pageSize });
   res.json({
     success: true,
     count: result.items.length,
@@ -993,6 +998,18 @@ app.post('/api/tickets/:id/parts', requireAuth, wrap(async (req, res) => {
   }, req.user!.name, req.user!.id, req.user!.role);
   broadcastLiveEvent('ticket_updated', ticket);
   res.status(201).json({ success: true, data: ticket });
+}));
+
+app.put('/api/tickets/:id/items/:itemId', requireAuth, wrap(async (req, res) => {
+  const ticket = await updateItem(
+    getParam(req, 'id'),
+    getParam(req, 'itemId'),
+    req.body,
+    req.user!.name,
+    req.user!.id
+  );
+  broadcastLiveEvent('ticket_updated', ticket);
+  res.json({ success: true, data: ticket });
 }));
 
 app.delete('/api/tickets/:id/items/:itemId', requireAuth, wrap(async (req, res) => {

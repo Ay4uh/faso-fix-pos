@@ -370,6 +370,11 @@ var addItemSchema = z.object({
 	quantity: z.number().int().min(1).max(999).default(1),
 	unitPriceCents: cents.optional()
 }).refine((d) => d.partId || d.description && d.unitPriceCents !== void 0, { message: "Choose an inventory part, or enter a description and price" });
+var updateItemSchema = z.object({
+	description: trimmed.min(1, "Description is required").max(200),
+	quantity: z.number().int().min(1).max(999),
+	unitPriceCents: cents
+}).partial().refine((d) => Object.keys(d).length > 0, "Provide at least one field to update");
 var paymentSchema = z.object({
 	amountCents: z.number().int().min(1, "Amount must be greater than zero").max(1e8),
 	method: z.enum(PAYMENT_METHODS),
@@ -959,6 +964,18 @@ async function listTicketsPaginated(params) {
 	if (params.warranty === true || params.warranty === "true") where.isWarranty = true;
 	else if (params.warranty === false || params.warranty === "false") where.isWarranty = false;
 	if (params.bench && params.bench !== "ALL") where.bench = params.bench;
+	if (params.from || params.to) {
+		const createdAtFilter = {};
+		if (params.from && !Number.isNaN(Date.parse(params.from))) {
+			const f = params.from.trim();
+			createdAtFilter.gte = /^\d{4}-\d{2}-\d{2}$/.test(f) ? /* @__PURE__ */ new Date(`${f}T00:00:00`) : new Date(f);
+		}
+		if (params.to && !Number.isNaN(Date.parse(params.to))) {
+			const t = params.to.trim();
+			createdAtFilter.lte = /^\d{4}-\d{2}-\d{2}$/.test(t) ? /* @__PURE__ */ new Date(`${t}T23:59:59.999`) : new Date(t);
+		}
+		if (createdAtFilter.gte || createdAtFilter.lte) where.createdAt = createdAtFilter;
+	}
 	const q = (params.search || "").trim();
 	if (q) {
 		const numeric = q.replace(/^(wo[\s\-_]*)?#?/i, "");
@@ -981,7 +998,7 @@ async function listTicketsPaginated(params) {
 	const page = Math.max(1, Math.floor(params.page || 1));
 	const pageSize = Math.min(Math.max(1, Math.floor(params.pageSize || 25)), 500);
 	const skip = (page - 1) * pageSize;
-	const orderBy = params.sort === "dueDate" ? [{ dueDate: "asc" }, { ticketNumber: "desc" }] : view === "COMPLETED" ? [{ completedAt: "desc" }, { ticketNumber: "desc" }] : [{ ticketNumber: "desc" }];
+	const orderBy = params.sort === "dueDate" ? [{ dueDate: "asc" }, { ticketNumber: "desc" }] : params.sort === "createdAt" ? [{ createdAt: "desc" }, { ticketNumber: "desc" }] : view === "COMPLETED" ? [{ completedAt: "desc" }, { ticketNumber: "desc" }] : [{ ticketNumber: "desc" }];
 	const [total, tickets] = await Promise.all([prisma.ticket.count({ where }), prisma.ticket.findMany({
 		where,
 		select: ticketListSelect,
@@ -1148,67 +1165,19 @@ async function createTicket(input, actor) {
 	return getTicket(id);
 }
 async function recordQuoteTransition(tx, params) {
-	const { ticketId, ticketNumber, beforeTotals, beforeQuote, afterTotals, author } = params;
+	const { ticketId, ticketNumber, beforeTotals, afterTotals, author } = params;
 	if (beforeTotals.totalCents === afterTotals.totalCents && beforeTotals.subtotalCents === afterTotals.subtotalCents) return null;
-	if ((beforeQuote.approvalStatus === "APPROVED" || beforeQuote.approvalStatus === "REAPPROVAL_REQUIRED" && beforeQuote.approvedTotalCents !== null) && beforeQuote.approvedTotalCents !== null) {
-		await logEvent(tx, ticketId, "PRICING", buildPricingEventMessage(`Quote revised from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`, {
-			pm: "REVISED_QUOTE",
-			prev: beforeTotals.totalCents,
-			total: afterTotals.totalCents
-		}), author);
-		await logEvent(tx, ticketId, "APPROVAL", buildApprovalEventMessage(`Customer reapproval required (approved ${money(beforeQuote.approvedTotalCents)} → revised ${money(afterTotals.totalCents)})`, {
-			as: "REAPPROVAL_REQUIRED",
-			approvedTotal: beforeQuote.approvedTotalCents,
-			prev: beforeTotals.totalCents,
-			total: afterTotals.totalCents
-		}), author);
-		return {
-			action: "QUOTE_REVISED",
-			details: `WO #${ticketNumber}: Approved quote revised from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)} (approved cap ${money(beforeQuote.approvedTotalCents)}) — customer reapproval required`
-		};
-	}
-	if (beforeTotals.subtotalCents === 0 && afterTotals.subtotalCents > 0) {
-		await logEvent(tx, ticketId, "PRICING", buildPricingEventMessage(`Quote provided: ${money(afterTotals.totalCents)} (incl. tax)`, {
-			pm: "QUOTE_PROVIDED",
-			prev: beforeTotals.totalCents,
-			total: afterTotals.totalCents
-		}), author);
-		await logEvent(tx, ticketId, "APPROVAL", buildApprovalEventMessage(`Awaiting customer approval for ${money(afterTotals.totalCents)}`, {
-			as: "AWAITING_APPROVAL",
-			total: afterTotals.totalCents
-		}), author);
-		return {
-			action: "QUOTE_PROVIDED",
-			details: `WO #${ticketNumber}: Quote set to ${money(afterTotals.totalCents)} (awaiting customer approval)`
-		};
-	}
-	if (beforeQuote.approvalStatus === "REJECTED" && afterTotals.subtotalCents > 0) {
-		await logEvent(tx, ticketId, "PRICING", buildPricingEventMessage(`Revised quote provided: ${money(beforeTotals.totalCents)} → ${money(afterTotals.totalCents)}`, {
-			pm: "REVISED_QUOTE",
-			prev: beforeTotals.totalCents,
-			total: afterTotals.totalCents
-		}), author);
-		await logEvent(tx, ticketId, "APPROVAL", buildApprovalEventMessage(`Revised quote awaiting customer approval (${money(afterTotals.totalCents)})`, {
-			as: "AWAITING_APPROVAL",
-			prev: beforeTotals.totalCents,
-			total: afterTotals.totalCents
-		}), author);
-		return {
-			action: "QUOTE_REVISED",
-			details: `WO #${ticketNumber}: Quote revised after rejection from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`
-		};
-	}
-	await logEvent(tx, ticketId, "PRICING", buildPricingEventMessage(afterTotals.subtotalCents > 0 ? `Quote updated from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}` : "Pricing reset to pending diagnosis", {
+	await logEvent(tx, ticketId, "PRICING", buildPricingEventMessage(afterTotals.subtotalCents > 0 ? `Order total updated from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}` : "Charges cleared ($0.00)", {
 		pm: afterTotals.subtotalCents > 0 ? "QUOTE_PROVIDED" : "PRICE_PENDING",
 		prev: beforeTotals.totalCents,
 		total: afterTotals.totalCents
 	}), author);
 	return {
 		action: "QUOTE_UPDATED",
-		details: `WO #${ticketNumber}: Quote updated from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`
+		details: `WO #${ticketNumber}: Order total updated from ${money(beforeTotals.totalCents)} to ${money(afterTotals.totalCents)}`
 	};
 }
-async function updateTicket(id, input, author, actorId, actorRole = "USER") {
+async function updateTicket(id, input, author, actorId, _actorRole = "USER") {
 	const data = updateTicketSchema.parse(input);
 	let auditSummary = "";
 	let auditTicketNum = 0;
@@ -1221,9 +1190,7 @@ async function updateTicket(id, input, author, actorId, actorRole = "USER") {
 			if (!Number.isNaN(expectedMs) && t.updatedAt.getTime() !== expectedMs) throw new HttpError(409, "Conflict: This work order was modified by another employee. Refresh before saving to avoid overwriting their changes.");
 		}
 		const beforeTotals = computeTotals(t);
-		const beforeQuote = deriveTicketQuoteState(t, beforeTotals);
 		const isPriceChange = data.laborCents !== void 0 && data.laborCents !== t.laborCents || data.discountCents !== void 0 && data.discountCents !== t.discountCents;
-		if (isPriceChange && (beforeQuote.approvalStatus === "APPROVED" || beforeQuote.approvalStatus === "REAPPROVAL_REQUIRED") && actorRole !== "ADMIN") throw new HttpError(403, "Admin authorization is required to change an already-approved quote.");
 		const update = {};
 		const changes = [];
 		if (data.status && data.status !== t.status) {
@@ -1337,7 +1304,6 @@ async function updateTicket(id, input, author, actorId, actorRole = "USER") {
 				ticketId: id,
 				ticketNumber: t.ticketNumber,
 				beforeTotals,
-				beforeQuote,
 				afterTotals,
 				author
 			});
@@ -1372,14 +1338,12 @@ async function deleteTicket(id, author) {
 	}, TX_OPTIONS);
 	return { ok: true };
 }
-async function addItem(ticketId, input, author, actorId, actorRole = "USER") {
+async function addItem(ticketId, input, author, actorId, _actorRole = "USER") {
 	const data = addItemSchema.parse(input);
 	let quoteAudit = null;
 	await prisma.$transaction(async (tx) => {
 		const t = await loadTicket(tx, ticketId);
 		const beforeTotals = computeTotals(t);
-		const beforeQuote = deriveTicketQuoteState(t, beforeTotals);
-		if ((beforeQuote.approvalStatus === "APPROVED" || beforeQuote.approvalStatus === "REAPPROVAL_REQUIRED") && actorRole !== "ADMIN") throw new HttpError(403, "Admin authorization is required to modify items on an already-approved quote.");
 		let description = data.description || "";
 		let unitPriceCents = data.unitPriceCents ?? 0;
 		let unitCostCents = 0;
@@ -1415,7 +1379,6 @@ async function addItem(ticketId, input, author, actorId, actorRole = "USER") {
 			ticketId,
 			ticketNumber: t.ticketNumber,
 			beforeTotals,
-			beforeQuote,
 			afterTotals,
 			author
 		});
@@ -1428,13 +1391,82 @@ async function addItem(ticketId, input, author, actorId, actorRole = "USER") {
 	});
 	return getTicket(ticketId);
 }
-async function removeItem(ticketId, itemId, author, actorId, actorRole = "USER") {
+async function updateItem(ticketId, itemId, input, author, actorId) {
+	const data = updateItemSchema.parse(input);
+	let auditDetail = null;
+	let quoteAudit = null;
+	await prisma.$transaction(async (tx) => {
+		const t = await loadTicket(tx, ticketId);
+		if (t.status === "CANCELLED" || t.status === "DECLINED") throw new HttpError(409, "Cannot edit items on a cancelled or declined work order");
+		const item = await tx.ticketItem.findFirst({ where: {
+			id: itemId,
+			ticketId
+		} });
+		if (!item) throw new HttpError(404, "Line item not found");
+		const nextDescription = data.description ?? item.description;
+		const nextQuantity = data.quantity ?? item.quantity;
+		const nextUnitPriceCents = data.unitPriceCents ?? item.unitPriceCents;
+		if (nextDescription === item.description && nextQuantity === item.quantity && nextUnitPriceCents === item.unitPriceCents) return;
+		if (item.partId && nextQuantity !== item.quantity) {
+			const delta = nextQuantity - item.quantity;
+			if (delta > 0) {
+				const part = await tx.inventoryPart.findUnique({ where: { id: item.partId } });
+				if (!part) throw new HttpError(404, "Inventory part not found");
+				if (part.stock < delta) throw new HttpError(409, `Not enough stock for ${part.name}: ${part.stock} more available, ${delta} additional requested`);
+				await tx.inventoryPart.update({
+					where: { id: part.id },
+					data: { stock: { decrement: delta } }
+				});
+			} else await tx.inventoryPart.update({
+				where: { id: item.partId },
+				data: { stock: { increment: Math.abs(delta) } }
+			});
+		}
+		const beforeTotals = computeTotals(t);
+		await tx.ticketItem.update({
+			where: { id: itemId },
+			data: {
+				description: nextDescription,
+				quantity: nextQuantity,
+				unitPriceCents: nextUnitPriceCents
+			}
+		});
+		await logEvent(tx, ticketId, "ITEM", `Updated item: ${item.quantity} × ${item.description} @ ${money(item.unitPriceCents)} → ${nextQuantity} × ${nextDescription} @ ${money(nextUnitPriceCents)}`, author);
+		auditDetail = `WO #${t.ticketNumber}: Updated item "${item.description}" (${item.quantity} × ${money(item.unitPriceCents)}) → "${nextDescription}" (${nextQuantity} × ${money(nextUnitPriceCents)})`;
+		const afterTotals = computeTotals({
+			...t,
+			items: t.items.map((i) => i.id === itemId ? {
+				quantity: nextQuantity,
+				unitPriceCents: nextUnitPriceCents
+			} : i)
+		});
+		quoteAudit = await recordQuoteTransition(tx, {
+			ticketId,
+			ticketNumber: t.ticketNumber,
+			beforeTotals,
+			afterTotals,
+			author
+		});
+	}, TX_OPTIONS);
+	if (auditDetail) await recordAudit({
+		userId: actorId ?? void 0,
+		actorName: author || "POS User",
+		action: "TICKET_ITEM_UPDATE",
+		details: auditDetail
+	});
+	if (quoteAudit) await recordAudit({
+		userId: actorId ?? void 0,
+		actorName: author || "POS User",
+		action: quoteAudit.action,
+		details: quoteAudit.details
+	});
+	return getTicket(ticketId);
+}
+async function removeItem(ticketId, itemId, author, actorId, _actorRole = "USER") {
 	let quoteAudit = null;
 	await prisma.$transaction(async (tx) => {
 		const t = await loadTicket(tx, ticketId);
 		const beforeTotals = computeTotals(t);
-		const beforeQuote = deriveTicketQuoteState(t, beforeTotals);
-		if ((beforeQuote.approvalStatus === "APPROVED" || beforeQuote.approvalStatus === "REAPPROVAL_REQUIRED") && actorRole !== "ADMIN") throw new HttpError(403, "Admin authorization is required to modify items on an already-approved quote.");
 		const item = await tx.ticketItem.findFirst({ where: {
 			id: itemId,
 			ticketId
@@ -1454,7 +1486,6 @@ async function removeItem(ticketId, itemId, author, actorId, actorRole = "USER")
 			ticketId,
 			ticketNumber: t.ticketNumber,
 			beforeTotals,
-			beforeQuote,
 			afterTotals,
 			author
 		});
@@ -1519,11 +1550,7 @@ async function addPayment(ticketId, input, author, actorId) {
 			return;
 		}
 		if (t.status === "CANCELLED" || t.status === "DECLINED") throw new HttpError(409, "Cannot process payment on a cancelled or declined work order");
-		const totals = computeTotals(t);
-		const quoteState = deriveTicketQuoteState(t, totals);
-		const { balanceCents } = totals;
-		if (quoteState.approvalStatus === "REJECTED") throw new HttpError(409, "Cannot record payment: the repair quote was rejected by the customer.");
-		if ((quoteState.approvalStatus === "REAPPROVAL_REQUIRED" || quoteState.approvalStatus === "APPROVED") && quoteState.approvedTotalCents !== null && totals.paidCents + data.amountCents > quoteState.approvedTotalCents) throw new HttpError(409, `Cannot charge above the customer-approved amount (${money(quoteState.approvedTotalCents)}). Obtain customer reapproval for the revised quote (${money(totals.totalCents)}) first.`);
+		const { balanceCents } = computeTotals(t);
 		if (t.status === "COMPLETED" && balanceCents <= 0) throw new HttpError(409, "This completed work order is already settled and cannot be charged twice");
 		const isDeposit = data.note && /deposit/i.test(data.note);
 		if (!isDeposit) {
@@ -1955,13 +1982,61 @@ async function getDashboard() {
 	})();
 	return dashboardInFlight;
 }
-async function getReport(days) {
-	const span = Math.min(Math.max(Math.floor(days) || 30, 1), 365);
-	const since = startOfDay(/* @__PURE__ */ new Date(Date.now() - (span - 1) * 864e5));
-	const [payments, created, completed, items] = await Promise.all([
+function parseReportBound(val, boundary) {
+	if (!val || Number.isNaN(Date.parse(val))) return null;
+	const s = val.trim();
+	if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return /* @__PURE__ */ new Date(`${s}T${boundary === "start" ? "00:00:00.000" : "23:59:59.999"}`);
+	return new Date(s);
+}
+async function getReport(input) {
+	const opts = typeof input === "number" ? { days: input } : input || {};
+	const parsedFrom = parseReportBound(opts.from, "start");
+	const parsedTo = parseReportBound(opts.to, "end");
+	const endNow = /* @__PURE__ */ new Date();
+	endNow.setHours(23, 59, 59, 999);
+	const end = parsedTo || endNow;
+	let start;
+	if (parsedFrom) {
+		start = parsedFrom > end ? startOfDay(end) : parsedFrom;
+		const maxStart = startOfDay(/* @__PURE__ */ new Date(end.getTime() - 31536e6));
+		if (start < maxStart) start = maxStart;
+	} else {
+		const requestedSpan = Math.min(Math.max(Math.floor(opts.days || 30) || 30, 1), 366);
+		start = startOfDay(new Date(end.getFullYear(), end.getMonth(), end.getDate() - (requestedSpan - 1)));
+	}
+	const dayKey = (d) => {
+		const s = startOfDay(d);
+		return `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, "0")}-${String(s.getDate()).padStart(2, "0")}`;
+	};
+	const daily = [];
+	const index = /* @__PURE__ */ new Map();
+	const cursor = startOfDay(start);
+	const endDayStart = startOfDay(end);
+	while (cursor <= endDayStart && daily.length < 366) {
+		const key = dayKey(cursor);
+		index.set(key, daily.length);
+		daily.push({
+			date: key,
+			revenueCents: 0,
+			ticketsCreated: 0,
+			closedTickets: 0,
+			newCustomers: 0
+		});
+		cursor.setDate(cursor.getDate() + 1);
+	}
+	const span = Math.max(1, daily.length);
+	const prevEnd = /* @__PURE__ */ new Date(start.getTime() - 1);
+	const prevEndDay = startOfDay(prevEnd);
+	const prevStart = new Date(prevEndDay.getFullYear(), prevEndDay.getMonth(), prevEndDay.getDate() - (span - 1), 0, 0, 0, 0);
+	const currentWeekStart = new Date(endDayStart.getFullYear(), endDayStart.getMonth(), endDayStart.getDate() - 6, 0, 0, 0, 0);
+	const prevWeekStart = new Date(currentWeekStart.getFullYear(), currentWeekStart.getMonth(), currentWeekStart.getDate() - 7, 0, 0, 0, 0);
+	const [payments, prevPayments, weekPayments, created, completed, prevCompletedCount, items] = await Promise.all([
 		prisma.payment.findMany({
 			where: {
-				createdAt: { gte: since },
+				createdAt: {
+					gte: start,
+					lte: end
+				},
 				ticket: { deletedAt: null }
 			},
 			select: {
@@ -1969,42 +2044,125 @@ async function getReport(days) {
 				method: true,
 				createdAt: true,
 				ticket: { select: {
+					id: true,
+					status: true,
+					customerId: true,
+					technician: true,
 					laborCents: true,
 					discountCents: true,
 					taxRateBps: true,
+					device: { select: { name: true } },
 					items: { select: {
 						quantity: true,
 						unitPriceCents: true
 					} },
-					payments: { select: { amountCents: true } }
+					payments: { select: { amountCents: true } },
+					events: {
+						where: {
+							kind: "STATUS",
+							message: { startsWith: "Work order #" }
+						},
+						select: {
+							kind: true,
+							message: true,
+							author: true,
+							createdAt: true
+						}
+					}
 				} }
 			}
 		}),
-		prisma.ticket.findMany({
+		prisma.payment.findMany({
 			where: {
-				createdAt: { gte: since },
-				deletedAt: null
+				createdAt: {
+					gte: prevStart,
+					lte: prevEnd
+				},
+				ticket: { deletedAt: null }
+			},
+			select: { amountCents: true }
+		}),
+		prisma.payment.findMany({
+			where: {
+				createdAt: {
+					gte: prevWeekStart,
+					lte: end
+				},
+				ticket: { deletedAt: null }
 			},
 			select: {
-				createdAt: true,
-				isWarranty: true,
-				device: { select: { name: true } }
+				amountCents: true,
+				createdAt: true
 			}
 		}),
 		prisma.ticket.findMany({
 			where: {
-				completedAt: { gte: since },
+				createdAt: {
+					gte: start,
+					lte: end
+				},
+				deletedAt: null
+			},
+			orderBy: { createdAt: "asc" },
+			select: {
+				id: true,
+				customerId: true,
+				createdAt: true,
+				status: true,
+				isWarranty: true,
+				technician: true,
+				laborCents: true,
+				discountCents: true,
+				taxRateBps: true,
+				device: { select: { name: true } },
+				items: { select: {
+					quantity: true,
+					unitPriceCents: true,
+					unitCostCents: true
+				} },
+				payments: { select: { amountCents: true } },
+				events: {
+					where: {
+						kind: "STATUS",
+						message: { startsWith: "Work order #" }
+					},
+					select: {
+						kind: true,
+						message: true,
+						author: true,
+						createdAt: true
+					}
+				}
+			}
+		}),
+		prisma.ticket.findMany({
+			where: {
+				completedAt: {
+					gte: start,
+					lte: end
+				},
 				deletedAt: null
 			},
 			select: {
+				id: true,
 				createdAt: true,
 				completedAt: true,
 				dueDate: true
 			}
 		}),
+		prisma.ticket.count({ where: {
+			completedAt: {
+				gte: prevStart,
+				lte: prevEnd
+			},
+			deletedAt: null
+		} }),
 		prisma.ticketItem.findMany({
 			where: {
-				createdAt: { gte: since },
+				createdAt: {
+					gte: start,
+					lte: end
+				},
 				ticket: { deletedAt: null }
 			},
 			select: {
@@ -2015,28 +2173,60 @@ async function getReport(days) {
 			}
 		})
 	]);
-	const dayKey = (d) => {
-		const s = startOfDay(d);
-		return `${s.getFullYear()}-${String(s.getMonth() + 1).padStart(2, "0")}-${String(s.getDate()).padStart(2, "0")}`;
-	};
-	const daily = [];
-	const index = /* @__PURE__ */ new Map();
-	for (let i = 0; i < span; i++) {
-		const key = dayKey(new Date(since.getTime() + i * 864e5 + 432e5));
-		index.set(key, daily.length);
-		daily.push({
-			date: key,
-			revenueCents: 0,
-			ticketsCreated: 0
-		});
+	const visitorIds = Array.from(new Set(created.map((t) => t.customerId)));
+	const priorVisitorRows = visitorIds.length ? await prisma.ticket.groupBy({
+		by: ["customerId"],
+		where: {
+			customerId: { in: visitorIds },
+			deletedAt: null,
+			createdAt: { lt: start }
+		},
+		_count: { _all: true }
+	}) : [];
+	const returningCustomerSet = new Set(priorVisitorRows.filter((r) => r._count._all > 0).map((r) => r.customerId));
+	const returningCustomersCount = visitorIds.filter((id) => returningCustomerSet.has(id)).length;
+	const newCustomersCount = visitorIds.length - returningCustomersCount;
+	const seenNewCustomerIds = /* @__PURE__ */ new Set();
+	for (const t of created) {
+		const idx = index.get(dayKey(t.createdAt));
+		if (idx !== void 0) {
+			daily[idx].ticketsCreated += 1;
+			if (!returningCustomerSet.has(t.customerId) && !seenNewCustomerIds.has(t.customerId)) {
+				seenNewCustomerIds.add(t.customerId);
+				daily[idx].newCustomers += 1;
+			}
+		}
 	}
 	for (const p of payments) {
-		const i = index.get(dayKey(p.createdAt));
-		if (i !== void 0) daily[i].revenueCents += p.amountCents;
+		const idx = index.get(dayKey(p.createdAt));
+		if (idx !== void 0) daily[idx].revenueCents += p.amountCents;
+	}
+	const closedTicketIds = /* @__PURE__ */ new Set();
+	for (const c of completed) {
+		closedTicketIds.add(c.id);
+		if (c.completedAt) {
+			const idx = index.get(dayKey(c.completedAt));
+			if (idx !== void 0) daily[idx].closedTickets += 1;
+		}
+	}
+	for (const p of payments) {
+		const t = p.ticket;
+		if (!t || t.status === "CANCELLED" || t.status === "DECLINED" || closedTicketIds.has(t.id)) continue;
+		const tot = computeTotals(t);
+		if (tot.totalCents > 0 && tot.balanceCents <= 0) {
+			closedTicketIds.add(t.id);
+			const idx = index.get(dayKey(p.createdAt));
+			if (idx !== void 0) daily[idx].closedTickets += 1;
+		}
 	}
 	for (const t of created) {
-		const i = index.get(dayKey(t.createdAt));
-		if (i !== void 0) daily[i].ticketsCreated += 1;
+		if (t.status === "CANCELLED" || t.status === "DECLINED" || closedTicketIds.has(t.id)) continue;
+		const tot = computeTotals(t);
+		if (tot.totalCents > 0 && tot.balanceCents <= 0) {
+			closedTicketIds.add(t.id);
+			const idx = index.get(dayKey(t.createdAt));
+			if (idx !== void 0) daily[idx].closedTickets += 1;
+		}
 	}
 	const byMethod = {};
 	for (const p of payments) byMethod[p.method] = (byMethod[p.method] || 0) + p.amountCents;
@@ -2044,6 +2234,15 @@ async function getReport(days) {
 	for (const t of created) deviceCounts.set(t.device.name, (deviceCounts.get(t.device.name) || 0) + 1);
 	const turnaroundHours = completed.filter((t) => t.completedAt).map((t) => (t.completedAt.getTime() - t.createdAt.getTime()) / 36e5);
 	const onTime = completed.filter((t) => t.completedAt && t.completedAt.getTime() <= t.dueDate.getTime() + 432e5).length;
+	const revenueCents = payments.reduce((s, p) => s + p.amountCents, 0);
+	const prevRevenueCents = prevPayments.reduce((s, p) => s + p.amountCents, 0);
+	const revenueDeltaPct = prevRevenueCents > 0 ? Number(((revenueCents - prevRevenueCents) / prevRevenueCents * 100).toFixed(1)) : null;
+	let currentWeekRevenueCents = 0;
+	let previousWeekRevenueCents = 0;
+	for (const p of weekPayments) if (p.createdAt >= currentWeekStart) currentWeekRevenueCents += p.amountCents;
+	else if (p.createdAt >= prevWeekStart) previousWeekRevenueCents += p.amountCents;
+	const closedTicketsCount = closedTicketIds.size;
+	const closedTicketsDeltaPct = prevCompletedCount > 0 ? Number(((closedTicketsCount - prevCompletedCount) / prevCompletedCount * 100).toFixed(1)) : null;
 	const partsRevenueCents = items.reduce((s, i) => s + i.quantity * i.unitPriceCents, 0);
 	const partsCostCents = items.reduce((s, i) => s + i.quantity * i.unitCostCents, 0);
 	const refundsCents = payments.filter((p) => p.amountCents < 0).reduce((s, p) => s + Math.abs(p.amountCents), 0);
@@ -2055,16 +2254,125 @@ async function getReport(days) {
 			netTaxCollectedCents += Math.round(totals.taxCents * share);
 		}
 	}
+	const netRevenueCents = revenueCents - netTaxCollectedCents;
+	const grossProfitCents = netRevenueCents - partsCostCents;
+	const grossMarginPct = netRevenueCents > 0 ? Number((grossProfitCents / netRevenueCents * 100).toFixed(1)) : null;
+	let pricedSumCents = 0;
+	let pricedCount = 0;
+	let outstandingBalanceCents = 0;
+	for (const t of created) {
+		const tot = computeTotals(t);
+		if (tot.subtotalCents > 0) {
+			pricedSumCents += tot.totalCents;
+			pricedCount += 1;
+		}
+		if (t.status !== "CANCELLED" && t.status !== "DECLINED" && tot.balanceCents > 0) outstandingBalanceCents += tot.balanceCents;
+	}
+	const avgTicketValueCents = pricedCount > 0 ? Math.round(pricedSumCents / pricedCount) : 0;
+	const weekly = [];
+	if (daily.length <= 7) for (const d of daily) {
+		const label = (/* @__PURE__ */ new Date(`${d.date}T12:00:00`)).toLocaleDateString("en-US", {
+			weekday: "short",
+			month: "numeric",
+			day: "numeric"
+		});
+		weekly.push({
+			label,
+			startDate: d.date,
+			endDate: d.date,
+			revenueCents: d.revenueCents,
+			ticketsCreated: d.ticketsCreated,
+			closedTickets: d.closedTickets
+		});
+	}
+	else for (let i = 0; i < daily.length; i += 7) {
+		const slice = daily.slice(i, i + 7);
+		weekly.push({
+			label: `Week ${weekly.length + 1}`,
+			startDate: slice[0].date,
+			endDate: slice[slice.length - 1].date,
+			revenueCents: slice.reduce((s, d) => s + d.revenueCents, 0),
+			ticketsCreated: slice.reduce((s, d) => s + d.ticketsCreated, 0),
+			closedTickets: slice.reduce((s, d) => s + d.closedTickets, 0)
+		});
+	}
+	const staffMap = /* @__PURE__ */ new Map();
+	const deviceMap = /* @__PURE__ */ new Map();
+	const getPerf = (map, key) => {
+		let acc = map.get(key);
+		if (!acc) {
+			acc = {
+				revenueCents: 0,
+				woIds: /* @__PURE__ */ new Set(),
+				closedIds: /* @__PURE__ */ new Set(),
+				newCusts: /* @__PURE__ */ new Set(),
+				retCusts: /* @__PURE__ */ new Set(),
+				pricedSumCents: 0,
+				pricedCount: 0
+			};
+			map.set(key, acc);
+		}
+		return acc;
+	};
+	for (const t of created) {
+		const staffName = t.technician?.trim() || extractCreatedBy(t) || "Unassigned";
+		const deviceName = t.device.name || "Unknown Device";
+		const tot = computeTotals(t);
+		const isClosed = closedTicketIds.has(t.id);
+		const isReturning = returningCustomerSet.has(t.customerId);
+		for (const acc of [getPerf(staffMap, staffName), getPerf(deviceMap, deviceName)]) {
+			acc.woIds.add(t.id);
+			if (isClosed) acc.closedIds.add(t.id);
+			if (isReturning) acc.retCusts.add(t.customerId);
+			else acc.newCusts.add(t.customerId);
+			if (tot.subtotalCents > 0) {
+				acc.pricedSumCents += tot.totalCents;
+				acc.pricedCount += 1;
+			}
+		}
+	}
+	for (const p of payments) {
+		if (!p.ticket) continue;
+		const staffName = p.ticket.technician?.trim() || extractCreatedBy(p.ticket) || "Unassigned";
+		const deviceName = p.ticket.device?.name || "Unknown Device";
+		getPerf(staffMap, staffName).revenueCents += p.amountCents;
+		getPerf(deviceMap, deviceName).revenueCents += p.amountCents;
+	}
+	const toPerfRows = (map) => Array.from(map.entries()).map(([name, acc]) => ({
+		name,
+		revenueCents: acc.revenueCents,
+		totalWorkOrders: acc.woIds.size,
+		closedTickets: acc.closedIds.size,
+		newCustomers: acc.newCusts.size,
+		returningCustomers: acc.retCusts.size,
+		avgTicketCents: acc.pricedCount > 0 ? Math.round(acc.pricedSumCents / acc.pricedCount) : 0
+	})).sort((a, b) => b.revenueCents - a.revenueCents || b.totalWorkOrders - a.totalWorkOrders);
 	return {
 		days: span,
-		since,
-		revenueCents: payments.reduce((s, p) => s + p.amountCents, 0),
+		since: start,
+		from: start.toISOString(),
+		to: end.toISOString(),
+		revenueCents,
+		prevRevenueCents,
+		revenueDeltaPct,
+		currentWeekRevenueCents,
+		previousWeekRevenueCents,
 		refundsCents,
 		netTaxCollectedCents,
+		netRevenueCents,
+		grossProfitCents,
+		grossMarginPct,
+		avgTicketValueCents,
+		outstandingBalanceCents,
 		ticketsCreated: created.length,
 		warrantyTicketsCount: created.filter((t) => t.isWarranty).length,
 		paidTicketsCount: created.filter((t) => !t.isWarranty).length,
 		ticketsCompleted: completed.length,
+		closedTicketsCount,
+		prevClosedTicketsCount: prevCompletedCount,
+		closedTicketsDeltaPct,
+		newCustomersCount,
+		returningCustomersCount,
 		avgTurnaroundHours: turnaroundHours.length ? turnaroundHours.reduce((a, b) => a + b, 0) / turnaroundHours.length : null,
 		onTimeRate: completed.length ? onTime / completed.length : null,
 		partsRevenueCents,
@@ -2074,7 +2382,10 @@ async function getReport(days) {
 			name,
 			count
 		})),
-		daily
+		daily,
+		weekly,
+		staffPerformance: toPerfRows(staffMap),
+		devicePerformance: toPerfRows(deviceMap)
 	};
 }
 /**
@@ -7963,7 +8274,14 @@ app.get("/api/stats", requireAuth, wrap(async (_req, res) => {
 	});
 }));
 app.get("/api/reports", requireAuth, wrap(async (req, res) => {
-	const data = await getReport(req.query.days ? parseInt(req.query.days, 10) : 30);
+	const days = req.query.days ? parseInt(req.query.days, 10) : 30;
+	const from = req.query.from;
+	const to = req.query.to;
+	const data = await getReport(from || to ? {
+		days,
+		from,
+		to
+	} : days);
 	res.json({
 		success: true,
 		data
@@ -7994,6 +8312,8 @@ app.get("/api/tickets", requireAuth, wrap(async (req, res) => {
 	const bench = req.query.bench;
 	const sort = req.query.sort;
 	const warranty = req.query.warranty;
+	const from = req.query.from;
+	const to = req.query.to;
 	const hasPage = req.query.page !== void 0;
 	const result = await listTicketsPaginated({
 		view,
@@ -8001,6 +8321,8 @@ app.get("/api/tickets", requireAuth, wrap(async (req, res) => {
 		bench,
 		sort,
 		warranty,
+		from,
+		to,
 		page: hasPage ? parseInt(req.query.page, 10) || 1 : 1,
 		pageSize: req.query.pageSize ? parseInt(req.query.pageSize, 10) : req.query.limit ? parseInt(req.query.limit, 10) : hasPage ? 25 : 200
 	});
@@ -8127,6 +8449,14 @@ app.post("/api/tickets/:id/parts", requireAuth, wrap(async (req, res) => {
 	}, req.user.name, req.user.id, req.user.role);
 	broadcastLiveEvent("ticket_updated", ticket);
 	res.status(201).json({
+		success: true,
+		data: ticket
+	});
+}));
+app.put("/api/tickets/:id/items/:itemId", requireAuth, wrap(async (req, res) => {
+	const ticket = await updateItem(getParam(req, "id"), getParam(req, "itemId"), req.body, req.user.name, req.user.id);
+	broadcastLiveEvent("ticket_updated", ticket);
+	res.json({
 		success: true,
 		data: ticket
 	});

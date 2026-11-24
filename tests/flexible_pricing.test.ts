@@ -168,114 +168,104 @@ describe('Flexible Repair Pricing & Approval Workflow (Staging PostgreSQL)', () 
     assert.ok(slip.includes('Price Pending Diagnosis'));
   });
 
-  test('3. Pricing & approval governance: pre-approval edit, Admin-only edit after approval, Reapproval & payment cap', async () => {
-    // Intake with manual diagnostic fee $35 -> Awaiting Approval
+  test('3. Direct line-item editing & settlement: PUT /api/tickets/:id/items/:itemId updates totals, audit logs & settles with deposit without reapproval locks', async () => {
+    // Intake work order with an initial custom line item ($30.00 x 2 = $60.00 subtotal, $67.80 w/ 13% HST)
     const intake = await req('/api/tickets', {
       method: 'POST',
       token: techToken,
       body: {
         customer: { fullName: 'Taylor Kim', phone: '4165550103' },
-        device: { name: 'Laptop Dell XPS' },
-        faultDescription: 'Diagnostic Inspection',
-        laborCents: 3500,
+        device: { name: 'PS5 Controller' },
+        faultDescription: 'Stick drift',
+        laborCents: 0,
         pricingMode: 'QUOTE_PROVIDED',
+        initialItems: [{ description: 'hall sensor stick', quantity: 2, unitPriceCents: 3000 }],
       },
     });
     assert.equal(intake.status, 201);
     const ticketId = intake.json.data.id;
-    assert.equal(intake.json.data.totals.totalCents, 3955);
+    const itemId = intake.json.data.items[0].id;
+    assert.equal(intake.json.data.totals.subtotalCents, 6000);
+    assert.equal(intake.json.data.totals.taxCents, 780);
+    assert.equal(intake.json.data.totals.totalCents, 6780);
 
-    // Technician can adjust price BEFORE customer approval ($35 -> $45 = $50.85 w/ HST)
-    const techPreEdit = await req(`/api/tickets/${ticketId}`, {
-      method: 'PUT',
-      token: techToken,
-      body: { laborCents: 4500 },
-    });
-    assert.equal(techPreEdit.status, 200);
-    assert.equal(techPreEdit.json.data.totals.totalCents, 5085);
-    assert.equal(techPreEdit.json.data.quoteState.approvalStatus, 'AWAITING_APPROVAL');
-
-    // Explicit Customer Approval required to lock quote
-    const approved = await req(`/api/tickets/${ticketId}/approval`, {
+    // Take a $20.00 partial deposit first
+    const depositRes = await req(`/api/tickets/${ticketId}/payments`, {
       method: 'POST',
       token: techToken,
-      body: { status: 'APPROVED', note: 'Approved by phone' },
+      body: { amountCents: 2000, method: 'CARD', note: 'Special-order part deposit' },
     });
-    assert.equal(approved.status, 200);
-    assert.equal(approved.json.data.quoteState.approvalStatus, 'APPROVED');
-    assert.equal(approved.json.data.quoteState.approvedTotalCents, 5085);
-    assert.equal(approved.json.data.quoteState.isPriceLockedForNonAdmin, true);
+    assert.equal(depositRes.status, 201);
+    assert.equal(depositRes.json.data.totals.paidCents, 2000);
+    assert.equal(depositRes.json.data.totals.balanceCents, 4780);
 
-    // Technician (USER) must be blocked (403) from changing an already-approved quote
-    const techEditAfter = await req(`/api/tickets/${ticketId}`, {
-      method: 'PUT',
-      token: techToken,
-      body: { laborCents: 6500 },
-    });
-    assert.equal(techEditAfter.status, 403);
-
-    const techAddItemAfter = await req(`/api/tickets/${ticketId}/items`, {
+    // Even after a deposit (or even if ticket had an approval event), staff can directly edit line items upward!
+    await req(`/api/tickets/${ticketId}/approval`, {
       method: 'POST',
       token: techToken,
-      body: { description: 'Extra component', quantity: 1, unitPriceCents: 2000 },
+      body: { status: 'APPROVED', note: 'Legacy approval check' },
     });
-    assert.equal(techAddItemAfter.status, 403);
 
-    // Admin increases price ($45 -> $95 = $107.35 w/ HST) -> MUST trigger REVISED_QUOTE + REAPPROVAL_REQUIRED
-    const adminRevise = await req(`/api/tickets/${ticketId}`, {
+    const editRes = await req(`/api/tickets/${ticketId}/items/${itemId}`, {
       method: 'PUT',
-      token: adminToken,
-      body: { laborCents: 9500 },
+      token: techToken,
+      body: {
+        description: 'TMR Hall Effect Stick Pair',
+        quantity: 2,
+        unitPriceCents: 4000,
+      },
     });
-    assert.equal(adminRevise.status, 200);
-    assert.equal(adminRevise.json.data.totals.totalCents, 10735);
-    assert.equal(adminRevise.json.data.quoteState.pricingStatus, 'REVISED_QUOTE');
-    assert.equal(adminRevise.json.data.quoteState.approvalStatus, 'REAPPROVAL_REQUIRED');
-    assert.equal(adminRevise.json.data.quoteState.approvedTotalCents, 5085);
-    assert.equal(adminRevise.json.data.quoteState.requiresReapproval, true);
+    assert.equal(editRes.status, 200);
+    const edited = editRes.json.data;
+    assert.equal(edited.items[0].description, 'TMR Hall Effect Stick Pair');
+    assert.equal(edited.items[0].quantity, 2);
+    assert.equal(edited.items[0].unitPriceCents, 4000);
+    assert.equal(edited.totals.subtotalCents, 8000);
+    assert.equal(edited.totals.taxCents, 1040);
+    assert.equal(edited.totals.totalCents, 9040);
+    assert.equal(edited.totals.paidCents, 2000);
+    assert.equal(edited.totals.balanceCents, 7040);
 
-    // Attempting to charge revised amount ($107.35) above approved cap ($50.85) MUST be blocked (409)
-    const overApprovedCharge = await req(`/api/tickets/${ticketId}/payments`, {
-      method: 'POST',
-      token: adminToken,
-      body: { amountCents: 10735, method: 'CARD' },
-    });
-    assert.equal(overApprovedCharge.status, 409);
-    assert.match(overApprovedCharge.json.error, /reapproval/i);
-
-    // Audit trail logged previous/revised quote event + AuditLog
-    const auditRes = await req('/api/admin/audit-logs?action=QUOTE_REVISED', { token: adminToken });
+    // ITEM event and TICKET_ITEM_UPDATE audit entry logged
+    assert.ok(
+      edited.events.some(
+        (ev: any) => ev.kind === 'ITEM' && ev.message.includes('TMR Hall Effect Stick Pair') && ev.message.includes('$40.00')
+      )
+    );
+    const auditRes = await req('/api/admin/audit-logs?action=TICKET_ITEM_UPDATE', { token: adminToken });
     assert.equal(auditRes.status, 200);
-    assert.ok(auditRes.json.data.some((a: any) => a.action === 'QUOTE_REVISED' && a.details.includes('$107.35')));
+    assert.ok(auditRes.json.data.some((a: any) => a.action === 'TICKET_ITEM_UPDATE' && a.details.includes('TMR Hall Effect Stick Pair')));
 
-    // Customer re-approves revised quote ($107.35)
-    const reapproved = await req(`/api/tickets/${ticketId}/approval`, {
-      method: 'POST',
-      token: adminToken,
-      body: { status: 'APPROVED', note: 'Customer approved revised total' },
-    });
-    assert.equal(reapproved.status, 200);
-    assert.equal(reapproved.json.data.quoteState.approvalStatus, 'APPROVED');
-    assert.equal(reapproved.json.data.quoteState.approvedTotalCents, 10735);
-
-    // Now charging $107.35 succeeds!
+    // Remaining balance ($70.40) can be charged immediately with NO reapproval block!
     const paidRes = await req(`/api/tickets/${ticketId}/payments`, {
       method: 'POST',
       token: techToken,
-      body: { amountCents: 10735, method: 'CARD' },
+      body: { amountCents: 7040, method: 'CASH' },
     });
     assert.equal(paidRes.status, 201);
+    assert.equal(paidRes.json.data.totals.paidCents, 9040);
     assert.equal(paidRes.json.data.totals.balanceCents, 0);
     assert.equal(isTicketPaidInFull(paidRes.json.data.totals, paidRes.json.data.quoteState), true);
 
-    // Verify stripQuoteEventMeta strips internal JSON markers
     for (const ev of paidRes.json.data.events || []) {
       assert.ok(!stripQuoteEventMeta(ev.message).includes('[qmeta:'));
       assert.ok(!stripQuoteEventMeta(ev.message).includes('[ameta:'));
     }
   });
 
-  test('4. Rejected quote blocks payment and customer printouts show quoted breakdown when priced', async () => {
+  test('4. Inventory item quantity editing syncs stock atomically and blocks edits on cancelled work orders', async () => {
+    const part = await prisma.inventoryPart.create({
+      data: {
+        sku: `HALL-${suffix}`,
+        name: `Hall Stick Module ${suffix}`,
+        category: 'PARTS',
+        costCents: 900,
+        priceCents: 2500,
+        stock: 5,
+        reorderPoint: 1,
+      },
+    });
+
     const created = await req('/api/tickets', {
       method: 'POST',
       token: techToken,
@@ -283,37 +273,80 @@ describe('Flexible Repair Pricing & Approval Workflow (Staging PostgreSQL)', () 
         customer: { fullName: 'Morgan Reid', phone: '4165550104' },
         device: { name: 'Nintendo Switch' },
         faultDescription: 'Joy-Con Stick Drift',
-        laborCents: 4500,
-        pricingMode: 'QUOTE_PROVIDED',
+        laborCents: 0,
+        pricingMode: 'DIAGNOSIS_REQUIRED',
       },
     });
     assert.equal(created.status, 201);
-    const id = created.json.data.id;
+    const ticketId = created.json.data.id;
 
+    // Attach 2 from inventory -> stock drops 5 -> 3
+    const attached = await req(`/api/tickets/${ticketId}/items`, {
+      method: 'POST',
+      token: techToken,
+      body: { partId: part.id, quantity: 2 },
+    });
+    assert.equal(attached.status, 201);
+    const itemId = attached.json.data.items[0].id;
+    let dbPart = await prisma.inventoryPart.findUnique({ where: { id: part.id } });
+    assert.equal(dbPart?.stock, 3);
+
+    // Edit qty up 2 -> 4 -> stock drops 3 -> 1
+    const incRes = await req(`/api/tickets/${ticketId}/items/${itemId}`, {
+      method: 'PUT',
+      token: techToken,
+      body: { quantity: 4, unitPriceCents: 2800 },
+    });
+    assert.equal(incRes.status, 200);
+    assert.equal(incRes.json.data.totals.subtotalCents, 11200);
+    dbPart = await prisma.inventoryPart.findUnique({ where: { id: part.id } });
+    assert.equal(dbPart?.stock, 1);
+
+    // Reject edit exceeding remaining stock (4 -> 10 needs +6, only 1 available)
+    const overStockRes = await req(`/api/tickets/${ticketId}/items/${itemId}`, {
+      method: 'PUT',
+      token: techToken,
+      body: { quantity: 10 },
+    });
+    assert.equal(overStockRes.status, 409);
+    dbPart = await prisma.inventoryPart.findUnique({ where: { id: part.id } });
+    assert.equal(dbPart?.stock, 1);
+
+    // Edit qty down 4 -> 1 -> stock returns 1 -> 4
+    const decRes = await req(`/api/tickets/${ticketId}/items/${itemId}`, {
+      method: 'PUT',
+      token: techToken,
+      body: { quantity: 1 },
+    });
+    assert.equal(decRes.status, 200);
+    assert.equal(decRes.json.data.totals.subtotalCents, 2800);
+    dbPart = await prisma.inventoryPart.findUnique({ where: { id: part.id } });
+    assert.equal(dbPart?.stock, 4);
+
+    // Unpaid printout shows $31.64 and never PAID IN FULL
     const shop = { shopName: 'Faso Fix Staging', taxLabel: 'HST', currencySymbol: '$' };
-    const preApprovalLetter = buildLetterInvoiceHtml(created.json.data, shop);
-    assert.ok(preApprovalLetter.includes('Quote Provided'));
-    assert.ok(preApprovalLetter.includes('Awaiting Customer Approval'));
-    assert.ok(preApprovalLetter.includes('$50.85'));
-    assert.ok(!preApprovalLetter.includes('PAID IN FULL'));
+    const letter = buildLetterInvoiceHtml(decRes.json.data, shop);
+    assert.ok(letter.includes('$31.64'));
+    assert.ok(!letter.includes('PAID IN FULL'));
 
-    const rejected = await req(`/api/tickets/${id}/approval`, {
-      method: 'POST',
+    // Cancel work order -> restocks remaining 1 item (4 -> 5), and further item edits return 409
+    const cancelled = await req(`/api/tickets/${ticketId}`, {
+      method: 'PUT',
       token: techToken,
-      body: { status: 'REJECTED', note: 'Customer declined repair' },
+      body: { status: 'CANCELLED' },
     });
-    assert.equal(rejected.status, 200);
-    assert.equal(rejected.json.data.quoteState.approvalStatus, 'REJECTED');
+    assert.equal(cancelled.status, 200);
+    dbPart = await prisma.inventoryPart.findUnique({ where: { id: part.id } });
+    assert.equal(dbPart?.stock, 5);
 
-    const payRejected = await req(`/api/tickets/${id}/payments`, {
-      method: 'POST',
+    const editCancelled = await req(`/api/tickets/${ticketId}/items/${itemId}`, {
+      method: 'PUT',
       token: techToken,
-      body: { amountCents: 5085, method: 'CASH' },
+      body: { unitPriceCents: 1500 },
     });
-    assert.equal(payRejected.status, 409);
-
-    const rejectedLetter = buildLetterInvoiceHtml(rejected.json.data, shop);
-    assert.ok(rejectedLetter.includes('QUOTE REJECTED'));
+    assert.equal(editCancelled.status, 409);
+    dbPart = await prisma.inventoryPart.findUnique({ where: { id: part.id } });
+    assert.equal(dbPart?.stock, 5);
   });
 
   test('5. Backwards compatibility with historical pre-feature tickets lacking quote events', () => {

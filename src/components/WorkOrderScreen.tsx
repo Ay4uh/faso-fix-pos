@@ -18,12 +18,16 @@ import {
   DollarSign,
   Check,
   Mail,
-  PenTool,
   Pencil,
-  Grid3X3,
   Tag,
   Shield,
   RotateCcw,
+  Search,
+  Wrench,
+  Monitor,
+  Battery,
+  Cpu,
+  Flame,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
@@ -94,8 +98,8 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   };
 
   const [activeTab, setActiveTab] = useState<
-    'notes' | 'sms' | 'payments' | 'signature' | 'history'
-  >('notes');
+    'customer_notes' | 'internal_notes' | 'history' | 'payments' | 'sms' | 'signature'
+  >('customer_notes');
 
   // Email invoice modal
   const [isEmailModalOpen, setIsEmailModalOpen] = useState(false);
@@ -103,15 +107,15 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const [isSendingEmail, setIsSendingEmail] = useState(false);
   const [emailSuccess, setEmailSuccess] = useState(false);
 
-  // Notes (Split-Note Architecture)
+  // Notes (Split-Note Tabs: CUSTOMER_NOTE & INTERNAL_NOTE)
   const [newNote, setNewNote] = useState('');
-  const [noteKind, setNoteKind] = useState<'INTERNAL_NOTE' | 'CUSTOMER_NOTE'>('INTERNAL_NOTE');
-  const [noteFilter, setNoteFilter] = useState<'ALL' | 'INTERNAL_NOTE' | 'CUSTOMER_NOTE'>('ALL');
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
   const [editingNoteId, setEditingNoteId] = useState<string | null>(null);
   const [editingNoteText, setEditingNoteText] = useState('');
   const [isUpdatingNote, setIsUpdatingNote] = useState(false);
   const [isDeletingNoteId, setIsDeletingNoteId] = useState<string | null>(null);
+  const [itemSearchQuery, setItemSearchQuery] = useState('');
+  const [isAddingQuickItem, setIsAddingQuickItem] = useState(false);
 
   // SMS
   const [smsText, setSmsText] = useState(
@@ -167,7 +171,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const [isAttachingPart, setIsAttachingPart] = useState(false);
   const [addItemError, setAddItemError] = useState<string | null>(null);
 
-  // Discount & Base Quote modals + Separate Approval state
+  // Discount & Base Labor modals + Edit Line Item modal
   const [isDiscountModalOpen, setIsDiscountModalOpen] = useState(false);
   const [discountInput, setDiscountInput] = useState(
     ((ticket.totals ? ticket.totals.discountCents : ticket.discountCents) / 100).toFixed(2)
@@ -176,10 +180,18 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const [isBaseLaborModalOpen, setIsBaseLaborModalOpen] = useState(false);
   const [baseLaborInput, setBaseLaborInput] = useState((ticket.laborCents / 100).toFixed(2));
   const [isSavingBaseLabor, setIsSavingBaseLabor] = useState(false);
-  const [pendingApprovalAction, setPendingApprovalAction] = useState<{
-    status: 'APPROVED' | 'REJECTED';
+  const [editingItem, setEditingItem] = useState<{
+    id: string;
+    partId?: string | null;
+    description: string;
+    quantity: number;
+    unitPriceCents: number;
   } | null>(null);
-  const [isUpdatingApproval, setIsUpdatingApproval] = useState(false);
+  const [editItemDesc, setEditItemDesc] = useState('');
+  const [editItemQty, setEditItemQty] = useState('1');
+  const [editItemPrice, setEditItemPrice] = useState('0.00');
+  const [isSavingEditItem, setIsSavingEditItem] = useState(false);
+  const [editItemError, setEditItemError] = useState<string | null>(null);
 
   // Load Inventory
   useEffect(() => {
@@ -219,13 +231,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const quoteState = ticket.quoteState ?? deriveTicketQuoteState(ticket, totals);
   const isPaidInFull = isTicketPaidInFull(totals, quoteState);
   const hasDepositCredit = !quoteState.hasPrice && totals.paidCents > 0;
-  const canEditPricing = !quoteState.isPriceLockedForNonAdmin || currentUser?.role === 'ADMIN';
-  const isChargeBlockedByApproval =
-    quoteState.approvalStatus === 'REJECTED' ||
-    (quoteState.requiresReapproval &&
-      quoteState.approvedTotalCents !== null &&
-      totals.totalCents > quoteState.approvedTotalCents &&
-      totals.paidCents >= quoteState.approvedTotalCents);
+  const canEditItems = ticket.status !== 'CANCELLED' && ticket.status !== 'DECLINED';
 
   const getErrorMessage = async (res: Response, fallback: string) => {
     const json = await res.json().catch(() => ({}));
@@ -262,9 +268,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
-  const handleAddNote = async (e: React.FormEvent) => {
+  const handleAddNote = async (e: React.FormEvent, explicitKind?: 'CUSTOMER_NOTE' | 'INTERNAL_NOTE') => {
     e.preventDefault();
     if (!newNote.trim()) return;
+    const targetKind = explicitKind || (activeTab === 'customer_notes' ? 'CUSTOMER_NOTE' : 'INTERNAL_NOTE');
 
     setIsSubmittingNote(true);
     try {
@@ -272,7 +279,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          kind: noteKind,
+          kind: targetKind,
           message: newNote.trim(),
         }),
       });
@@ -284,6 +291,39 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       alert(err?.message || 'Failed to save note');
     } finally {
       setIsSubmittingNote(false);
+    }
+  };
+
+  const handleAttachQuickItem = async (item: {
+    description: string;
+    unitPriceCents: number;
+    partId?: string;
+  }) => {
+    if (!canEditItems || isAddingQuickItem) return;
+    setIsAddingQuickItem(true);
+    try {
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          partId: item.partId || undefined,
+          description: item.description,
+          quantity: 1,
+          unitPriceCents: item.unitPriceCents,
+        }),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data) applyTicketUpdate(json.data);
+        posAudio.playScanBeep();
+        setItemSearchQuery('');
+      } else {
+        alert(await getErrorMessage(res, 'Failed to attach item'));
+      }
+    } catch {
+      alert('Failed to attach item');
+    } finally {
+      setIsAddingQuickItem(false);
     }
   };
 
@@ -717,24 +757,64 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
-  const handleExecuteApproval = async (status: 'APPROVED' | 'REJECTED', note?: string) => {
-    setIsUpdatingApproval(true);
+  const openEditItemModal = (item: {
+    id: string;
+    partId?: string | null;
+    description: string;
+    quantity: number;
+    unitPriceCents: number;
+  }) => {
+    setEditItemError(null);
+    setEditingItem(item);
+    setEditItemDesc(item.description);
+    setEditItemQty(String(item.quantity));
+    setEditItemPrice((item.unitPriceCents / 100).toFixed(2));
+  };
+
+  const handleSaveEditItem = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingItem) return;
+    setEditItemError(null);
+
+    const desc = editItemDesc.trim();
+    const qty = parseInt(editItemQty, 10);
+    const parsedPrice = parseFloat(editItemPrice);
+
+    if (!desc) {
+      setEditItemError('Description is required');
+      return;
+    }
+    if (!Number.isInteger(qty) || qty < 1) {
+      setEditItemError('Quantity must be at least 1');
+      return;
+    }
+    if (Number.isNaN(parsedPrice) || parsedPrice < 0) {
+      setEditItemError('Enter a valid non-negative unit price');
+      return;
+    }
+
+    setIsSavingEditItem(true);
     try {
-      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/approval`, {
-        method: 'POST',
+      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/items/${editingItem.id}`, {
+        method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status, note: note || undefined }),
+        body: JSON.stringify({
+          description: desc,
+          quantity: qty,
+          unitPriceCents: Math.round(parsedPrice * 100),
+        }),
       });
-      if (!res.ok) throw new Error(await getErrorMessage(res, 'Could not update approval status'));
+      if (!res.ok) {
+        throw new Error(await getErrorMessage(res, 'Failed to update line item'));
+      }
       const json = await res.json();
       if (json.data) applyTicketUpdate(json.data);
-      if (status === 'APPROVED') posAudio.playSuccessChime();
-      else posAudio.playWarningBeep();
-      setPendingApprovalAction(null);
+      posAudio.playSuccessChime();
+      setEditingItem(null);
     } catch (err: any) {
-      alert(err?.message || 'Error recording customer approval');
+      setEditItemError(err?.message || 'Error updating line item');
     } finally {
-      setIsUpdatingApproval(false);
+      setIsSavingEditItem(false);
     }
   };
 
@@ -856,41 +936,70 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
+  const renderServiceIcon = (serviceId: string) => {
+    switch (serviceId) {
+      case 'screen-labor':
+        return <Monitor className="w-4 h-4 text-indigo-600" />;
+      case 'battery-replacement':
+        return <Battery className="w-4 h-4 text-emerald-600" />;
+      case 'diagnostic-inspection':
+        return <Search className="w-4 h-4 text-sky-600" />;
+      case 'thermal-paste-clean':
+        return <Flame className="w-4 h-4 text-amber-600" />;
+      case 'port-micro-soldering':
+        return <Cpu className="w-4 h-4 text-purple-600" />;
+      default:
+        return <Wrench className="w-4 h-4 text-slate-600" />;
+    }
+  };
+
+  const customerNotesCount = (ticket.events || []).filter((ev) => ev.kind === 'CUSTOMER_NOTE').length;
+  const internalNotesCount = (ticket.events || []).filter((ev) => ev.kind === 'INTERNAL_NOTE').length;
+  const activeNoteKind: 'CUSTOMER_NOTE' | 'INTERNAL_NOTE' =
+    activeTab === 'customer_notes' ? 'CUSTOMER_NOTE' : 'INTERNAL_NOTE';
+  const activeNoteRows = (ticket.events || []).filter((ev) => ev.kind === activeNoteKind);
+
+  const normalizedItemQuery = itemSearchQuery.trim().toLowerCase();
+  const matchingServices = normalizedItemQuery
+    ? STANDARD_REPAIR_SERVICES.filter((s) => s.name.toLowerCase().includes(normalizedItemQuery))
+    : [];
+  const matchingParts = normalizedItemQuery
+    ? availableParts
+        .filter(
+          (p) =>
+            p.name.toLowerCase().includes(normalizedItemQuery) ||
+            p.sku.toLowerCase().includes(normalizedItemQuery)
+        )
+        .slice(0, 8)
+    : [];
+
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 overflow-hidden sm:overflow-y-auto">
       <div className="bg-slate-100 rounded-none sm:rounded-2xl w-full max-w-7xl h-[100dvh] sm:h-[94vh] shadow-2xl border-0 sm:border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* ========================================================
-            TOP BAR
+            ZONE A: COMPACT TOP WORKORDER STRIP
            ======================================================== */}
-        <header className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2.5 sm:py-3 flex flex-wrap items-center justify-between gap-2 shrink-0 shadow-xs">
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2.5 min-w-0">
+        <header className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 min-w-0">
             <button
               onClick={onClose}
               aria-label="Close Work Order"
-              className="h-9 w-9 flex items-center justify-center rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 cursor-pointer transition-colors shrink-0"
+              className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 cursor-pointer transition-colors shrink-0"
               title="Close Work Order"
             >
-              <X className="w-5 h-5" />
+              <X className="w-4 h-4" />
             </button>
 
-            <div className="flex items-center gap-1.5 sm:gap-2 min-w-0">
-              <span className="hidden sm:inline text-[11px] font-bold text-slate-400 tracking-wider">Service</span>
-              <h1 className="text-sm sm:text-base font-extrabold text-slate-900 font-mono flex items-center gap-2 shrink-0">
+            <div className="flex items-center gap-2 min-w-0">
+              <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wider text-slate-400">
+                Service
+              </span>
+              <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-900 font-mono leading-none shrink-0">
                 WO #{ticket.ticketNumber}
               </h1>
               {getStatusBadge()}
-              {ticket.createdBy && (
-                <span
-                  className="hidden md:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-slate-100 text-slate-600 border border-slate-200 max-w-[240px] whitespace-nowrap"
-                  title={`Created by ${ticket.createdBy}`}
-                >
-                  <span className="text-slate-400 shrink-0">Created by</span>
-                  <span className="text-slate-800 truncate">{ticket.createdBy}</span>
-                </span>
-              )}
             </div>
 
-            {/* Quick Status Dropdown (6-Stage Pipeline) */}
             <select
               value={ticket.status === 'PENDING' ? 'CHECKED_IN' : ticket.status === 'IN_PROGRESS' ? 'DIAGNOSING' : ticket.status}
               onChange={async (e) => {
@@ -900,7 +1009,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 await onUpdateStatus(ticket.id, nextStatus);
                 onRefresh();
               }}
-              className="bg-slate-50 border border-slate-200 rounded-md text-xs font-bold px-2.5 py-1.5 text-slate-800 hover:bg-slate-100 cursor-pointer focus:outline-none max-w-[160px] sm:max-w-none"
+              className="h-8 bg-white border border-slate-300 rounded-md text-xs font-semibold px-2.5 text-slate-800 hover:bg-slate-50 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 max-w-[165px] sm:max-w-none"
             >
               <option value="CHECKED_IN">1. Checked In</option>
               <option value="DIAGNOSING">2. Diagnosing</option>
@@ -914,12 +1023,22 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
             <button
               type="button"
+              disabled={!canEditItems}
+              onClick={() => setIsAddItemModalOpen(true)}
+              className="h-8 inline-flex items-center gap-1 px-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-md text-xs font-bold cursor-pointer transition-colors shadow-2xs shrink-0"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Add Item</span>
+            </button>
+
+            <button
+              type="button"
               disabled={isTogglingWarranty}
               onClick={handleToggleWarranty}
-              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-md text-xs font-bold border transition cursor-pointer shrink-0 ${
+              className={`h-8 inline-flex items-center gap-1 px-2.5 rounded-md text-xs font-semibold border transition-colors cursor-pointer shrink-0 ${
                 ticket.isWarranty
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
-                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'
+                  ? 'bg-blue-50 text-blue-700 border-blue-300'
+                  : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
               }`}
               title="Toggle Warranty Coverage"
             >
@@ -927,58 +1046,43 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               <span className="hidden sm:inline">{ticket.isWarranty ? 'Warranty Repair' : 'Mark Warranty'}</span>
               <span className="sm:hidden">Warranty</span>
             </button>
+
+            {ticket.createdBy && (
+              <span className="hidden xl:inline text-xs text-slate-500 pl-1">
+                Created by <strong className="font-semibold text-slate-700">{ticket.createdBy}</strong>
+              </span>
+            )}
           </div>
 
-          {/* Action CTAs */}
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-            {balanceOwing > 0 && ticket.status !== 'CANCELLED' && ticket.status !== 'DECLINED' ? (
-              <button
-                disabled={isChargeBlockedByApproval}
-                onClick={() => {
-                  setPaymentAmount(balanceOwing.toFixed(2));
-                  setPaymentIdempotencyKey(newPaymentKey());
-                  setIsPaymentModalOpen(true);
-                }}
-                title={
-                  quoteState.approvalStatus === 'REJECTED'
-                    ? 'Cannot charge a rejected quote'
-                    : isChargeBlockedByApproval
-                    ? 'Customer reapproval is required before charging above the approved quote'
-                    : 'Collect remaining balance'
-                }
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-lg text-xs font-semibold shadow-xs cursor-pointer transition-colors"
-              >
-                <CreditCard className="w-3.5 h-3.5" />
-                <span>Pay Balance (${balanceOwing.toFixed(2)})</span>
-              </button>
-            ) : isPaidInFull ? (
-              <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+            {isPaidInFull ? (
+              <span className="h-8 inline-flex items-center gap-1 px-2.5 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
                 Paid in Full
               </span>
             ) : hasDepositCredit ? (
-              <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+              <span className="h-8 inline-flex items-center gap-1 px-2.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 tabular-nums">
                 <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
                 Deposit Credited (${totalPaid.toFixed(2)})
               </span>
-            ) : (
-              <span className="flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-                Price Pending Diagnosis
+            ) : !quoteState.hasPrice ? (
+              <span className="h-8 inline-flex items-center gap-1 px-2.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                No Charges Yet
               </span>
-            )}
+            ) : null}
 
             <button
               onClick={() => printDeviceStickerLabel(ticket)}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-semibold border border-slate-200 transition-colors cursor-pointer"
+              className="h-8 flex items-center gap-1 px-2.5 bg-white hover:bg-slate-50 text-slate-700 rounded-md text-xs font-semibold border border-slate-300 transition-colors cursor-pointer"
               title="Print 2x1 Adhesive Device Label"
             >
-              <Tag className="w-3.5 h-3.5 text-indigo-600" />
+              <Tag className="w-3.5 h-3.5 text-slate-500" />
               <span>Sticker</span>
             </button>
 
             <button
               onClick={() => onPrint(ticket)}
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors cursor-pointer"
+              className="h-8 flex items-center gap-1.5 px-3 bg-[#0f2942] hover:bg-slate-800 text-white rounded-md text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
               title="Print Receipt"
             >
               <Printer className="w-3.5 h-3.5" />
@@ -988,18 +1092,17 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             <button
               onClick={() => setIsEmailModalOpen(true)}
               aria-label="Email Invoice"
-              className="p-2 sm:p-1.5 rounded-lg text-slate-500 hover:text-indigo-600 hover:bg-slate-100 transition-colors cursor-pointer"
+              className="h-8 w-8 flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 hover:bg-slate-50 transition-colors cursor-pointer"
               title="Email Invoice"
             >
               <Mail className="w-4 h-4" />
             </button>
 
-            {/* Admin-only Work Order Deletion */}
             {currentUser?.role === 'ADMIN' && onDeleteTicket && (
               <button
                 onClick={() => setIsDeleteConfirmOpen(true)}
                 aria-label="Delete Work Order"
-                className="p-2 sm:p-1.5 rounded-lg text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors cursor-pointer"
+                className="h-8 w-8 flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-colors cursor-pointer"
                 title="Delete Work Order (Admin Only)"
               >
                 <Trash2 className="w-4 h-4" />
@@ -1009,234 +1112,192 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         </header>
 
         {/* ========================================================
-            MAIN WORKSPACE: Split 2-Column
+            MAIN WORKSPACE: Slim Left Rail + 3-Band Right Workbench
            ======================================================== */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col lg:flex-row">
-          {/* LEFT PANEL */}
-          <div className="w-full lg:w-80 bg-white border-b lg:border-b-0 lg:border-r border-slate-200 p-4 sm:p-5 space-y-4 sm:space-y-5 shrink-0 lg:overflow-y-auto">
-            {/* Customer Profile Box */}
-            <div className="space-y-3">
-              <div className="flex items-start justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-full bg-indigo-50 border border-indigo-200 text-indigo-700 flex items-center justify-center font-bold text-sm shadow-xs">
-                    {ticket.customer.fullName.charAt(0).toUpperCase()}
+          {/* ZONE B: SLIM ORGANIZED LEFT SIDEBAR */}
+          <aside className="w-full lg:w-[290px] bg-white border-b lg:border-b-0 lg:border-r border-slate-200 shrink-0 lg:overflow-y-auto flex flex-col">
+            {/* Customer Summary */}
+            <div className="p-4 space-y-2.5">
+              <div className="flex items-start justify-between gap-2.5">
+                <div className="min-w-0">
+                  <h3 className="text-lg font-extrabold text-slate-900 tracking-tight leading-tight truncate">
+                    {ticket.customer.fullName}
+                  </h3>
+                  <div className="text-[13px] font-mono font-semibold text-slate-700 tabular-nums mt-0.5">
+                    {ticket.customer.phone}
                   </div>
-                  <div>
-                    <h3 className="font-bold text-sm text-slate-900 leading-tight">
-                      {ticket.customer.fullName}
-                    </h3>
-                    <span className="text-[10px] text-slate-400 font-mono">
-                      Client #{ticket.customer.id.slice(0, 8)}
-                    </span>
-                  </div>
+                  <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+                    Client #{ticket.customer.id.slice(0, 8)}
+                  </span>
                 </div>
 
                 <a
                   href={`tel:${ticket.customer.phone}`}
-                  className="w-8 h-8 rounded-full bg-emerald-500 hover:bg-emerald-600 text-white flex items-center justify-center shadow-xs cursor-pointer transition-colors"
+                  className="w-9 h-9 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-xs cursor-pointer transition-colors shrink-0"
                   title="Call Customer"
                 >
                   <Phone className="w-4 h-4" />
                 </a>
               </div>
 
-              <div className="text-xs text-slate-600 space-y-1 font-mono pt-1 border-t border-slate-100">
-                <div className="flex justify-between items-center">
-                  <span className="text-slate-400 font-sans">Primary:</span>
-                  <span className="font-bold text-slate-800">{ticket.customer.phone}</span>
-                </div>
-                {ticket.customer.altPhone && (
-                  <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-slate-400 font-sans">Alt Phone:</span>
-                    <a
-                      href={`tel:${ticket.customer.altPhone}`}
-                      className="font-bold text-indigo-600 hover:underline"
-                      title="Call Alternative Phone"
-                    >
-                      {ticket.customer.altPhone}
-                    </a>
-                  </div>
-                )}
-                {ticket.customer.email && (
-                  <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-slate-400 font-sans">Email:</span>
-                    <span className="truncate max-w-[170px] text-slate-700">{ticket.customer.email}</span>
-                  </div>
-                )}
-                {ticket.customer.address && (
-                  <div className="flex justify-between items-center text-[11px]">
-                    <span className="text-slate-400 font-sans">Address:</span>
-                    <span className="truncate max-w-[170px] text-slate-700">{ticket.customer.address}</span>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Device & Security Profile */}
-            <div className="bg-slate-50 rounded-xl p-3.5 space-y-2 text-xs">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-bold text-slate-800">
-                  Device &amp; Security
-                </span>
-                <span className="px-2 py-0.5 rounded bg-white text-indigo-700 font-bold text-[10px] border border-slate-200">
-                  {ticket.device?.name || 'Device'}
-                </span>
-              </div>
-              {ticket.device?.serialNumber && (
-                <div className="flex justify-between items-center text-[11px]">
-                  <span className="text-slate-400">S/N:</span>
-                  <span className="font-mono text-slate-700 font-semibold">{ticket.device.serialNumber}</span>
+              {(ticket.customer.altPhone || ticket.customer.email || ticket.customer.address) && (
+                <div className="space-y-1.5 pt-2 border-t border-slate-100 text-xs">
+                  {ticket.customer.altPhone && (
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-[11px] font-medium text-slate-400">Alt Phone</span>
+                      <a
+                        href={`tel:${ticket.customer.altPhone}`}
+                        className="font-mono font-semibold text-indigo-600 hover:underline tabular-nums"
+                      >
+                        {ticket.customer.altPhone}
+                      </a>
+                    </div>
+                  )}
+                  {ticket.customer.email && (
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-[11px] font-medium text-slate-400 shrink-0">Email</span>
+                      <span className="truncate max-w-[175px] text-slate-700">{ticket.customer.email}</span>
+                    </div>
+                  )}
+                  {ticket.customer.address && (
+                    <div className="flex justify-between items-center gap-2">
+                      <span className="text-[11px] font-medium text-slate-400 shrink-0">Address</span>
+                      <span className="truncate max-w-[175px] text-slate-700">{ticket.customer.address}</span>
+                    </div>
+                  )}
                 </div>
               )}
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="text-slate-400">PIN / Passcode:</span>
-                <span className="font-mono font-bold text-indigo-600">{passcode || 'None'}</span>
-              </div>
-              <div className="flex justify-between items-center text-[11px]">
-                <span className="text-slate-400">Pattern Lock:</span>
-                {pattern ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsPatternModalOpen(true)}
-                    className="inline-flex items-center gap-1 text-purple-700 font-bold hover:underline cursor-pointer"
-                  >
-                    <PatternLockPreview pattern={pattern} size={14} />
-                    <span>{pattern}</span>
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={() => setIsPatternModalOpen(true)}
-                    className="text-indigo-600 font-medium hover:underline text-[10px] cursor-pointer"
-                  >
-                    + Add Pattern
-                  </button>
-                )}
-              </div>
             </div>
 
-            {/* Timelines Box */}
-            <div className="bg-slate-50 rounded-xl p-3.5 space-y-2 text-xs">
-              <span className="text-xs font-bold text-slate-800 block">
-                Timelines &amp; SLA
-              </span>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Intake Date:</span>
-                <span className="font-mono text-slate-800 font-semibold">
+            {/* TIMELINES Section Bar */}
+            <div className="bg-slate-100/90 border-y border-slate-200/80 px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Timelines
+            </div>
+            <div className="p-4 space-y-2 text-xs">
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-slate-500">Intake Date</span>
+                <span className="font-mono tabular-nums font-semibold text-slate-900">
                   {new Date(ticket.createdAt).toLocaleDateString()}
                 </span>
               </div>
               <div className="flex justify-between items-center gap-2">
-                <span className="text-slate-500 shrink-0">Created By:</span>
+                <span className="text-slate-500">Promised Due</span>
+                <span className="font-mono tabular-nums font-bold text-indigo-700">
+                  {new Date(ticket.dueDate).toLocaleDateString()}
+                </span>
+              </div>
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-slate-500 shrink-0">Created By</span>
                 <span
-                  className="font-semibold text-slate-800 truncate max-w-[175px] text-right"
+                  className="font-semibold text-slate-900 truncate max-w-[165px] text-right"
                   title={ticket.createdBy || 'Unknown'}
                 >
                   {ticket.createdBy || 'Unknown'}
                 </span>
               </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Promised Due:</span>
-                <span className="font-mono text-indigo-700 font-bold">
-                  {new Date(ticket.dueDate).toLocaleDateString()}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-slate-500">Priority:</span>
-                <span className="font-bold text-[10px] px-2 py-0.5 rounded bg-white border border-slate-200 text-slate-700">
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-slate-500">Priority</span>
+                <span className="font-bold text-[10px] px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700">
                   {ticket.priority}
                 </span>
               </div>
             </div>
 
-            {/* Pricing Financial Ledger Box (Strict right-alignment) */}
-            <div className="bg-slate-50 rounded-xl p-4 space-y-2 text-xs">
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-bold text-slate-800">
-                  Pricing &amp; Ledger
-                </span>
-                {canEditPricing && quoteState.hasPrice && (
-                  <button
-                    onClick={() => setIsDiscountModalOpen(true)}
-                    className="text-[11px] text-indigo-600 hover:underline font-semibold cursor-pointer"
-                  >
-                    Adjust Discount
-                  </button>
-                )}
-              </div>
-
+            {/* PRICING Section Bar */}
+            <div className="bg-slate-100/90 border-y border-slate-200/80 px-4 py-1.5 flex items-center justify-between">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pricing</span>
+              {canEditItems && quoteState.hasPrice && (
+                <button
+                  onClick={() => setIsDiscountModalOpen(true)}
+                  className="text-[11px] text-indigo-600 hover:underline font-semibold cursor-pointer"
+                >
+                  Adjust Discount
+                </button>
+              )}
+            </div>
+            <div className="p-4 space-y-2.5">
               {!quoteState.hasPrice ? (
                 <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 space-y-1">
-                  <div className="font-bold text-xs">Price Pending Diagnosis</div>
-                  <p className="text-[11px] text-amber-800">
-                    No repair price established yet. Add repair items or set a base quote once diagnosed.
+                  <div className="font-bold text-xs">No Charges Added</div>
+                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                    Add repair items or services on the right to calculate the final total.
                   </p>
                 </div>
               ) : (
-                <>
+                <div className="space-y-1.5 text-xs">
                   <div className="flex justify-between items-center text-slate-600">
-                    <span>Subtotal (Pre-Tax)</span>
-                    <span className="font-mono font-medium tabular-nums text-right">${(totals.subtotalCents / 100).toFixed(2)}</span>
+                    <span>Subtotal</span>
+                    <span className="text-[13px] font-mono tabular-nums font-medium text-right text-slate-800">
+                      ${(totals.subtotalCents / 100).toFixed(2)}
+                    </span>
                   </div>
 
                   {totals.discountCents > 0 && (
                     <div className="flex justify-between items-center text-rose-600 font-semibold">
                       <span>Discounts</span>
-                      <span className="font-mono tabular-nums text-right">-${(totals.discountCents / 100).toFixed(2)}</span>
+                      <span className="text-[13px] font-mono tabular-nums text-right">
+                        -${(totals.discountCents / 100).toFixed(2)}
+                      </span>
                     </div>
                   )}
 
                   <div className="flex justify-between items-center text-slate-500">
                     <span>HST ({((totals.taxRateBps || 1300) / 100).toFixed(1)}%)</span>
-                    <span className="font-mono tabular-nums text-right">+${(totals.taxCents / 100).toFixed(2)}</span>
+                    <span className="text-[13px] font-mono tabular-nums text-right">
+                      +${(totals.taxCents / 100).toFixed(2)}
+                    </span>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-200 flex justify-between items-center font-bold text-sm text-indigo-900">
-                    <span>Total (Inc. Tax)</span>
-                    <span className="font-mono font-bold tabular-nums text-right">${(totals.totalCents / 100).toFixed(2)}</span>
+                  <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
+                    <span className="font-bold text-slate-900 text-[13px]">Total</span>
+                    <span className="font-mono tabular-nums font-bold text-sm text-right text-slate-900">
+                      ${(totals.totalCents / 100).toFixed(2)}
+                    </span>
                   </div>
 
-                  <div className="flex justify-between items-center font-bold text-slate-800">
+                  <div className="flex justify-between items-center text-slate-600">
                     <span>Paid</span>
-                    <span className="font-mono tabular-nums text-right">${(totals.paidCents / 100).toFixed(2)}</span>
+                    <span className="font-mono tabular-nums font-semibold text-[13px] text-right text-indigo-600">
+                      ${(totals.paidCents / 100).toFixed(2)}
+                    </span>
                   </div>
 
-                  <div className="flex justify-between items-center font-extrabold text-sm pt-1 border-t border-dashed border-slate-200 text-slate-900">
-                    <span>Balance Owing</span>
-                    <span className={`font-mono tabular-nums text-right ${balanceOwing > 0 ? 'text-amber-600' : 'text-emerald-600'}`}>
+                  <div className="pt-2 border-t border-slate-200 flex justify-between items-baseline gap-2">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                      Balance Owing
+                    </span>
+                    <span
+                      className={`text-xl font-extrabold font-mono tabular-nums text-right tracking-tight ${
+                        balanceOwing > 0 ? 'text-amber-600' : 'text-emerald-600'
+                      }`}
+                    >
                       ${balanceOwing.toFixed(2)}
                     </span>
                   </div>
-                </>
-              )}
-
-              {quoteState.requiresReapproval && quoteState.approvedTotalCents !== null && (
-                <div className="p-2 bg-rose-50 border border-rose-200 rounded-lg text-[11px] text-rose-800 font-semibold">
-                  Approved cap: ${(quoteState.approvedTotalCents / 100).toFixed(2)}. Customer reapproval required for revised ${(totals.totalCents / 100).toFixed(2)} quote before charging more.
                 </div>
               )}
 
-              {balanceOwing > 0 && ticket.status !== 'CANCELLED' && ticket.status !== 'DECLINED' ? (
+              {balanceOwing > 0 && canEditItems ? (
                 <div className="space-y-1.5 pt-1">
                   <button
-                    disabled={isChargeBlockedByApproval}
                     onClick={() => {
                       setPaymentAmount(balanceOwing.toFixed(2));
                       setPaymentIdempotencyKey(newPaymentKey());
                       setIsPaymentModalOpen(true);
                     }}
-                    className="w-full py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-1.5"
+                    title="Collect remaining balance"
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[13px] font-bold cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-1.5 tabular-nums"
                   >
-                    <CreditCard className="w-3.5 h-3.5" />
+                    <CreditCard className="w-4 h-4" />
                     <span>Checkout &amp; Pay (${balanceOwing.toFixed(2)})</span>
                   </button>
 
                   <button
-                    disabled={quoteState.approvalStatus === 'REJECTED'}
                     onClick={() => setIsDepositModalOpen(true)}
-                    className="w-full py-1.5 bg-slate-200/80 hover:bg-slate-300 disabled:opacity-45 text-slate-800 rounded-lg text-xs font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1.5"
+                    className="w-full py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1.5"
                   >
-                    <DollarSign className="w-3.5 h-3.5 text-indigo-600" />
+                    <DollarSign className="w-3.5 h-3.5 text-slate-500" />
                     <span>+ Take Part Deposit</span>
                   </button>
                 </div>
@@ -1246,587 +1307,235 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   <span>Invoice Paid in Full</span>
                 </div>
               ) : hasDepositCredit ? (
-                <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-center text-xs font-bold text-indigo-800 flex items-center justify-center gap-1.5">
+                <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-center text-xs font-bold text-indigo-800 flex items-center justify-center gap-1.5 tabular-nums">
                   <CheckCircle2 className="w-4 h-4 text-indigo-600" />
                   <span>Deposit Credit: ${totalPaid.toFixed(2)}</span>
                 </div>
               ) : null}
             </div>
 
-            {/* Workstation Info */}
-            <div className="text-xs text-slate-500 pt-2 border-t border-slate-100 flex items-center justify-between">
-              <span>Station: <strong className="text-slate-800">{ticket.bench || 'Unassigned'}</strong></span>
-              <span>Tech: <strong className="text-slate-800">{ticket.technician || 'Unassigned'}</strong></span>
+            {/* ASSIGNMENT Section Bar */}
+            <div className="bg-slate-100/90 border-y border-slate-200/80 px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              Assignment
             </div>
-          </div>
-
-          {/* RIGHT PANEL */}
-          <div className="flex-1 p-3.5 sm:p-5 space-y-4 sm:space-y-5 lg:overflow-y-auto min-w-0">
-            {/* 1. CONSOLIDATED INTAKE DETAILS PANEL (Minimalistic & High Contrast) */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4 sm:p-5 shadow-xs space-y-4">
-              <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-slate-100">
-                <div className="flex items-center gap-2">
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 flex items-center gap-1.5">
-                    <Smartphone className="w-3.5 h-3.5" />
-                    {ticket.device?.name || 'Device'}
-                  </span>
-                  {ticket.device?.serialNumber && (
-                    <span className="text-xs font-mono text-slate-500">
-                      Serial: <strong className="text-slate-800">{ticket.device.serialNumber}</strong>
-                    </span>
-                  )}
-                </div>
-
-                {/* Security Credentials: PIN / Password & Pattern Lock */}
-                <div className="flex flex-wrap items-center gap-2">
-                  {/* Subtle Passcode Micro-Action */}
-                  <div className="flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200/80">
-                    <Lock className="w-3.5 h-3.5 text-slate-400" />
-                    <span className="text-xs text-slate-600 font-medium">PIN / Password:</span>
-                    <input
-                      type="text"
-                      value={passcode}
-                      onChange={(e) => setPasscode(e.target.value)}
-                      onBlur={() => handleSaveSecurity(passcode, pattern)}
-                      placeholder="None"
-                      className="w-24 px-1.5 py-0.5 bg-white border border-slate-200 rounded text-xs font-mono font-bold text-slate-800 focus:outline-none focus:border-indigo-600"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => handleSaveSecurity(passcode, pattern)}
-                      disabled={isSavingSecurity}
-                      className="p-1 text-slate-400 hover:text-emerald-600 rounded transition cursor-pointer"
-                      title="Save PIN"
-                    >
-                      {securitySaved ? (
-                        <Check className="w-3.5 h-3.5 text-emerald-600" />
-                      ) : (
-                        <Check className="w-3.5 h-3.5" />
-                      )}
-                    </button>
-                  </div>
-
-                  {/* Pattern Lock Micro-Trigger */}
-                  {pattern ? (
-                    <button
-                      type="button"
-                      onClick={() => setIsPatternModalOpen(true)}
-                      className="flex items-center gap-2 bg-purple-50 hover:bg-purple-100/90 text-purple-800 border border-purple-200/90 px-3 py-1.5 rounded-lg text-xs font-semibold shadow-xs transition cursor-pointer"
-                      title="Click to view or edit full 3x3 pattern swipe"
-                    >
-                      <PatternLockPreview pattern={pattern} size={18} />
-                      <span>Pattern: <strong className="font-mono">{pattern}</strong></span>
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => setIsPatternModalOpen(true)}
-                      className="flex items-center gap-1.5 bg-slate-50 hover:bg-slate-100 text-slate-600 hover:text-slate-800 border border-slate-200/80 px-3 py-1.5 rounded-lg text-xs font-medium transition cursor-pointer"
-                      title="Record 3x3 Android pattern lock"
-                    >
-                      <Grid3X3 className="w-3.5 h-3.5 text-slate-400" />
-                      <span>+ Pattern Lock</span>
-                    </button>
-                  )}
-                </div>
+            <div className="p-4 space-y-1.5 text-xs">
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-slate-500">Workstation</span>
+                <span className="font-semibold text-slate-900">{ticket.bench || 'Unassigned'}</span>
               </div>
-
-              {/* Problem & Condition in clean, unboxed layout */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
-                <div>
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                    Reported Issue / Fault
-                  </span>
-                  <p className="font-semibold text-slate-900 text-sm leading-snug">
-                    {ticket.faultDescription}
-                  </p>
-                </div>
-
-                <div>
-                  <span className="text-[11px] font-bold text-slate-400 uppercase tracking-wider block mb-1">
-                    Intake Cosmetic Condition
-                  </span>
-                  <p className="text-slate-700 text-xs font-medium">
-                    {ticket.device?.condition || 'No cosmetic defects logged at intake'}
-                  </p>
-                </div>
+              <div className="flex justify-between items-center gap-2">
+                <span className="text-slate-500">Technician</span>
+                <span className="font-semibold text-slate-900">{ticket.technician || 'Unassigned'}</span>
               </div>
             </div>
+          </aside>
 
-            {/* PRICING & CUSTOMER APPROVAL GOVERNANCE BAR (Separate from Repair Price Entry) */}
-            <div className="bg-white rounded-xl border border-slate-200 p-3.5 sm:p-4 shadow-xs space-y-2.5">
-              <div className="flex flex-wrap items-center justify-between gap-2.5">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
-                      quoteState.pricingStatus === 'REVISED_QUOTE'
-                        ? 'bg-amber-50 text-amber-800 border-amber-200'
-                        : quoteState.hasPrice
-                        ? 'bg-indigo-50 text-indigo-700 border-indigo-200'
-                        : 'bg-slate-100 text-slate-700 border-slate-200'
-                    }`}
-                  >
-                    Pricing: {quoteState.pricingLabel}
-                  </span>
-
-                  <span
-                    className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold border ${
-                      quoteState.approvalStatus === 'APPROVED'
-                        ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-                        : quoteState.approvalStatus === 'REJECTED' || quoteState.approvalStatus === 'REAPPROVAL_REQUIRED'
-                        ? 'bg-rose-50 text-rose-700 border-rose-200'
-                        : 'bg-purple-50 text-purple-700 border-purple-200'
-                    }`}
-                  >
-                    Approval: {quoteState.approvalLabel}
-                  </span>
-
-                  {quoteState.approvedAt && quoteState.approvedTotalCents !== null && (
-                    <span className="text-[11px] text-slate-500 font-mono">
-                      Approved ${(quoteState.approvedTotalCents / 100).toFixed(2)}
-                      {quoteState.approvedBy ? ` (${quoteState.approvedBy})` : ''}
-                    </span>
-                  )}
-                </div>
-
-                {quoteState.hasPrice && ticket.status !== 'CANCELLED' && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    {quoteState.approvalStatus !== 'APPROVED' && (
-                      <button
-                        type="button"
-                        disabled={isUpdatingApproval}
-                        onClick={() => setPendingApprovalAction({ status: 'APPROVED' })}
-                        className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-2xs flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
-                      >
-                        <Check className="w-3.5 h-3.5" />
-                        <span>Mark Customer Approved</span>
-                      </button>
-                    )}
-                    {quoteState.approvalStatus !== 'REJECTED' && (
-                      <button
-                        type="button"
-                        disabled={isUpdatingApproval}
-                        onClick={() => setPendingApprovalAction({ status: 'REJECTED' })}
-                        className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition disabled:opacity-50"
-                      >
-                        <X className="w-3.5 h-3.5" />
-                        <span>Mark Customer Rejected</span>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {quoteState.requiresReapproval && quoteState.approvedTotalCents !== null && (
-                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-900 flex items-center justify-between gap-2">
-                  <span>
-                    <strong>Customer Reapproval Required:</strong> Quote changed from previously approved{' '}
-                    <strong className="font-mono">${(quoteState.approvedTotalCents / 100).toFixed(2)}</strong> to{' '}
-                    <strong className="font-mono">${(totals.totalCents / 100).toFixed(2)}</strong>. Charges above the approved amount are blocked until reapproved.
-                  </span>
-                </div>
-              )}
-
-              {quoteState.isPriceLockedForNonAdmin && currentUser?.role !== 'ADMIN' && (
-                <div className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg text-[11px] text-slate-700 flex items-center gap-1.5 font-medium">
-                  <Lock className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                  <span>Approved Quote Locked — Administrator authorization is required to change an already-approved quote.</span>
-                </div>
-              )}
-            </div>
-
-            {/* 2. REALIGNED BILLING FLOW: WORK ORDER LINE ITEMS (Immediately adjacent) */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-              <div className="p-3.5 sm:p-4 border-b border-slate-100 flex flex-wrap items-center justify-between gap-2">
-                <div className="flex items-center gap-2">
-                  <Layers className="w-4 h-4 text-indigo-600" />
-                  <h4 className="font-bold text-sm text-slate-900">
-                    Work Order Line Items (Parts &amp; Labor)
-                  </h4>
-                </div>
-                <div className="flex flex-wrap items-center gap-2">
-                  {canEditPricing && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setBaseLaborInput((ticket.laborCents / 100).toFixed(2));
-                        setIsBaseLaborModalOpen(true);
-                      }}
-                      className="flex items-center gap-1 px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-lg text-xs font-bold cursor-pointer transition"
-                    >
-                      <Pencil className="w-3 h-3" />
-                      <span>{ticket.laborCents > 0 ? 'Edit Base Quote' : '+ Set Base Quote'}</span>
-                    </button>
-                  )}
-                  {/* Prominent Primary CTA */}
-                  <button
-                    type="button"
-                    disabled={!canEditPricing}
-                    onClick={() => setIsAddItemModalOpen(true)}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Attach Part / Labor</span>
-                  </button>
-                </div>
-              </div>
-
-              {/* Fast 1-Click Common Labor Presets */}
-              <div className="px-4 py-2 bg-slate-50 border-b border-slate-100 flex items-center gap-1.5 overflow-x-auto text-[11px]">
-                <span className="font-bold text-slate-500 whitespace-nowrap mr-1">Fast Labor:</span>
-                {STANDARD_REPAIR_SERVICES.map((preset) => (
-                  <button
-                    key={preset.id}
-                    type="button"
-                    disabled={!canEditPricing}
-                    onClick={async () => {
-                      try {
-                        const res = await fetchWithAuth(`/api/tickets/${ticket.id}/items`, {
-                          method: 'POST',
-                          headers: { 'Content-Type': 'application/json' },
-                          body: JSON.stringify({
-                            description: preset.name,
-                            quantity: 1,
-                            unitPriceCents: preset.priceCents,
-                          }),
-                        });
-                        if (res.ok) {
-                          const json = await res.json();
-                          if (json.data) applyTicketUpdate(json.data);
-                          posAudio.playScanBeep();
-                        } else {
-                          alert(await getErrorMessage(res, 'Failed to attach labor'));
-                        }
-                      } catch {
-                        alert('Failed to attach labor');
-                      }
-                    }}
-                    className="px-2.5 py-1 bg-white hover:bg-indigo-50 border border-slate-200 hover:border-indigo-300 text-slate-700 hover:text-indigo-700 rounded-md font-semibold transition cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed whitespace-nowrap shadow-2xs"
-                  >
-                    + {preset.name} (${(preset.priceCents / 100).toFixed(0)})
-                  </button>
-                ))}
-              </div>
-
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
-                  <thead>
-                    <tr className="border-b border-slate-200 bg-slate-50/75 text-[11px] font-bold text-slate-500 uppercase">
-                      <th className="py-2.5 px-3">System ID / SKU</th>
-                      <th className="py-2.5 px-3">Description</th>
-                      <th className="py-2.5 px-3">Status</th>
-                      <th className="py-2.5 px-3">Qty</th>
-                      <th className="py-2.5 px-3">Unit Price</th>
-                      <th className="py-2.5 px-3 text-right">Subtotal</th>
-                      <th className="py-2.5 px-3 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {/* Primary Quoted Labor Item (shown when base labor > 0 OR no items exist yet) */}
-                    {(ticket.laborCents > 0 || !ticket.items || ticket.items.length === 0) && (
-                      <tr className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-mono font-bold text-indigo-600">
-                          WO-{String(ticket.ticketNumber).padStart(4, '0')}
-                        </td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-900">
-                          {ticket.device?.name || 'Device'} Diagnostic &amp; Service Labor
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span
-                            className={`px-2 py-0.5 rounded text-[10px] font-semibold ${
-                              ticket.laborCents > 0
-                                ? 'bg-emerald-100 text-emerald-800'
-                                : 'bg-amber-100 text-amber-800'
-                            }`}
-                          >
-                            {ticket.laborCents > 0 ? 'Base Service Quote' : 'Price Pending Diagnosis'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 font-mono">1</td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
-                          {ticket.laborCents > 0 ? `$${(ticket.laborCents / 100).toFixed(2)}` : 'Pending'}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-right text-slate-900">
-                          {ticket.laborCents > 0 ? `$${(ticket.laborCents / 100).toFixed(2)}` : 'Pending'}
-                        </td>
-                        <td className="py-2.5 px-3 text-right text-slate-400 text-[10px]">
-                          {canEditPricing ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setBaseLaborInput((ticket.laborCents / 100).toFixed(2));
-                                setIsBaseLaborModalOpen(true);
-                              }}
-                              className="text-indigo-600 hover:underline font-semibold cursor-pointer"
-                            >
-                              {ticket.laborCents > 0 ? 'Edit' : 'Set Price'}
-                            </button>
-                          ) : (
-                            'Locked'
+          {/* ZONE C: RIGHT WORKBENCH (3 Reference-Style Horizontal Bands) */}
+          <div className="flex-1 flex flex-col lg:overflow-y-auto min-w-0 bg-white">
+            {/* ========================================================
+                BAND 1: TOP DEVICE, SECURITY & ISSUE STRIP
+               ======================================================== */}
+            <div className="bg-white border-b border-slate-200 p-4">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-stretch">
+                {/* Card 1: Consolidated Device & Security Card (with visible 3x3 Pattern Grid) */}
+                <div className="lg:col-span-7 bg-white border border-slate-200 rounded-lg p-3 flex items-center justify-between gap-3">
+                  <div className="min-w-0 flex-1 space-y-2">
+                    <div>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                        Device
+                      </span>
+                      <div className="flex items-center gap-2 mt-0.5">
+                        <span className="w-7 h-7 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                          <Smartphone className="w-4 h-4" />
+                        </span>
+                        <div className="min-w-0">
+                          <h2 className="text-base font-bold text-slate-900 leading-tight truncate">
+                            {ticket.device?.name || 'Device'}
+                          </h2>
+                          {ticket.device?.serialNumber && (
+                            <span className="text-[11px] font-mono text-slate-500 block">
+                              S/N: <strong className="font-semibold text-slate-700">{ticket.device.serialNumber}</strong>
+                            </span>
                           )}
-                        </td>
-                      </tr>
-                    )}
+                        </div>
+                      </div>
+                    </div>
 
-                    {/* Attached Line Items / Parts from Database */}
-                    {ticket.items?.map((item) => (
-                      <tr key={item.id} className="hover:bg-slate-50">
-                        <td className="py-2.5 px-3 font-mono font-bold text-indigo-600">
-                          {item.partId ? 'INVENTORY' : 'SERVICE'}
-                        </td>
-                        <td className="py-2.5 px-3 font-semibold text-slate-900">
-                          {item.description}
-                        </td>
-                        <td className="py-2.5 px-3">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-100 text-blue-800">
-                            {item.partId ? 'Part Installed' : 'Quoted Service'}
-                          </span>
-                        </td>
-                        <td className="py-2.5 px-3 font-mono">{item.quantity}</td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-slate-800">
-                          ${(item.unitPriceCents / 100).toFixed(2)}
-                        </td>
-                        <td className="py-2.5 px-3 font-mono font-bold text-right text-slate-900">
-                          ${((item.unitPriceCents * item.quantity) / 100).toFixed(2)}
-                        </td>
-                        <td className="py-2.5 px-3 text-right">
-                          <button
-                            disabled={!canEditPricing}
-                            onClick={() => handleRemoveItem(item.id, item.description)}
-                            className="p-1 text-slate-400 hover:text-red-600 hover:bg-red-50 disabled:opacity-30 disabled:cursor-not-allowed rounded cursor-pointer transition"
-                            title={canEditPricing ? 'Remove Line Item' : 'Admin authorization required'}
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                    <div className="flex items-center gap-1.5 pt-1">
+                      <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                      <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap">PIN / Pass:</span>
+                      <input
+                        type="text"
+                        value={passcode}
+                        onChange={(e) => setPasscode(e.target.value)}
+                        onBlur={() => handleSaveSecurity(passcode, pattern)}
+                        placeholder="None"
+                        className="w-24 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono font-semibold text-slate-800 focus:bg-white focus:outline-none focus:border-indigo-500"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSaveSecurity(passcode, pattern)}
+                        disabled={isSavingSecurity}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold border transition-colors cursor-pointer inline-flex items-center gap-1 ${
+                          securitySaved
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                            : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
+                        }`}
+                        title="Save PIN"
+                      >
+                        <Check className="w-3 h-3" />
+                        <span>Save</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Visible 3x3 Interactive Pattern Lock Matrix */}
+                  <button
+                    type="button"
+                    onClick={() => setIsPatternModalOpen(true)}
+                    className={`shrink-0 p-2 rounded-lg border transition-colors cursor-pointer flex flex-col items-center gap-1 ${
+                      pattern
+                        ? 'bg-purple-50/70 hover:bg-purple-100/70 border-purple-200'
+                        : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
+                    }`}
+                    title={pattern ? `Pattern: ${pattern} (click to edit)` : 'Record 3x3 unlock pattern'}
+                  >
+                    <PatternLockPreview pattern={pattern} size={46} />
+                    <span className="text-[10px] font-bold font-mono text-slate-600">
+                      {pattern ? pattern : '+ Pattern'}
+                    </span>
+                  </button>
+                </div>
+
+                {/* Card 2: Issue & Cosmetic Condition */}
+                <div className="lg:col-span-5 bg-white border border-slate-200 rounded-lg p-3 flex flex-col justify-between gap-2.5">
+                  <div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                      Reported Issue / Fault
+                    </span>
+                    <p className="text-sm font-semibold text-slate-900 leading-snug">
+                      {ticket.faultDescription}
+                    </p>
+                  </div>
+
+                  <div className="pt-2 border-t border-slate-100">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                      Cosmetic Condition
+                    </span>
+                    <p className="text-xs text-slate-600 leading-snug">
+                      {ticket.device?.condition || 'No cosmetic defects logged at intake'}
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
 
-            {/* 3. SIMPLIFIED WORKBENCH TABS (Public Notes removed, single-layer navigation) */}
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-              <div className="flex items-center gap-1 border-b border-slate-200 px-4 bg-slate-50/75 overflow-x-auto">
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('notes')}
-                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === 'notes'
-                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
-                      : 'border-transparent text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <MessageSquare className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Bench Notes</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('sms')}
-                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === 'sms'
-                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
-                      : 'border-transparent text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Send className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Customer SMS</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('payments')}
-                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === 'payments'
-                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
-                      : 'border-transparent text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <CreditCard className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Payments &amp; Receipts ({ticket.payments?.length || 0})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('signature')}
-                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === 'signature'
-                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
-                      : 'border-transparent text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <PenTool className="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Waiver Signature</span>
-                  {ticket.signature && <span className="text-[10px] text-emerald-600 font-bold bg-emerald-50 px-1 rounded">✓</span>}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setActiveTab('history')}
-                  className={`px-3.5 py-2.5 text-xs font-bold transition-all border-b-2 whitespace-nowrap cursor-pointer flex items-center gap-1.5 ${
-                    activeTab === 'history'
-                      ? 'border-indigo-600 text-indigo-700 bg-white shadow-xs'
-                      : 'border-transparent text-slate-600 hover:text-slate-900'
-                  }`}
-                >
-                  <Clock className="w-3.5 h-3.5 text-slate-500" />
-                  <span>Audit Log ({ticket.events?.length || 0})</span>
-                </button>
+            {/* ========================================================
+                BAND 2: DARK-NAVY WORKBENCH TAB BAR & CONTENT PANEL
+               ======================================================== */}
+            <div className="bg-white border-b border-slate-200">
+              <div className="bg-[#0f2942] px-2.5 xl:px-4 pt-1 flex flex-nowrap overflow-x-auto items-center gap-0.5">
+                {[
+                  { id: 'customer_notes', label: `Customer Notes (${customerNotesCount})` },
+                  { id: 'internal_notes', label: `Internal Notes (${internalNotesCount})` },
+                  { id: 'history', label: `Audit History (${ticket.events?.length || 0})` },
+                  { id: 'payments', label: `Payments (${ticket.payments?.length || 0})` },
+                  { id: 'sms', label: 'SMS' },
+                  { id: 'signature', label: ticket.signature ? 'Signature ✓' : 'Signature' },
+                ].map((tab) => {
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => setActiveTab(tab.id as typeof activeTab)}
+                      className={`px-2 xl:px-3 py-2 text-[10px] xl:text-[11px] font-bold uppercase tracking-normal xl:tracking-wide whitespace-nowrap shrink-0 transition-colors cursor-pointer rounded-t-md tabular-nums ${
+                        isActive
+                          ? 'bg-white text-slate-900 shadow-2xs'
+                          : 'text-slate-300 hover:text-white hover:bg-white/10'
+                      }`}
+                    >
+                      {tab.label}
+                    </button>
+                  );
+                })}
               </div>
 
-              {/* Tab Content */}
-              <div className="p-4 text-xs">
-                {/* 1. SPLIT-NOTE ARCHITECTURE (Private Bench vs Public Customer Notes) */}
-                {activeTab === 'notes' && (
-                  <div className="space-y-3.5">
-                    {/* Note Type Selector & Audience Warning */}
-                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 p-2.5 bg-slate-50 border border-slate-200/90 rounded-xl">
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => setNoteKind('INTERNAL_NOTE')}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                            noteKind === 'INTERNAL_NOTE'
-                              ? 'bg-amber-600 text-white shadow-xs'
-                              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          <Lock className="w-3.5 h-3.5" />
-                          <span>Private Bench Note (Tech Only)</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setNoteKind('CUSTOMER_NOTE')}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
-                            noteKind === 'CUSTOMER_NOTE'
-                              ? 'bg-blue-600 text-white shadow-xs'
-                              : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-100'
-                          }`}
-                        >
-                          <Printer className="w-3.5 h-3.5" />
-                          <span>Public Note (Prints on Receipt)</span>
-                        </button>
-                      </div>
-
-                      <div className="text-[11px] font-medium text-slate-500">
-                        {noteKind === 'INTERNAL_NOTE' ? (
-                          <span className="text-amber-700 font-semibold flex items-center gap-1">
-                            <Lock className="w-3 h-3" /> Confidential • Bench tech only • Never on receipt
+              <div className="p-4">
+                {/* 1 & 2. UNIFIED CUSTOMER NOTES / INTERNAL NOTES PANEL */}
+                {(activeTab === 'customer_notes' || activeTab === 'internal_notes') && (
+                  <div className="space-y-3">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="font-bold text-sm text-slate-900">
+                          {activeNoteKind === 'CUSTOMER_NOTE' ? 'Customer Notes' : 'Internal Bench Notes'}
+                        </span>
+                        {activeNoteKind === 'CUSTOMER_NOTE' ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                            <Printer className="w-3 h-3" /> Visible on printed receipt
                           </span>
                         ) : (
-                          <span className="text-blue-700 font-semibold flex items-center gap-1">
-                            <Printer className="w-3 h-3" /> Customer-facing • Appears on printed invoice
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                            <Lock className="w-3 h-3" /> Confidential &bull; Tech only (never prints)
                           </span>
                         )}
                       </div>
-                    </div>
 
-                    {/* Note Creation Form */}
-                    <form onSubmit={handleAddNote} className="flex gap-2">
-                      <input
-                        type="text"
-                        value={newNote}
-                        onChange={(e) => setNewNote(e.target.value)}
-                        placeholder={
-                          noteKind === 'INTERNAL_NOTE'
-                            ? "Enter internal technician notes..."
-                            : "Enter public note visible on customer receipt..."
-                        }
-                        className="flex-1 px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-xs focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600 transition"
-                      />
-                      <button
-                        type="submit"
-                        disabled={isSubmittingNote || !newNote.trim()}
-                        className={`px-4 py-2.5 text-white rounded-lg font-bold text-xs transition shadow-xs cursor-pointer disabled:opacity-50 flex items-center gap-1.5 ${
-                          noteKind === 'INTERNAL_NOTE'
-                            ? 'bg-amber-600 hover:bg-amber-700'
-                            : 'bg-blue-600 hover:bg-blue-700'
-                        }`}
+                      <form
+                        onSubmit={(e) => handleAddNote(e, activeNoteKind)}
+                        className="flex flex-1 md:max-w-lg gap-2"
                       >
-                        <Plus className="w-3.5 h-3.5" />
-                        <span>{isSubmittingNote ? 'Saving...' : noteKind === 'INTERNAL_NOTE' ? 'Post Bench Note' : 'Post Public Note'}</span>
-                      </button>
-                    </form>
-
-                    {/* Filter Pills */}
-                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
-                      <div className="flex flex-wrap items-center gap-1.5">
-                        <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mr-1">View:</span>
-                        {[
-                          { id: 'ALL', label: 'All Notes' },
-                          { id: 'INTERNAL_NOTE', label: 'Private Bench Only' },
-                          { id: 'CUSTOMER_NOTE', label: 'Public Receipt Only' },
-                        ].map((f) => (
-                          <button
-                            key={f.id}
-                            type="button"
-                            onClick={() => setNoteFilter(f.id as any)}
-                            className={`px-2.5 py-1 rounded text-xs font-semibold transition cursor-pointer ${
-                              noteFilter === f.id
-                                ? 'bg-indigo-600 text-white shadow-xs'
-                                : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-                            }`}
-                          >
-                            {f.label}
-                          </button>
-                        ))}
-                      </div>
-
-                      <span className="text-[11px] text-slate-400 font-mono">
-                        {ticket.events?.filter((ev) => ev.kind === 'INTERNAL_NOTE' || ev.kind === 'CUSTOMER_NOTE').length || 0} total entries
-                      </span>
+                        <input
+                          type="text"
+                          value={newNote}
+                          onChange={(e) => setNewNote(e.target.value)}
+                          placeholder={
+                            activeNoteKind === 'CUSTOMER_NOTE'
+                              ? 'Add note visible on customer receipt...'
+                              : 'Add confidential bench tech note...'
+                          }
+                          className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                        />
+                        <button
+                          type="submit"
+                          disabled={isSubmittingNote || !newNote.trim()}
+                          className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-md font-bold text-xs transition-colors cursor-pointer disabled:opacity-45 inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          <span>{isSubmittingNote ? 'Saving...' : 'Create'}</span>
+                        </button>
+                      </form>
                     </div>
 
-                    {/* Filtered Notes List */}
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto border border-slate-200 rounded-lg">
                       <table className="w-full text-left border-collapse">
-                      <thead>
-                        <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
-                          <th className="py-2 px-3">Audience / Type</th>
-                          <th className="py-2 px-3">Date / Time</th>
-                          <th className="py-2 px-3">Author</th>
-                          <th className="py-2 px-3">Note Content</th>
-                          <th className="py-2 px-3 text-right">Actions</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {ticket.events
-                          ?.filter((ev) => {
-                            if (ev.kind !== 'INTERNAL_NOTE' && ev.kind !== 'CUSTOMER_NOTE') return false;
-                            if (noteFilter === 'ALL') return true;
-                            return ev.kind === noteFilter;
-                          })
-                          .map((ev) => {
+                        <thead>
+                          <tr className="bg-slate-100/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                            <th className="py-2 px-3">Technician</th>
+                            <th className="py-2 px-3">Date / Time</th>
+                            <th className="py-2 px-3">Note</th>
+                            <th className="py-2 px-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {activeNoteRows.map((ev) => {
                             const isEditing = editingNoteId === ev.id;
-                            const isPublic = ev.kind === 'CUSTOMER_NOTE';
-
                             return (
-                              <tr key={ev.id} className="hover:bg-slate-50 transition-colors">
-                                <td className="py-2 px-3 whitespace-nowrap align-top text-xs">
-                                  {isPublic ? (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                                      <Printer className="w-3 h-3 text-blue-600" />
-                                      Public Receipt
-                                    </span>
-                                  ) : (
-                                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                                      <Lock className="w-3 h-3 text-amber-600" />
-                                      Private Bench
-                                    </span>
-                                  )}
-                                </td>
-                                <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap align-top text-xs">
-                                  {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                                </td>
-                                <td className="py-2 px-3 font-semibold text-slate-900 align-top whitespace-nowrap text-xs">
+                              <tr key={ev.id} className="hover:bg-slate-50/80 transition-colors">
+                                <td className="py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap text-xs align-top">
                                   {ev.author || 'Technician'}
                                 </td>
-                                <td className="py-2 px-3 text-slate-700 text-xs">
+                                <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap text-xs align-top">
+                                  {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </td>
+                                <td className="py-2.5 px-3 text-slate-800 text-sm leading-relaxed">
                                   {isEditing ? (
                                     <div className="flex items-center gap-2">
                                       <input
                                         type="text"
                                         value={editingNoteText}
                                         onChange={(e) => setEditingNoteText(e.target.value)}
-                                        className="flex-1 px-2.5 py-1 text-xs bg-white border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                                        className="flex-1 px-2.5 py-1 text-sm bg-white border border-indigo-300 rounded focus:outline-none focus:ring-1 focus:ring-indigo-500"
                                         autoFocus
                                         onKeyDown={(e) => {
                                           if (e.key === 'Enter') handleSaveEditNote(ev.id);
@@ -1837,14 +1546,14 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                                         type="button"
                                         onClick={() => handleSaveEditNote(ev.id)}
                                         disabled={isUpdatingNote || !editingNoteText.trim()}
-                                        className="px-2 py-1 bg-indigo-600 text-white rounded text-xs font-semibold hover:bg-indigo-700 transition"
+                                        className="px-2.5 py-1 bg-indigo-600 text-white rounded text-xs font-semibold hover:bg-indigo-700 cursor-pointer"
                                       >
                                         {isUpdatingNote ? 'Saving...' : 'Save'}
                                       </button>
                                       <button
                                         type="button"
                                         onClick={handleCancelEditNote}
-                                        className="px-2 py-1 bg-slate-200 text-slate-700 rounded text-xs font-medium hover:bg-slate-300 transition"
+                                        className="px-2.5 py-1 bg-slate-200 text-slate-700 rounded text-xs font-medium hover:bg-slate-300 cursor-pointer"
                                       >
                                         Cancel
                                       </button>
@@ -1853,13 +1562,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                                     <span>{ev.message}</span>
                                   )}
                                 </td>
-                                <td className="py-2 px-3 text-right whitespace-nowrap align-top">
+                                <td className="py-2.5 px-3 text-right whitespace-nowrap align-top">
                                   {!isEditing && (
-                                    <div className="flex items-center justify-end gap-1.5">
+                                    <div className="flex items-center justify-end gap-1">
                                       <button
                                         type="button"
                                         onClick={() => handleStartEditNote(ev.id, ev.message)}
-                                        className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-100 transition"
+                                        className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-100 cursor-pointer"
                                         title="Edit note"
                                       >
                                         <Pencil className="w-3.5 h-3.5" />
@@ -1868,7 +1577,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                                         type="button"
                                         onClick={() => handleDeleteNote(ev.id, ev.message)}
                                         disabled={isDeletingNoteId === ev.id}
-                                        className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 transition"
+                                        className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 cursor-pointer"
                                         title="Delete note"
                                       >
                                         <Trash2 className="w-3.5 h-3.5" />
@@ -1879,65 +1588,76 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                               </tr>
                             );
                           })}
-                        {(!ticket.events ||
-                          ticket.events.filter((ev) => {
-                            if (ev.kind !== 'INTERNAL_NOTE' && ev.kind !== 'CUSTOMER_NOTE') return false;
-                            if (noteFilter === 'ALL') return true;
-                            return ev.kind === noteFilter;
-                          }).length === 0) && (
-                          <tr>
-                            <td colSpan={5} className="py-6 text-center text-slate-400 italic text-xs">
-                              No notes found matching this filter.
-                            </td>
-                          </tr>
-                        )}
-                      </tbody>
+                          {activeNoteRows.length === 0 && (
+                            <tr>
+                              <td colSpan={4} className="py-6 text-center text-slate-400 italic text-xs">
+                                {activeNoteKind === 'CUSTOMER_NOTE'
+                                  ? 'No customer receipt notes recorded yet.'
+                                  : 'No internal bench notes recorded yet.'}
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
                       </table>
                     </div>
                   </div>
                 )}
 
-                {/* 2. DIRECT SMS GATEWAY */}
-                {activeTab === 'sms' && (
-                  <div className="p-3 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="font-bold text-slate-800 flex items-center gap-1.5">
-                        <MessageSquare className="w-4 h-4 text-indigo-600" />
-                        Send SMS to Customer ({ticket.customer.phone})
-                      </span>
-                      {smsSuccess && (
-                        <span className="text-emerald-600 font-bold text-[11px] flex items-center gap-1">
-                          <Check className="w-3.5 h-3.5" /> SMS Dispatched
-                        </span>
-                      )}
+                {/* 3. AUDIT HISTORY */}
+                {activeTab === 'history' && (
+                  <div className="space-y-2.5">
+                    <span className="font-bold text-sm text-slate-900 block">
+                      Chronological Action History
+                    </span>
+                    <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                      <table className="w-full text-left border-collapse">
+                        <thead>
+                          <tr className="bg-slate-100/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                            <th className="py-2 px-3">Timestamp</th>
+                            <th className="py-2 px-3">Type</th>
+                            <th className="py-2 px-3">Author</th>
+                            <th className="py-2 px-3">Details</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {ticket.events?.map((ev) => (
+                            <tr key={ev.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap text-xs">
+                                {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </td>
+                              <td className="py-2.5 px-3 whitespace-nowrap">
+                                <span className="px-2 py-0.5 rounded font-mono text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                                  {ev.kind}
+                                </span>
+                              </td>
+                              <td className="py-2.5 px-3 text-xs font-medium text-slate-600 whitespace-nowrap">
+                                {ev.author || 'System'}
+                              </td>
+                              <td className="py-2.5 px-3 text-slate-800 text-sm leading-relaxed">
+                                {ev.kind === 'PHOTO'
+                                  ? (() => {
+                                      try {
+                                        const meta = JSON.parse(ev.message);
+                                        return `Photo uploaded: ${meta.filename}${meta.caption ? ` — ${meta.caption}` : ''}`;
+                                      } catch {
+                                        return 'Device photo attached';
+                                      }
+                                    })()
+                                  : stripQuoteEventMeta(ev.message)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
                     </div>
-
-                    <form onSubmit={handleSendSms} className="space-y-2">
-                      <textarea
-                        rows={2}
-                        value={smsText}
-                        onChange={(e) => setSmsText(e.target.value)}
-                        className="w-full p-2.5 bg-white border border-slate-200 rounded-lg text-xs font-sans text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-600"
-                      />
-                      <div className="flex justify-end">
-                        <button
-                          type="submit"
-                          disabled={isSendingSms || !smsText.trim()}
-                          className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg font-semibold shadow-xs cursor-pointer disabled:opacity-50"
-                        >
-                          <Send className="w-3.5 h-3.5" />
-                          <span>{isSendingSms ? 'Transmitting...' : 'Send SMS'}</span>
-                        </button>
-                      </div>
-                    </form>
                   </div>
                 )}
 
-                {/* 3. PAYMENTS & RECEIPTS */}
+                {/* 4. PAYMENTS & RECEIPTS */}
                 {activeTab === 'payments' && (
-                  <div className="space-y-4">
+                  <div className="space-y-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-bold text-xs text-slate-800">
+                      <span className="font-bold text-sm text-slate-900">
                         Payment &amp; Transaction Ledger
                       </span>
                       <div className="flex flex-wrap items-center gap-2">
@@ -1946,13 +1666,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             type="button"
                             disabled={isRefunding}
                             onClick={handleIssueRefund}
-                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer disabled:opacity-50"
+                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
                             <span>{isRefunding ? 'Refunding...' : 'Issue Refund'}</span>
                           </button>
                         )}
-                        {balanceOwing > 0 && ticket.status !== 'CANCELLED' && ticket.status !== 'DECLINED' && (
+                        {balanceOwing > 0 && canEditItems && (
                           <button
                             type="button"
                             onClick={() => {
@@ -1960,7 +1680,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                               setPaymentIdempotencyKey(newPaymentKey());
                               setIsPaymentModalOpen(true);
                             }}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs flex items-center gap-1.5 transition"
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
                           >
                             <CreditCard className="w-3.5 h-3.5" />
                             <span>Record Payment</span>
@@ -1969,35 +1689,35 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       </div>
                     </div>
 
-                    <div className="overflow-x-auto">
+                    <div className="overflow-x-auto border border-slate-200 rounded-lg">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
+                          <tr className="bg-slate-100/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                             <th className="py-2 px-3">Date</th>
                             <th className="py-2 px-3">Method</th>
-                            <th className="py-2 px-3">Amount</th>
+                            <th className="py-2 px-3 text-right">Amount</th>
                             <th className="py-2 px-3">Note</th>
                             <th className="py-2 px-3 text-right">Action</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {ticket.payments?.map((pmt) => (
-                            <tr key={pmt.id} className="hover:bg-slate-50">
-                              <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">
+                            <tr key={pmt.id} className="hover:bg-slate-50/80 transition-colors">
+                              <td className="py-2.5 px-3 font-mono tabular-nums text-xs text-slate-500 whitespace-nowrap">
                                 {new Date(pmt.createdAt).toLocaleDateString()}
                               </td>
-                              <td className="py-2 px-3 font-semibold text-slate-900">{pmt.method}</td>
-                              <td className={`py-2 px-3 font-mono font-bold ${pmt.amountCents < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                              <td className="py-2.5 px-3 text-sm font-semibold text-slate-900">{pmt.method}</td>
+                              <td className={`py-2.5 px-3 text-sm font-mono tabular-nums font-bold text-right whitespace-nowrap ${pmt.amountCents < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
                                 {pmt.amountCents < 0 ? `-$${(Math.abs(pmt.amountCents) / 100).toFixed(2)}` : `+$${(pmt.amountCents / 100).toFixed(2)}`}
                               </td>
-                              <td className="py-2 px-3 text-slate-500">{pmt.note || 'N/A'}</td>
-                              <td className="py-2 px-3 text-right whitespace-nowrap">
+                              <td className="py-2.5 px-3 text-sm text-slate-600">{pmt.note || 'N/A'}</td>
+                              <td className="py-2.5 px-3 text-right whitespace-nowrap">
                                 {currentUser?.role === 'ADMIN' && (
                                   <button
                                     type="button"
                                     disabled={isVoidingPaymentId === pmt.id}
                                     onClick={() => handleVoidPayment(pmt.id, pmt.amountCents)}
-                                    className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-600 hover:bg-rose-50 rounded transition cursor-pointer disabled:opacity-40"
+                                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded cursor-pointer disabled:opacity-40"
                                     title="Void Payment (Admin Only)"
                                   >
                                     <Trash2 className="w-3 h-3" />
@@ -2009,7 +1729,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                           ))}
                           {(!ticket.payments || ticket.payments.length === 0) && (
                             <tr>
-                              <td colSpan={5} className="py-6 text-center text-slate-400 italic">
+                              <td colSpan={5} className="py-6 text-center text-slate-400 italic text-xs">
                                 No payments recorded yet.
                               </td>
                             </tr>
@@ -2020,18 +1740,54 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   </div>
                 )}
 
-                {/* 4. CUSTOMER SIGNATURE WAIVER */}
+                {/* 5. DIRECT SMS GATEWAY */}
+                {activeTab === 'sms' && (
+                  <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                        <MessageSquare className="w-4 h-4 text-indigo-600" />
+                        Send SMS to Customer ({ticket.customer.phone})
+                      </span>
+                      {smsSuccess && (
+                        <span className="text-emerald-600 font-bold text-xs flex items-center gap-1">
+                          <Check className="w-3.5 h-3.5" /> SMS Dispatched
+                        </span>
+                      )}
+                    </div>
+
+                    <form onSubmit={handleSendSms} className="space-y-2.5">
+                      <textarea
+                        rows={2}
+                        value={smsText}
+                        onChange={(e) => setSmsText(e.target.value)}
+                        className="w-full p-2.5 bg-white border border-slate-200 rounded-md text-sm font-sans text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      />
+                      <div className="flex justify-end">
+                        <button
+                          type="submit"
+                          disabled={isSendingSms || !smsText.trim()}
+                          className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-bold shadow-2xs cursor-pointer disabled:opacity-50"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          <span>{isSendingSms ? 'Transmitting...' : 'Send SMS'}</span>
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                )}
+
+                {/* 6. CUSTOMER SIGNATURE WAIVER */}
                 {activeTab === 'signature' && (
-                  <div className="space-y-4 max-w-xl">
-                    <div className="flex items-center justify-between">
+                  <div className="space-y-3 max-w-xl">
+                    <div className="flex items-center justify-between gap-2">
                       <div>
-                        <h4 className="font-bold text-xs text-slate-900">Customer Legal Authorization</h4>
-                        <p className="text-[11px] text-slate-500">
+                        <h4 className="font-bold text-sm text-slate-900">Customer Legal Authorization</h4>
+                        <p className="text-xs text-slate-500">
                           Intake diagnostic authorization &amp; release acknowledgment
                         </p>
                       </div>
                       {ticket.signature && (
-                        <span className="text-emerald-700 font-semibold bg-emerald-50 px-2.5 py-0.5 rounded text-[11px] border border-emerald-200">
+                        <span className="text-emerald-700 font-semibold bg-emerald-50 px-2.5 py-0.5 rounded text-xs border border-emerald-200">
                           Verified on File
                         </span>
                       )}
@@ -2045,52 +1801,279 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     />
                   </div>
                 )}
+              </div>
+            </div>
 
-                {/* 5. AUDIT LOG */}
-                {activeTab === 'history' && (
-                  <div className="space-y-3">
-                    <span className="font-bold text-xs text-slate-800">
-                      Chronological Action History
-                    </span>
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-left border-collapse">
-                        <thead>
-                          <tr className="border-b border-slate-200 text-[11px] font-bold text-slate-400 uppercase">
-                            <th className="py-2 px-3">Timestamp</th>
-                            <th className="py-2 px-3">Type</th>
-                            <th className="py-2 px-3">Details</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                          {ticket.events?.map((ev) => (
-                            <tr key={ev.id} className="hover:bg-slate-50">
-                              <td className="py-2 px-3 font-mono text-slate-500 whitespace-nowrap text-xs">
-                                {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </td>
-                              <td className="py-2 px-3">
-                                <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-slate-100 text-slate-700">
-                                  {ev.kind}
-                                </span>
-                              </td>
-                              <td className="py-2 px-3 text-slate-700 text-xs">
-                                {ev.kind === 'PHOTO'
-                                  ? (() => {
-                                      try {
-                                        const meta = JSON.parse(ev.message);
-                                        return `📷 Photo uploaded: ${meta.filename}${meta.caption ? ` — ${meta.caption}` : ''}`;
-                                      } catch {
-                                        return '📷 Device photo attached';
-                                      }
-                                    })()
-                                  : stripQuoteEventMeta(ev.message)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
+            {/* ========================================================
+                BAND 3: ITEMS WORKBENCH (Search, Quick Service Tiles, Table)
+               ======================================================== */}
+            <div className="bg-white flex-1">
+              <div className="bg-slate-100/90 border-b border-slate-200 px-4 py-2 flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-3.5 h-3.5 text-slate-600" />
+                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                    Items ({(ticket.items?.length || 0) + (ticket.laborCents > 0 ? 1 : 0)})
+                  </span>
+                </div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={!canEditItems}
+                    onClick={() => setIsAddItemModalOpen(true)}
+                    className="flex items-center gap-1 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-md text-xs font-bold shadow-2xs cursor-pointer transition-colors"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>Attach Part / Labor</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Inline Search + Quick Repair Service Tiles */}
+              <div className="p-4 border-b border-slate-200 space-y-3 bg-white">
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="relative flex-1 min-w-[220px]">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+                    <input
+                      type="text"
+                      value={itemSearchQuery}
+                      onChange={(e) => setItemSearchQuery(e.target.value)}
+                      placeholder="Select Workorder Item — search inventory parts or standard services..."
+                      className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                    />
+                  </div>
+                  {itemSearchQuery.trim() && (
+                    <button
+                      type="button"
+                      onClick={() => setItemSearchQuery('')}
+                      className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-md text-xs font-bold cursor-pointer transition-colors"
+                    >
+                      Clear Search
+                    </button>
+                  )}
+                </div>
+
+                {normalizedItemQuery && (
+                  <div className="border border-slate-200 rounded-lg bg-slate-50/70 divide-y divide-slate-200/80 max-h-52 overflow-y-auto">
+                    {matchingServices.map((srv) => (
+                      <button
+                        key={`match-srv-${srv.id}`}
+                        type="button"
+                        disabled={!canEditItems || isAddingQuickItem}
+                        onClick={() =>
+                          handleAttachQuickItem({
+                            description: srv.name,
+                            unitPriceCents: srv.priceCents,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-left hover:bg-indigo-50 flex items-center justify-between gap-2 text-xs cursor-pointer disabled:opacity-45"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-mono text-[10px] font-bold">
+                            SERVICE
+                          </span>
+                          <span className="font-semibold text-slate-900 truncate">{srv.name}</span>
+                        </div>
+                        <span className="font-mono tabular-nums font-bold text-emerald-700 shrink-0">
+                          ${(srv.priceCents / 100).toFixed(2)} + Add
+                        </span>
+                      </button>
+                    ))}
+                    {matchingParts.map((part) => (
+                      <button
+                        key={`match-part-${part.id}`}
+                        type="button"
+                        disabled={!canEditItems || isAddingQuickItem}
+                        onClick={() =>
+                          handleAttachQuickItem({
+                            partId: part.id,
+                            description: part.name,
+                            unitPriceCents: part.priceCents,
+                          })
+                        }
+                        className="w-full px-3 py-2 text-left hover:bg-indigo-50 flex items-center justify-between gap-2 text-xs cursor-pointer disabled:opacity-45"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-mono text-[10px] font-bold">
+                            {part.sku}
+                          </span>
+                          <span className="font-semibold text-slate-900 truncate">{part.name}</span>
+                          <span className="text-[11px] text-slate-500">({part.stock} in stock)</span>
+                        </div>
+                        <span className="font-mono tabular-nums font-bold text-emerald-700 shrink-0">
+                          ${(part.priceCents / 100).toFixed(2)} + Add
+                        </span>
+                      </button>
+                    ))}
+                    {matchingServices.length === 0 && matchingParts.length === 0 && (
+                      <div className="px-3 py-3 text-xs text-slate-500 flex items-center justify-between gap-2">
+                        <span>No matching catalog parts or services found for &ldquo;{itemSearchQuery}&rdquo;.</span>
+                        {canEditItems && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCustomItemDesc(itemSearchQuery.trim());
+                              setIsAddItemModalOpen(true);
+                            }}
+                            className="text-indigo-600 font-bold hover:underline cursor-pointer shrink-0"
+                          >
+                            + Add Custom Item
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
+
+                {/* Quick Repair Service Tiles (100% Real Standard Catalog) */}
+                <div className="flex flex-wrap gap-2">
+                  {STANDARD_REPAIR_SERVICES.map((preset) => (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      disabled={!canEditItems || isAddingQuickItem}
+                      onClick={() =>
+                        handleAttachQuickItem({
+                          description: preset.name,
+                          unitPriceCents: preset.priceCents,
+                        })
+                      }
+                      className="min-w-[132px] p-2.5 rounded-lg border border-slate-200 bg-slate-50/70 hover:bg-indigo-50 hover:border-indigo-300 text-left transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed flex items-center gap-2.5"
+                    >
+                      <span className="w-8 h-8 rounded-md bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-2xs">
+                        {renderServiceIcon(preset.id)}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="text-[11px] font-bold text-slate-800 leading-tight truncate max-w-[130px]">
+                          {preset.name}
+                        </div>
+                        <div className="text-xs font-mono tabular-nums font-bold text-emerald-700 mt-0.5">
+                          +${(preset.priceCents / 100).toFixed(0)}
+                        </div>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Full-Width Work Order Line Items Table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                      <th className="py-2.5 px-4">System ID</th>
+                      <th className="py-2.5 px-4">Description</th>
+                      <th className="py-2.5 px-4">Status</th>
+                      <th className="py-2.5 px-4 text-right">Qty</th>
+                      <th className="py-2.5 px-4 text-right">Unit Price</th>
+                      <th className="py-2.5 px-4 text-right">Subtotal</th>
+                      <th className="py-2.5 px-4 text-right">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {ticket.laborCents > 0 && (
+                      <tr className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded bg-sky-600 text-white font-mono text-[11px] font-bold">
+                            WO-{String(ticket.ticketNumber).padStart(4, '0')}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-sm font-semibold text-slate-900">
+                          {ticket.device?.name || 'Device'} Diagnostic &amp; Service Labor
+                        </td>
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span className="px-2.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                            Base Labor
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-sm font-mono tabular-nums text-right text-slate-700">1</td>
+                        <td className="py-3 px-4 text-sm font-mono tabular-nums text-right font-semibold text-emerald-700 whitespace-nowrap">
+                          ${(ticket.laborCents / 100).toFixed(2)}
+                        </td>
+                        <td className="py-3 px-4 text-sm font-mono tabular-nums font-bold text-right text-slate-900 whitespace-nowrap">
+                          ${(ticket.laborCents / 100).toFixed(2)}
+                        </td>
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <button
+                            type="button"
+                            disabled={!canEditItems}
+                            onClick={() => {
+                              setBaseLaborInput((ticket.laborCents / 100).toFixed(2));
+                              setIsBaseLaborModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-35 disabled:cursor-not-allowed rounded-md cursor-pointer transition-colors"
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+                        </td>
+                      </tr>
+                    )}
+
+                    {ticket.items?.map((item) => (
+                      <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span
+                            className={`px-2 py-0.5 rounded font-mono text-[11px] font-bold ${
+                              item.partId
+                                ? 'bg-sky-600 text-white'
+                                : 'bg-indigo-600 text-white'
+                            }`}
+                          >
+                            {item.partId ? 'INVENTORY' : 'SERVICE'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-sm font-semibold text-slate-900">
+                          {item.description}
+                        </td>
+                        <td className="py-3 px-4 whitespace-nowrap">
+                          <span className="px-2.5 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                            {item.partId ? 'Part Installed' : 'Service'}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-sm font-mono tabular-nums text-right text-slate-700">
+                          {item.quantity}
+                        </td>
+                        <td className="py-3 px-4 text-sm font-mono tabular-nums text-right font-semibold text-emerald-700 whitespace-nowrap">
+                          ${(item.unitPriceCents / 100).toFixed(2)}
+                        </td>
+                        <td className="py-3 px-4 text-sm font-mono tabular-nums font-bold text-right text-slate-900 whitespace-nowrap">
+                          ${((item.unitPriceCents * item.quantity) / 100).toFixed(2)}
+                        </td>
+                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center justify-end gap-1.5">
+                            <button
+                              type="button"
+                              disabled={!canEditItems}
+                              onClick={() => openEditItemModal(item)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-35 disabled:cursor-not-allowed rounded-md cursor-pointer transition-colors"
+                              title="Edit Line Item"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={!canEditItems}
+                              onClick={() => handleRemoveItem(item.id, item.description)}
+                              className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 disabled:opacity-35 disabled:cursor-not-allowed rounded-md cursor-pointer transition-colors"
+                              title="Remove Line Item"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {ticket.laborCents === 0 && (!ticket.items || ticket.items.length === 0) && (
+                      <tr>
+                        <td colSpan={7} className="py-8 px-4 text-center text-xs text-slate-400 italic">
+                          No repair items or services added yet. Search or click a service above, or click + Attach Part / Labor.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -2226,6 +2209,129 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
           </div>
         </div>
       )}
+
+      {/* ========================================================
+          EDIT LINE ITEM MODAL
+         ======================================================== */}
+      {editingItem && (() => {
+        const parsedQty = Math.max(1, parseInt(editItemQty, 10) || 1);
+        const parsedPriceVal = parseFloat(editItemPrice);
+        const parsedPriceCents =
+          !Number.isNaN(parsedPriceVal) && parsedPriceVal >= 0 ? Math.round(parsedPriceVal * 100) : 0;
+        const previewLineSubtotalCents = parsedQty * parsedPriceCents;
+        const oldLineSubtotalCents = editingItem.quantity * editingItem.unitPriceCents;
+        const previewOrderSubtotalCents = Math.max(0, totals.subtotalCents - oldLineSubtotalCents + previewLineSubtotalCents);
+        const previewDiscountCents = Math.min(Math.max(totals.discountCents, 0), previewOrderSubtotalCents);
+        const previewTaxableCents = previewOrderSubtotalCents - previewDiscountCents;
+        const previewTaxRateBps = totals.taxRateBps || 1300;
+        const previewTaxCents = Math.round((previewTaxableCents * previewTaxRateBps) / 10000);
+        const previewOrderTotalCents = previewTaxableCents + previewTaxCents;
+
+        return (
+          <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
+            <div className="bg-white rounded-2xl max-w-md w-full max-h-[90dvh] overflow-y-auto my-auto p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
+              <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                  <Pencil className="w-4 h-4 text-indigo-600" />
+                  Edit Line Item — WO #{ticket.ticketNumber}
+                </h3>
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="p-1 rounded text-slate-400 hover:text-slate-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              {editItemError && (
+                <div className="p-2.5 bg-red-50 text-red-700 text-xs rounded-lg font-medium border border-red-200">
+                  {editItemError}
+                </div>
+              )}
+
+              <form onSubmit={handleSaveEditItem} className="space-y-3 text-xs">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                    Description
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editItemDesc}
+                    onChange={(e) => setEditItemDesc(e.target.value)}
+                    placeholder="Part or service description"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-900 focus:bg-white focus:outline-none focus:border-indigo-600"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Unit Price ($)
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      required
+                      value={editItemPrice}
+                      onChange={(e) => setEditItemPrice(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-indigo-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 mb-1">
+                      Quantity
+                    </label>
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      required
+                      value={editItemQty}
+                      onChange={(e) => setEditItemQty(e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-xs font-mono font-bold text-slate-900 focus:bg-white focus:outline-none focus:border-indigo-600"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-3 rounded-lg bg-slate-50 border border-slate-200 space-y-1.5">
+                  <div className="flex justify-between items-center text-slate-600">
+                    <span>Line Subtotal</span>
+                    <span className="font-mono tabular-nums font-bold text-slate-900">
+                      ${(previewLineSubtotalCents / 100).toFixed(2)}
+                    </span>
+                  </div>
+                  <div className="flex justify-between items-center pt-1.5 border-t border-slate-200/80 text-slate-800">
+                    <span className="font-semibold">Updated Order Total (incl. HST)</span>
+                    <span className="font-mono tabular-nums font-extrabold text-sm text-indigo-700">
+                      ${(previewOrderTotalCents / 100).toFixed(2)}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="pt-2 flex justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingItem(null)}
+                    className="px-3 py-1.5 text-xs text-slate-600 hover:bg-slate-100 rounded-lg transition cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSavingEditItem}
+                    className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-50 cursor-pointer"
+                  >
+                    {isSavingEditItem ? 'Saving...' : 'Save Changes'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ========================================================
           COLLECT PAYMENT MODAL
@@ -2482,14 +2588,14 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       )}
 
       {/* ========================================================
-          BASE QUOTE / SERVICE PRICE MODAL
+          BASE LABOR PRICE MODAL
          ======================================================== */}
       {isBaseLaborModalOpen && (
         <div className="fixed inset-0 z-60 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-3 sm:p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl max-w-sm w-full max-h-[90dvh] overflow-y-auto my-auto p-4 sm:p-5 shadow-2xl border border-slate-200 space-y-4 animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
               <h3 className="font-bold text-sm text-slate-900">
-                {ticket.laborCents > 0 ? 'Update Base Service Quote' : 'Set Base Service Quote'}
+                Edit Base Labor
               </h3>
               <button
                 type="button"
@@ -2499,12 +2605,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 <X className="w-4 h-4" />
               </button>
             </div>
-
-            {quoteState.approvalStatus === 'APPROVED' && (
-              <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-[11px] text-amber-900">
-                Changing an already-approved quote requires customer reapproval before charging the updated total.
-              </div>
-            )}
 
             <form onSubmit={handleSaveBaseLabor} className="space-y-3 text-xs">
               <div>
@@ -2535,50 +2635,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   disabled={isSavingBaseLabor}
                   className="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition shadow-xs disabled:opacity-50"
                 >
-                  {isSavingBaseLabor ? 'Saving...' : 'Save Quote'}
+                  {isSavingBaseLabor ? 'Saving...' : 'Save Labor'}
                 </button>
               </div>
             </form>
           </div>
         </div>
       )}
-
-      {/* ========================================================
-          CUSTOMER APPROVAL / REJECTION CONFIRMATION DIALOG
-         ======================================================== */}
-      <ConfirmDialog
-        isOpen={Boolean(pendingApprovalAction)}
-        tone={pendingApprovalAction?.status === 'APPROVED' ? 'warning' : 'danger'}
-        title={
-          pendingApprovalAction?.status === 'APPROVED'
-            ? `Record Customer Approval for WO #${ticket.ticketNumber}?`
-            : `Mark Quote Rejected for WO #${ticket.ticketNumber}?`
-        }
-        message={
-          pendingApprovalAction?.status === 'APPROVED' ? (
-            <>
-              Confirm the customer has explicitly approved the quoted total of{' '}
-              <strong className="text-slate-900">${(totals.totalCents / 100).toFixed(2)}</strong> (incl. tax).
-            </>
-          ) : (
-            <>
-              Confirm the customer rejected the quoted total of{' '}
-              <strong className="text-slate-900">${(totals.totalCents / 100).toFixed(2)}</strong>. Charges will be blocked unless a revised quote is approved.
-            </>
-          )
-        }
-        confirmLabel={
-          pendingApprovalAction?.status === 'APPROVED' ? 'Yes, Mark Approved' : 'Yes, Mark Rejected'
-        }
-        cancelLabel="No, Cancel"
-        isProcessing={isUpdatingApproval}
-        onCancel={() => setPendingApprovalAction(null)}
-        onConfirm={() => {
-          if (pendingApprovalAction) {
-            handleExecuteApproval(pendingApprovalAction.status);
-          }
-        }}
-      />
 
       {/* ========================================================
           ADJUST DISCOUNT MODAL

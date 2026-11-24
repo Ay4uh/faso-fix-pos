@@ -114,6 +114,15 @@ export const addItemSchema = z
     message: 'Choose an inventory part, or enter a description and price',
   });
 
+export const updateItemSchema = z
+  .object({
+    description: trimmed.min(1, 'Description is required').max(200),
+    quantity: z.number().int().min(1).max(999),
+    unitPriceCents: cents,
+  })
+  .partial()
+  .refine((d) => Object.keys(d).length > 0, 'Provide at least one field to update');
+
 export const paymentSchema = z.object({
   amountCents: z.number().int().min(1, 'Amount must be greater than zero').max(100_000_000),
   method: z.enum(PAYMENT_METHODS),

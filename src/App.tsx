@@ -85,6 +85,7 @@ export function App() {
   const [customersPage, setCustomersPage] = useState(1);
   const [customersSearch, setCustomersSearch] = useState('');
   const [customersPagination, setCustomersPagination] = useState<PaginationMeta | null>(null);
+  const [historyRefreshTick, setHistoryRefreshTick] = useState(0);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [shopTaxRateBps, setShopTaxRateBps] = useState(1300);
@@ -536,6 +537,7 @@ export function App() {
 
       posAudio.playSuccessChime();
       showToast('Work order successfully deleted');
+      setHistoryRefreshTick((n) => n + 1);
       fetchData(true);
     } catch (err: any) {
       posAudio.playWarningBeep();
@@ -646,7 +648,10 @@ export function App() {
               const merged = {
                 ...curr,
                 ...matched,
-                events: matched.events ?? curr.events,
+                events:
+                  curr.events && curr.events.length > (matched.events?.length || 0)
+                    ? curr.events
+                    : matched.events ?? curr.events,
                 otherTickets: matched.otherTickets ?? curr.otherTickets,
               };
               return JSON.stringify(merged) !== JSON.stringify(curr) ? merged : curr;
@@ -741,6 +746,7 @@ export function App() {
               } catch {}
               return next;
             });
+            setHistoryRefreshTick((n) => n + 1);
             fetchDataRef.current(true);
           } catch {}
         });
@@ -765,6 +771,7 @@ export function App() {
                   }
                 : curr
             );
+            setHistoryRefreshTick((n) => n + 1);
             fetchDataRef.current(true);
           } catch {}
         });
@@ -784,11 +791,13 @@ export function App() {
               return next;
             });
             setSelectedTicket((curr) => (curr && curr.id === id ? null : curr));
+            setHistoryRefreshTick((n) => n + 1);
             fetchDataRef.current(true);
           } catch {}
         });
 
         es.addEventListener('customer_updated', () => {
+          setHistoryRefreshTick((n) => n + 1);
           fetchDataRef.current(true);
         });
 
@@ -869,6 +878,7 @@ export function App() {
       }
 
       showToast(`Work order status updated to ${newStatus}`);
+      setHistoryRefreshTick((n) => n + 1);
       fetchData(true);
     } catch (err) {
       console.error(err);
@@ -902,6 +912,7 @@ export function App() {
         }
       }
       showToast('Work order marked Completed');
+      setHistoryRefreshTick((n) => n + 1);
       fetchData(true);
     } catch (err) {
       console.error(err);
@@ -1159,6 +1170,11 @@ export function App() {
                 setCustomersSearch(q);
                 setCustomersPage(1);
               }}
+              refreshKey={historyRefreshTick}
+              onCustomerUpdated={() => {
+                setHistoryRefreshTick((n) => n + 1);
+                fetchData(true);
+              }}
             />
           )}
 
@@ -1169,7 +1185,7 @@ export function App() {
 
           {/* 4. Analytics & Reports */}
           {currentTab === 'analytics' && (
-            <AnalyticsView tickets={tickets} stats={stats} />
+            <AnalyticsView tickets={tickets} stats={stats} refreshKey={historyRefreshTick} />
           )}
 
           {/* 5. Shop Settings */}
@@ -1283,6 +1299,7 @@ export function App() {
               setSelectedTicket(updated);
             }
             setTickets((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
+            setHistoryRefreshTick((n) => n + 1);
             fetchData(true);
           }}
           onPrint={(t) => {
@@ -1313,6 +1330,7 @@ export function App() {
             setSelectedTicket(createdTicket);
           }
           showToast(`Work order #${createdTicket?.ticketNumber || ''} created successfully`);
+          setHistoryRefreshTick((n) => n + 1);
           fetchData(true);
         }}
         existingCustomers={customers}

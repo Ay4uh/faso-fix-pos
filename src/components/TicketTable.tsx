@@ -346,12 +346,6 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                 <span className="text-[10px] font-bold text-emerald-700">Paid in full</span>
                               ) : hasDeposit ? (
                                 <span className="text-[10px] font-bold text-indigo-700">Deposit: ${(paidCents / 100).toFixed(2)}</span>
-                              ) : quoteState.requiresReapproval ? (
-                                <span className="text-[10px] font-bold text-rose-700">Reapproval Req.</span>
-                              ) : quoteState.approvalStatus === 'REJECTED' ? (
-                                <span className="text-[10px] font-bold text-rose-600">Quote Rejected</span>
-                              ) : quoteState.approvalStatus === 'AWAITING_APPROVAL' ? (
-                                <span className="text-[10px] font-bold text-purple-700">Awaiting Approval</span>
                               ) : (
                                 <span className="text-[10px] font-bold text-amber-700">
                                   Bal: ${(balanceCents / 100).toFixed(2)}
@@ -605,12 +599,6 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                 <span className="text-emerald-600 font-bold">Paid</span>
                               ) : hasDeposit ? (
                                 <span className="text-indigo-600 font-bold">Deposit ${(paidCents / 100).toFixed(2)}</span>
-                              ) : quoteState.requiresReapproval ? (
-                                <span className="text-rose-600 font-bold">Reapproval Req.</span>
-                              ) : quoteState.approvalStatus === 'REJECTED' ? (
-                                <span className="text-rose-600 font-bold">Rejected</span>
-                              ) : quoteState.approvalStatus === 'AWAITING_APPROVAL' ? (
-                                <span className="text-purple-700 font-bold">Awaiting Approval</span>
                               ) : (
                                 <span>Bal: ${(balanceCents / 100).toFixed(2)}</span>
                               )}

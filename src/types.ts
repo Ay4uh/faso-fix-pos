@@ -284,6 +284,27 @@ export interface DailyReport {
   date: string;
   revenueCents: number;
   ticketsCreated: number;
+  closedTickets?: number;
+  newCustomers?: number;
+}
+
+export interface WeeklyReportPoint {
+  label: string;
+  startDate: string;
+  endDate: string;
+  revenueCents: number;
+  ticketsCreated: number;
+  closedTickets: number;
+}
+
+export interface PerformanceRow {
+  name: string;
+  revenueCents: number;
+  totalWorkOrders: number;
+  closedTickets: number;
+  newCustomers: number;
+  returningCustomers: number;
+  avgTicketCents: number;
 }
 
 export interface TopDevice {
@@ -294,13 +315,29 @@ export interface TopDevice {
 export interface ReportData {
   days: number;
   since: string;
+  from: string;
+  to: string;
   revenueCents: number;
+  prevRevenueCents: number;
+  revenueDeltaPct: number | null;
+  currentWeekRevenueCents: number;
+  previousWeekRevenueCents: number;
   refundsCents?: number;
   netTaxCollectedCents?: number;
+  netRevenueCents: number;
+  grossProfitCents: number;
+  grossMarginPct: number | null;
+  avgTicketValueCents: number;
+  outstandingBalanceCents: number;
   ticketsCreated: number;
   warrantyTicketsCount?: number;
   paidTicketsCount?: number;
   ticketsCompleted: number;
+  closedTicketsCount: number;
+  prevClosedTicketsCount: number;
+  closedTicketsDeltaPct: number | null;
+  newCustomersCount: number;
+  returningCustomersCount: number;
   avgTurnaroundHours: number | null;
   onTimeRate: number | null;
   partsRevenueCents: number;
@@ -308,4 +345,7 @@ export interface ReportData {
   byMethod: Record<string, number>;
   topDevices: TopDevice[];
   daily: DailyReport[];
+  weekly: WeeklyReportPoint[];
+  staffPerformance: PerformanceRow[];
+  devicePerformance: PerformanceRow[];
 }
