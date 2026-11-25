@@ -195,6 +195,41 @@ describe('Tickets', () => {
     assert.equal(r.status, 400);
   });
 
+  test('POST /api/tickets and PUT /api/tickets/:id support custom dueDate and audit logging', async () => {
+    const created = await call('/api/tickets', {
+      method: 'POST',
+      token: tech,
+      body: {
+        customer: { fullName: 'Due Date Tester', phone: '4165558899' },
+        device: { name: 'Nintendo Switch' },
+        faultDescription: 'USB-C port replacement',
+        dueDate: '2026-12-05',
+      },
+    });
+    assert.equal(created.status, 201, JSON.stringify(created.json));
+    const dueTestId = created.json.data.id;
+    assert.ok(String(created.json.data.dueDate).startsWith('2026-12-05'), `Expected 2026-12-05, got ${created.json.data.dueDate}`);
+
+    const updated = await call(`/api/tickets/${dueTestId}`, {
+      method: 'PUT',
+      token: tech,
+      body: {
+        dueDate: '2026-12-12',
+        expectedUpdatedAt: created.json.data.updatedAt,
+      },
+    });
+    assert.equal(updated.status, 200, JSON.stringify(updated.json));
+    assert.ok(String(updated.json.data.dueDate).startsWith('2026-12-12'), `Expected 2026-12-12, got ${updated.json.data.dueDate}`);
+    const events = updated.json.data.events || [];
+    assert.ok(
+      events.some((ev: any) => ev.kind === 'SYSTEM' && String(ev.message).toLowerCase().includes('due date')),
+      `Expected SYSTEM audit log mentioning due date, got ${JSON.stringify(events)}`
+    );
+
+    const deleted = await call(`/api/tickets/${dueTestId}`, { method: 'DELETE', token: admin });
+    assert.equal(deleted.status, 200);
+  });
+
   test('technician cannot delete tickets', async () => {
     assert.equal((await call(`/api/tickets/${ticketId}`, { method: 'DELETE', token: tech })).status, 403);
   });

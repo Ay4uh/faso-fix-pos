@@ -12,12 +12,22 @@ import {
   Search,
   Grid3X3,
   DollarSign,
+  Calendar,
 } from 'lucide-react';
 import { Customer } from '../types';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
 import { STANDARD_REPAIR_SERVICES } from '../utils/repairPricing';
 import { PatternLockModal, PatternLockPreview } from './PatternLockModal';
+
+function getLocalDateOffset(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() + days);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 interface CreateTicketModalProps {
   isOpen: boolean;
@@ -52,8 +62,9 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
   const [isPatternModalOpen, setIsPatternModalOpen] = useState(false);
   const [serialNumber, setSerialNumber] = useState('');
 
-  // 3. Reported Issue
+  // 3. Reported Issue & Promised Due Date
   const [issue, setIssue] = useState('');
+  const [dueDate, setDueDate] = useState(() => getLocalDateOffset(2));
 
   // 4. Optional Upfront Pricing & Service Selection (NEVER auto-approves)
   const [pricingChoice, setPricingChoice] = useState<'PENDING_DIAGNOSIS' | 'QUOTED'>('PENDING_DIAGNOSIS');
@@ -80,6 +91,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
     setPattern('');
     setSerialNumber('');
     setIssue('');
+    setDueDate(getLocalDateOffset(2));
     setPricingChoice('PENDING_DIAGNOSIS');
     setSelectedServiceId('');
     setQuotedServiceDesc('');
@@ -181,6 +193,11 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
       return;
     }
 
+    if (!dueDate) {
+      setErrorMsg('Please select a promised due date');
+      return;
+    }
+
     const parsedPrice = parseFloat(quotedPriceDollars);
     const hasQuotedAmount =
       pricingChoice === 'QUOTED' && quotedPriceDollars.trim() !== '' && !Number.isNaN(parsedPrice);
@@ -211,6 +228,7 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
             serialNumber: serialNumber.trim() || undefined,
           },
           faultDescription: issue.trim() || quotedServiceDesc.trim() || 'Device Diagnostics & Inspection',
+          dueDate,
           laborCents: 0,
           pricingMode: quotedCents > 0 ? 'QUOTE_PROVIDED' : 'DIAGNOSIS_REQUIRED',
           ...(quotedCents > 0
@@ -462,6 +480,58 @@ export const CreateTicketModal: React.FC<CreateTicketModalProps> = ({
               placeholder="Describe reported issue or requested repair"
               className="w-full px-3 py-2.5 sm:py-2 text-base sm:text-xs bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition resize-none"
             />
+          </div>
+
+          {/* 3.5 Promised Due Date */}
+          <div className="space-y-2 pt-2 border-t border-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label
+                htmlFor="new-ticket-due-date"
+                className="text-[11px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5"
+              >
+                <Calendar className="w-3.5 h-3.5 text-indigo-600" />
+                Promised Due Date
+              </label>
+              <span className="text-[11px] font-medium text-slate-500">Default: +2 Days</span>
+            </div>
+
+            <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+              <input
+                id="new-ticket-due-date"
+                type="date"
+                required
+                aria-label="Promised Due Date"
+                value={dueDate}
+                onChange={(e) => setDueDate(e.target.value)}
+                className="px-3 py-2 text-base sm:text-xs font-mono font-semibold text-slate-900 bg-slate-50 border border-slate-200 rounded-lg focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition"
+              />
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: 'Today', days: 0 },
+                  { label: 'Tomorrow', days: 1 },
+                  { label: '+2 Days', days: 2 },
+                  { label: '+3 Days', days: 3 },
+                  { label: '+1 Week', days: 7 },
+                ].map((preset) => {
+                  const target = getLocalDateOffset(preset.days);
+                  const active = dueDate === target;
+                  return (
+                    <button
+                      key={preset.label}
+                      type="button"
+                      onClick={() => setDueDate(target)}
+                      className={`px-2.5 py-1.5 rounded-md text-[11px] font-bold border transition cursor-pointer ${
+                        active
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
+                          : 'bg-white text-slate-700 border-slate-200 hover:bg-indigo-50 hover:border-indigo-200'
+                      }`}
+                    >
+                      {preset.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
           </div>
 
           {/* 4. Repair Pricing & Initial Quote (Optional — never auto-approves) */}
