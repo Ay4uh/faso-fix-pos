@@ -22,18 +22,11 @@ import {
   Tag,
   Shield,
   RotateCcw,
-  Search,
-  Wrench,
-  Monitor,
-  Battery,
-  Cpu,
-  Flame,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
 import { printDeviceStickerLabel } from '../utils/receipt';
 import {
-  STANDARD_REPAIR_SERVICES,
   deriveTicketQuoteState,
   stripQuoteEventMeta,
   isTicketPaidInFull,
@@ -147,8 +140,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const [editingNoteText, setEditingNoteText] = useState('');
   const [isUpdatingNote, setIsUpdatingNote] = useState(false);
   const [isDeletingNoteId, setIsDeletingNoteId] = useState<string | null>(null);
-  const [itemSearchQuery, setItemSearchQuery] = useState('');
-  const [isAddingQuickItem, setIsAddingQuickItem] = useState(false);
 
   // SMS
   const [smsText, setSmsText] = useState(
@@ -354,39 +345,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       alert(err?.message || 'Failed to save note');
     } finally {
       setIsSubmittingNote(false);
-    }
-  };
-
-  const handleAttachQuickItem = async (item: {
-    description: string;
-    unitPriceCents: number;
-    partId?: string;
-  }) => {
-    if (!canEditItems || isAddingQuickItem) return;
-    setIsAddingQuickItem(true);
-    try {
-      const res = await fetchWithAuth(`/api/tickets/${ticket.id}/items`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          partId: item.partId || undefined,
-          description: item.description,
-          quantity: 1,
-          unitPriceCents: item.unitPriceCents,
-        }),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        if (json.data) applyTicketUpdate(json.data);
-        posAudio.playScanBeep();
-        setItemSearchQuery('');
-      } else {
-        alert(await getErrorMessage(res, 'Failed to attach item'));
-      }
-    } catch {
-      alert('Failed to attach item');
-    } finally {
-      setIsAddingQuickItem(false);
     }
   };
 
@@ -977,42 +935,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
-  const renderServiceIcon = (serviceId: string) => {
-    switch (serviceId) {
-      case 'screen-labor':
-        return <Monitor className="w-4 h-4 text-indigo-600" />;
-      case 'battery-replacement':
-        return <Battery className="w-4 h-4 text-emerald-600" />;
-      case 'diagnostic-inspection':
-        return <Search className="w-4 h-4 text-sky-600" />;
-      case 'thermal-paste-clean':
-        return <Flame className="w-4 h-4 text-amber-600" />;
-      case 'port-micro-soldering':
-        return <Cpu className="w-4 h-4 text-purple-600" />;
-      default:
-        return <Wrench className="w-4 h-4 text-slate-600" />;
-    }
-  };
-
   const customerNotesCount = (ticket.events || []).filter((ev) => ev.kind === 'CUSTOMER_NOTE').length;
   const internalNotesCount = (ticket.events || []).filter((ev) => ev.kind === 'INTERNAL_NOTE').length;
   const activeNoteKind: 'CUSTOMER_NOTE' | 'INTERNAL_NOTE' =
     activeTab === 'customer_notes' ? 'CUSTOMER_NOTE' : 'INTERNAL_NOTE';
   const activeNoteRows = (ticket.events || []).filter((ev) => ev.kind === activeNoteKind);
-
-  const normalizedItemQuery = itemSearchQuery.trim().toLowerCase();
-  const matchingServices = normalizedItemQuery
-    ? STANDARD_REPAIR_SERVICES.filter((s) => s.name.toLowerCase().includes(normalizedItemQuery))
-    : [];
-  const matchingParts = normalizedItemQuery
-    ? availableParts
-        .filter(
-          (p) =>
-            p.name.toLowerCase().includes(normalizedItemQuery) ||
-            p.sku.toLowerCase().includes(normalizedItemQuery)
-        )
-        .slice(0, 8)
-    : [];
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-0 sm:p-2 lg:p-3 overflow-hidden ui-backdrop">
@@ -1897,7 +1824,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             </div>
 
             {/* ========================================================
-                BAND 3: ITEMS WORKBENCH (Search, Quick Service Tiles, Table)
+                BAND 3: ITEMS WORKBENCH
                ======================================================== */}
             <div className="bg-white flex-1">
               <div className="bg-slate-100/90 border-b border-slate-200 px-4 lg:px-5 xl:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2">
@@ -1917,133 +1844,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     <Plus className="w-4 h-4" />
                     <span>Attach Part / Labor</span>
                   </button>
-                </div>
-              </div>
-
-              {/* Inline Search + Quick Repair Service Tiles */}
-              <div className="p-4 lg:p-5 xl:p-6 border-b border-slate-200 space-y-4 bg-white">
-                <div className="flex flex-wrap items-center gap-2.5">
-                  <div className="relative flex-1 min-w-[240px]">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      type="text"
-                      value={itemSearchQuery}
-                      onChange={(e) => setItemSearchQuery(e.target.value)}
-                      placeholder="Select Workorder Item — search inventory parts or standard services..."
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
-                    />
-                  </div>
-                  {itemSearchQuery.trim() && (
-                    <button
-                      type="button"
-                      onClick={() => setItemSearchQuery('')}
-                      className="px-3.5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-sm font-bold ui-press cursor-pointer"
-                    >
-                      Clear Search
-                    </button>
-                  )}
-                </div>
-
-                {normalizedItemQuery && (
-                  <div className="border border-slate-200 rounded-2xl bg-slate-50/70 divide-y divide-slate-200/80 max-h-52 overflow-y-auto ui-pop">
-                    {matchingServices.map((srv) => (
-                      <button
-                        key={`match-srv-${srv.id}`}
-                        type="button"
-                        disabled={!canEditItems || isAddingQuickItem}
-                        onClick={() =>
-                          handleAttachQuickItem({
-                            description: srv.name,
-                            unitPriceCents: srv.priceCents,
-                          })
-                        }
-                        className="w-full px-3.5 py-2.5 text-left hover:bg-indigo-50 flex items-center justify-between gap-2 text-sm cursor-pointer disabled:opacity-45"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-mono text-[10px] font-bold">
-                            SERVICE
-                          </span>
-                          <span className="font-semibold text-slate-900 truncate">{srv.name}</span>
-                        </div>
-                        <span className="font-mono tabular-nums font-bold text-emerald-700 shrink-0">
-                          ${(srv.priceCents / 100).toFixed(2)} + Add
-                        </span>
-                      </button>
-                    ))}
-                    {matchingParts.map((part) => (
-                      <button
-                        key={`match-part-${part.id}`}
-                        type="button"
-                        disabled={!canEditItems || isAddingQuickItem}
-                        onClick={() =>
-                          handleAttachQuickItem({
-                            partId: part.id,
-                            description: part.name,
-                            unitPriceCents: part.priceCents,
-                          })
-                        }
-                        className="w-full px-3.5 py-2.5 text-left hover:bg-indigo-50 flex items-center justify-between gap-2 text-sm cursor-pointer disabled:opacity-45"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-mono text-[10px] font-bold">
-                            {part.sku}
-                          </span>
-                          <span className="font-semibold text-slate-900 truncate">{part.name}</span>
-                          <span className="text-xs text-slate-500">({part.stock} in stock)</span>
-                        </div>
-                        <span className="font-mono tabular-nums font-bold text-emerald-700 shrink-0">
-                          ${(part.priceCents / 100).toFixed(2)} + Add
-                        </span>
-                      </button>
-                    ))}
-                    {matchingServices.length === 0 && matchingParts.length === 0 && (
-                      <div className="px-3.5 py-3 text-sm text-slate-500 flex items-center justify-between gap-2">
-                        <span>No matching catalog parts or services found for &ldquo;{itemSearchQuery}&rdquo;.</span>
-                        {canEditItems && (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCustomItemDesc(itemSearchQuery.trim());
-                              setIsAddItemModalOpen(true);
-                            }}
-                            className="text-indigo-600 font-bold hover:underline cursor-pointer shrink-0"
-                          >
-                            + Add Custom Item
-                          </button>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                {/* Quick Repair Service Tiles (100% Real Standard Catalog) */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 ui-stagger">
-                  {STANDARD_REPAIR_SERVICES.map((preset) => (
-                    <button
-                      key={preset.id}
-                      type="button"
-                      disabled={!canEditItems || isAddingQuickItem}
-                      onClick={() =>
-                        handleAttachQuickItem({
-                          description: preset.name,
-                          unitPriceCents: preset.priceCents,
-                        })
-                      }
-                      className="p-3 xl:p-3.5 rounded-2xl border border-slate-200 bg-slate-50/70 hover:bg-indigo-50 hover:border-indigo-300 hover:shadow-sm text-left ui-card-lift ui-press cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed flex items-center gap-3 group"
-                    >
-                      <span className="w-9 h-9 rounded-xl bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-2xs transition-transform duration-150 group-hover:scale-105">
-                        {renderServiceIcon(preset.id)}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="text-[13px] font-bold text-slate-800 leading-snug">
-                          {preset.name}
-                        </div>
-                        <div className="text-sm font-mono tabular-nums font-bold text-emerald-700 mt-0.5">
-                          +${(preset.priceCents / 100).toFixed(0)}
-                        </div>
-                      </div>
-                    </button>
-                  ))}
                 </div>
               </div>
 
@@ -2160,7 +1960,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     {ticket.laborCents === 0 && (!ticket.items || ticket.items.length === 0) && (
                       <tr>
                         <td colSpan={7} className="py-10 px-5 text-center text-sm text-slate-400 italic">
-                          No repair items or services added yet. Search or click a service above, or click + Attach Part / Labor.
+                          No repair items or services added yet. Click + Attach Part / Labor to add a line item.
                         </td>
                       </tr>
                     )}
