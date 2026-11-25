@@ -940,17 +940,17 @@ export function App() {
     return (
       <LoginPage
         sessionExpiredNotice={sessionExpiredNotice}
-        onLoginSuccess={(user, targetView) => {
+        onLoginSuccess={(user) => {
           setSessionExpiredNotice(null);
           setCurrentUser(user);
           try {
             localStorage.setItem('apexfix_cached_user', JSON.stringify(user));
           } catch {}
-          if (user.role === 'ADMIN' && targetView === 'admin') {
-            setCurrentTab('admin');
-          } else {
-            setCurrentTab('repairs');
-          }
+          // Always direct straight to the main Dashboard upon login
+          setCurrentTab('repairs');
+          try {
+            window.location.hash = '#repairs';
+          } catch {}
           showToast(`Welcome back, ${user.name}`);
         }}
       />

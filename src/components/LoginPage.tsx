@@ -15,7 +15,7 @@ import { posAudio } from '../utils/audio';
 import { User as UserType } from '../types';
 
 interface LoginPageProps {
-  onLoginSuccess: (user: UserType, targetView: 'repairs' | 'admin') => void;
+  onLoginSuccess: (user: UserType, targetView?: 'repairs' | 'admin') => void;
   sessionExpiredNotice?: string | null;
 }
 
@@ -59,8 +59,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
         }
         markSessionActive(data.expiresAtMs);
         posAudio.playSuccessChime();
-        const targetView: 'repairs' | 'admin' = data.user.role === 'ADMIN' && isAdminMode ? 'admin' : 'repairs';
-        onLoginSuccess(data.user, targetView);
+        onLoginSuccess(data.user, 'repairs');
       } catch (err: any) {
         setErrorMessage(err.message || 'Verification failed.');
         posAudio.playWarningBeep();
@@ -122,8 +121,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
       markSessionActive(data.expiresAtMs);
       posAudio.playSuccessChime();
       
-      const targetView: 'repairs' | 'admin' = (data.user.role === 'ADMIN' && isAdminMode) ? 'admin' : 'repairs';
-      onLoginSuccess(data.user, targetView);
+      onLoginSuccess(data.user, 'repairs');
     } catch (err: any) {
       setErrorMessage(err.message || 'Login failed. Please check your credentials.');
       posAudio.playWarningBeep();
