@@ -463,9 +463,9 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   const firstName = currentUser?.name ? currentUser.name.split(' ')[0] : 'Staff';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto ui-backdrop">
       {/* Light Clean Frame with TimeTrakGO Tablet Styling */}
-      <div className="relative w-full max-w-3xl max-h-[92dvh] flex flex-col bg-white text-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-auto">
+      <div className="relative w-full max-w-3xl max-h-[92dvh] flex flex-col bg-white text-slate-800 rounded-2xl sm:rounded-3xl shadow-2xl border border-slate-200 overflow-hidden my-auto ui-modal">
         
         {/* Top Header Bar - High-End Ocean Blue Tablet Header (Matching TimeTrakGO Reference) */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 sm:py-4 gap-2 bg-[#0284c7] text-white shrink-0">
@@ -497,7 +497,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
           {/* Right: Clean White Digital Clock & Close */}
           <div className="flex items-center space-x-4">
             <div className="text-right">
-              <div className="text-base sm:text-lg font-mono font-bold text-white tracking-tight leading-none">
+              <div className="text-base sm:text-lg font-mono font-bold text-white tracking-tight leading-none tabular-nums">
                 {currentTime.toLocaleTimeString('en-CA', { hour12: true })}
               </div>
               <div className="text-[10px] text-sky-100 font-medium mt-0.5">
@@ -507,7 +507,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
 
             <button
               onClick={onClose}
-              className="p-1.5 text-white/80 hover:text-white hover:bg-white/15 rounded-lg transition cursor-pointer"
+              className="p-1.5 text-white/80 hover:text-white hover:bg-white/15 rounded-xl ui-press cursor-pointer"
               title="Close Time Clock"
             >
               <X className="w-5 h-5" />
@@ -517,13 +517,13 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
 
         {/* Alerts / Error & Success banners */}
         {errorMsg && (
-          <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center space-x-2 text-xs text-red-800">
+          <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 rounded-xl flex items-center space-x-2 text-xs text-red-800 ui-shake">
             <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
             <span>{errorMsg}</span>
           </div>
         )}
         {successMsg && (
-          <div className="mx-6 mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-2 text-xs text-emerald-800">
+          <div className="mx-6 mt-4 p-3 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center space-x-2 text-xs text-emerald-800 ui-pop">
             <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{successMsg}</span>
           </div>
@@ -533,6 +533,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
             VIEW 1: CLEAN LIGHT 3-CARD PUNCH TERMINAL (Reference Image)
            ======================================================== */}
         <div className="flex-1 overflow-y-auto">
+          <div key={activeTab} className="ui-view-enter">
         {activeTab === 'clock' && (
           <div className="p-4 sm:p-8 space-y-5 sm:space-y-6 bg-white">
             {/* Greeting & Shift Status Line */}
@@ -1238,6 +1239,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
             </div>
           </div>
         )}
+          </div>
         </div>
 
       </div>

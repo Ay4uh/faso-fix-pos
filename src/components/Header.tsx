@@ -372,8 +372,8 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
 
-          <div className="flex items-center text-sm font-medium text-slate-500 gap-1.5 sm:gap-2 min-w-0">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-xs shrink-0">
+          <div className="flex items-center text-sm font-medium text-slate-500 gap-1.5 sm:gap-2 min-w-0 group">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-xs shrink-0 ui-icon-spring">
               <Wrench className="w-4 h-4" />
             </div>
             <span className="font-bold text-slate-900 hidden md:inline shrink-0">Faso Fix POS</span>
@@ -407,7 +407,7 @@ export const Header: React.FC<HeaderProps> = ({
                 setIsDropdownOpen(true);
               }}
               onKeyDown={handleKeyDownInput}
-              className="w-full pl-10 pr-10 py-2 text-xs bg-slate-50/90 border border-slate-300/90 rounded-full text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition-colors shadow-xs"
+              className="w-full pl-10 pr-10 py-2 text-xs bg-slate-50/90 border border-slate-300/90 rounded-full text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-4 focus:ring-indigo-500/15 focus:border-indigo-600 transition-[border-color,box-shadow,background-color] duration-200 shadow-xs"
             />
 
             <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
@@ -458,9 +458,9 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={openCreateModal}
             aria-label="New Ticket"
             title="Create New Ticket (Hotkey: N)"
-            className="h-9 inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-3 lg:px-4 rounded-xl text-xs font-bold shadow-sm shadow-indigo-600/30 ui-press cursor-pointer shrink-0"
+            className="h-9 inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-3 lg:px-4 rounded-xl text-xs font-bold shadow-sm shadow-indigo-600/30 ui-press ui-btn-glow group cursor-pointer shrink-0"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 transition-transform duration-200 group-hover:rotate-90" />
             <span className="hidden lg:inline">New Ticket</span>
           </button>
 
@@ -507,7 +507,7 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={onQuickClockIn}
                   aria-label="Punch In"
                   title="Instant 1-Click Clock In"
-                  className="hidden lg:inline-flex h-9 items-center gap-1 px-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs ui-press cursor-pointer shrink-0"
+                  className="hidden lg:inline-flex h-9 items-center gap-1 px-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs ui-press ui-btn-glow cursor-pointer shrink-0"
                 >
                   <Zap className="w-3.5 h-3.5 fill-current" />
                   <span className="hidden xl:inline">Punch In</span>

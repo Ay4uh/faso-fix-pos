@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+:root {
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-bounce: cubic-bezier(0.34, 1.45, 0.64, 1);
+}
+
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
@@ -27,7 +32,7 @@ a {
 @keyframes ui-modal-in {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.975);
+    transform: translateY(14px) scale(0.96);
   }
   to {
     opacity: 1;
@@ -38,6 +43,69 @@ a {
 @keyframes ui-panel-in {
   from {
     opacity: 0;
+    transform: translateY(10px) scale(0.992);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ui-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ui-drawer-in-left {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}
+
+@keyframes ui-slide-top-1 {
+  from {
+    opacity: 0;
+    transform: translateY(-6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ui-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.94);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ui-toast-progress {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(0); }
+}
+
+@keyframes ui-indeterminate {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(260%); }
+}
+
+@keyframes ui-row-in {
+  from {
+    opacity: 0;
     transform: translateY(8px);
   }
   to {
@@ -46,85 +114,228 @@ a {
   }
 }
 
-@keyframes ui-pop-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px) scale(0.97);
+@keyframes ui-pulse-halo {
+  0% {
+    transform: scale(1);
+    opacity: 0.6;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
+  100% {
+    transform: scale(2.4);
+    opacity: 0;
   }
 }
 
-@keyframes ui-toast-in {
+@keyframes ui-ambient-drift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  100% { transform: translate3d(18px, -14px, 0) scale(1.06); }
+}
+
+@keyframes ui-shake-x {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-5px); }
+  40% { transform: translateX(5px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(3px); }
+}
+
+@keyframes ui-bar-rise {
   from {
     opacity: 0;
-    transform: translateY(12px) scale(0.97);
+    transform: scaleY(0);
   }
   to {
     opacity: 1;
-    transform: translateY(0) scale(1);
+    transform: scaleY(1);
   }
 }
 
+@keyframes ui-line-stroke {
+  from { stroke-dashoffset: 1; }
+  to { stroke-dashoffset: 0; }
+}
+
+@keyframes ui-dot-in {
+  from {
+    opacity: 0;
+    transform: scale(0);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Fill-mode backwards clears final transform so z-50 popovers/menus never clip */
 .ui-backdrop {
-  animation: ui-backdrop-in 160ms ease-out both;
+  animation: ui-backdrop-in 180ms ease-out backwards;
 }
 
 .ui-modal {
-  animation: ui-modal-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ui-modal-in 280ms var(--ease-spring) backwards;
 }
 
 .ui-view-enter {
-  animation: ui-panel-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ui-panel-in 260ms var(--ease-spring) backwards;
 }
 
 .ui-pop {
-  animation: ui-pop-in 170ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top right;
+  animation: ui-pop-in 200ms var(--ease-spring) backwards;
+}
+
+.ui-drawer-left {
+  animation: ui-drawer-in-left 260ms var(--ease-spring) backwards;
+}
+
+.ui-toast {
+  animation: ui-toast-in 320ms var(--ease-bounce) backwards;
+}
+
+.ui-toast-bar {
+  transform-origin: left;
+  animation: ui-toast-progress 3500ms linear forwards;
+}
+
+.ui-progress-indeterminate {
+  animation: ui-indeterminate 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .ui-card-lift {
   transition-property: transform, box-shadow, border-color;
-  transition-duration: 180ms;
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-duration: 220ms;
+  transition-timing-function: var(--ease-spring);
 }
 
 .ui-card-lift:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
 }
 
 .ui-press {
   transition-property: transform, background-color, border-color, color, box-shadow;
-  transition-duration: 150ms;
-  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  transition-duration: 140ms;
+  transition-timing-function: var(--ease-spring);
 }
 
 .ui-press:active:not(:disabled) {
-  transform: scale(0.97);
+  transform: scale(0.965);
+}
+
+.ui-icon-spring {
+  transition-property: transform;
+  transition-duration: 240ms;
+  transition-timing-function: var(--ease-bounce);
+}
+
+.group:hover .ui-icon-spring {
+  transform: scale(1.12) rotate(-4deg);
+}
+
+.ui-btn-glow {
+  transition-property: transform, box-shadow, background-color;
+  transition-duration: 160ms;
+  transition-timing-function: var(--ease-spring);
+}
+
+.ui-btn-glow:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.ui-btn-glow:active:not(:disabled) {
+  transform: translateY(0) scale(0.965);
 }
 
 .ui-stagger > * {
-  animation: ui-panel-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ui-panel-in 260ms var(--ease-spring) backwards;
 }
 .ui-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.ui-stagger > *:nth-child(2) { animation-delay: 35ms; }
-.ui-stagger > *:nth-child(3) { animation-delay: 70ms; }
-.ui-stagger > *:nth-child(4) { animation-delay: 105ms; }
-.ui-stagger > *:nth-child(5) { animation-delay: 140ms; }
-.ui-stagger > *:nth-child(6) { animation-delay: 175ms; }
+.ui-stagger > *:nth-child(2) { animation-delay: 40ms; }
+.ui-stagger > *:nth-child(3) { animation-delay: 80ms; }
+.ui-stagger > *:nth-child(4) { animation-delay: 120ms; }
+.ui-stagger > *:nth-child(5) { animation-delay: 160ms; }
+.ui-stagger > *:nth-child(6) { animation-delay: 200ms; }
+
+.ui-row-stagger > * {
+  animation: ui-row-in 240ms var(--ease-spring) backwards;
+}
+.ui-row-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.ui-row-stagger > *:nth-child(2) { animation-delay: 22ms; }
+.ui-row-stagger > *:nth-child(3) { animation-delay: 44ms; }
+.ui-row-stagger > *:nth-child(4) { animation-delay: 66ms; }
+.ui-row-stagger > *:nth-child(5) { animation-delay: 88ms; }
+.ui-row-stagger > *:nth-child(6) { animation-delay: 110ms; }
+.ui-row-stagger > *:nth-child(7) { animation-delay: 132ms; }
+.ui-row-stagger > *:nth-child(8) { animation-delay: 154ms; }
+.ui-row-stagger > *:nth-child(9) { animation-delay: 176ms; }
+.ui-row-stagger > *:nth-child(10) { animation-delay: 198ms; }
+.ui-row-stagger > *:nth-child(n+11) { animation-delay: 220ms; }
+
+.ui-pulse-ring {
+  position: relative;
+}
+
+.ui-pulse-ring::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  background-color: inherit;
+  animation: ui-pulse-halo 2s var(--ease-spring) infinite;
+  pointer-events: none;
+}
+
+.ui-float-ambient {
+  animation: ui-ambient-drift 11s ease-in-out infinite alternate;
+}
+
+.ui-float-ambient-slow {
+  animation: ui-ambient-drift 15s ease-in-out infinite alternate-reverse;
+}
+
+.ui-shake {
+  animation: ui-shake-x 340ms ease-in-out both;
+}
+
+.ui-bar-grow {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  animation: ui-bar-rise 460ms var(--ease-spring) backwards;
+}
+
+.ui-line-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: ui-line-stroke 680ms var(--ease-spring) 80ms forwards;
+}
+
+.ui-area-fade {
+  animation: ui-backdrop-in 480ms ease-out 180ms backwards;
+}
+
+.ui-dot-pop {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: ui-dot-in 320ms var(--ease-bounce) backwards;
+}
 
 /* Wire legacy utility entrance classes to crisp motion */
 .animate-in.zoom-in-95 {
-  animation: ui-modal-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ui-modal-in 280ms var(--ease-spring) backwards;
 }
 
 .animate-in.slide-in-from-bottom-5 {
-  animation: ui-toast-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: ui-toast-in 320ms var(--ease-bounce) backwards;
 }
 
-.animate-in.fade-in:not(.zoom-in-95):not(.slide-in-from-bottom-5) {
-  animation: ui-backdrop-in 160ms ease-out both;
+.animate-in.slide-in-from-left {
+  animation: ui-drawer-in-left 260ms var(--ease-spring) backwards;
+}
+
+.animate-in.slide-in-from-top-1 {
+  animation: ui-slide-top-1 200ms var(--ease-spring) backwards;
+}
+
+.animate-in.fade-in:not(.zoom-in-95):not(.slide-in-from-bottom-5):not(.slide-in-from-left):not(.slide-in-from-top-1) {
+  animation: ui-backdrop-in 180ms ease-out backwards;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -132,20 +343,44 @@ a {
   .ui-modal,
   .ui-view-enter,
   .ui-pop,
+  .ui-drawer-left,
+  .ui-toast,
+  .ui-toast-bar,
+  .ui-progress-indeterminate,
   .ui-stagger > *,
+  .ui-row-stagger > *,
+  .ui-pulse-ring::after,
+  .ui-float-ambient,
+  .ui-float-ambient-slow,
+  .ui-shake,
+  .ui-bar-grow,
+  .ui-line-draw,
+  .ui-area-fade,
+  .ui-dot-pop,
   .animate-in.zoom-in-95,
   .animate-in.slide-in-from-bottom-5,
+  .animate-in.slide-in-from-left,
+  .animate-in.slide-in-from-top-1,
   .animate-in.fade-in {
     animation: none !important;
   }
 
+  .ui-line-draw {
+    stroke-dashoffset: 0 !important;
+  }
+
   .ui-card-lift,
-  .ui-press {
+  .ui-press,
+  .ui-icon-spring,
+  .ui-btn-glow {
     transition-duration: 1ms !important;
   }
 
   .ui-card-lift:hover,
-  .ui-press:active:not(:disabled) {
+  .ui-press:active:not(:disabled),
+  .group:hover .ui-icon-spring,
+  .ui-btn-glow:hover:not(:disabled),
+  .ui-btn-glow:active:not(:disabled) {
     transform: none !important;
   }
 }

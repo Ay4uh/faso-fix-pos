@@ -16,6 +16,7 @@ import {
   Table as TableIcon,
   BarChart2,
 } from 'lucide-react';
+import { AnimatedNumber } from './AnimatedNumber';
 
 interface AnalyticsViewProps {
   tickets: Ticket[];
@@ -331,14 +332,17 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
          ======================================================== */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 ui-stagger">
         {/* Hero Gradient Revenue Card */}
-        <div className="rounded-3xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-purple-600 text-white p-5 shadow-sm hover:shadow-lg ui-card-lift flex flex-col justify-between gap-3">
+        <div className="rounded-3xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-purple-600 text-white p-5 shadow-sm hover:shadow-xl hover:shadow-indigo-500/20 ui-card-lift group flex flex-col justify-between gap-3">
           <div className="flex items-start justify-between gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0 ui-icon-spring">
               <DollarSign className="w-5 h-5 text-white" />
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-2xl font-extrabold font-mono tabular-nums tracking-tight leading-none truncate">
-                {formatMoneyCents(report?.revenueCents ?? 0)}
+                <AnimatedNumber
+                  value={report?.revenueCents ?? 0}
+                  format={(n) => formatMoneyCents(Math.round(n))}
+                />
               </div>
               <div className="text-xs font-medium text-indigo-100 mt-1">Revenue (Collected)</div>
               <div className="text-[11px] font-semibold text-emerald-200 mt-1 tabular-nums">
@@ -356,13 +360,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
 
         {/* Closed / Paid Tickets */}
-        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-md hover:border-indigo-200/80 ui-card-lift flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-lg hover:shadow-indigo-500/10 hover:border-indigo-200/80 ui-card-lift group flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 ui-icon-spring">
             <CheckCircle2 className="w-5 h-5" />
           </div>
           <div className="min-w-0">
             <div className="text-2xl font-extrabold font-mono tabular-nums text-slate-900 leading-none">
-              {report?.closedTicketsCount ?? 0}
+              <AnimatedNumber value={report?.closedTicketsCount ?? 0} />
             </div>
             <div className="text-xs font-semibold text-slate-500 mt-1.5">Closed / Paid Tickets</div>
             <div
@@ -380,13 +384,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
 
         {/* New Customers */}
-        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-md hover:border-sky-200/80 ui-card-lift flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-2xl bg-sky-50 border border-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-lg hover:shadow-sky-500/10 hover:border-sky-200/80 ui-card-lift group flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-sky-50 border border-sky-100 text-sky-600 flex items-center justify-center shrink-0 ui-icon-spring">
             <UserPlus className="w-5 h-5" />
           </div>
           <div className="min-w-0">
             <div className="text-2xl font-extrabold font-mono tabular-nums text-slate-900 leading-none">
-              {report?.newCustomersCount ?? 0}
+              <AnimatedNumber value={report?.newCustomersCount ?? 0} />
             </div>
             <div className="text-xs font-semibold text-slate-500 mt-1.5">New Customers</div>
             <div className="text-[11px] font-semibold text-sky-600 mt-1">
@@ -396,13 +400,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
 
         {/* Returning Customers */}
-        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-md hover:border-emerald-200/80 ui-card-lift flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-lg hover:shadow-emerald-500/10 hover:border-emerald-200/80 ui-card-lift group flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 ui-icon-spring">
             <Users className="w-5 h-5" />
           </div>
           <div className="min-w-0">
             <div className="text-2xl font-extrabold font-mono tabular-nums text-slate-900 leading-none">
-              {report?.returningCustomersCount ?? 0}
+              <AnimatedNumber value={report?.returningCustomersCount ?? 0} />
             </div>
             <div className="text-xs font-semibold text-slate-500 mt-1.5">Returning Customers</div>
             <div className="text-[11px] font-semibold text-emerald-600 mt-1">
@@ -457,7 +461,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           {/* Pure Responsive SVG Bar Chart */}
           <div className="relative w-full">
             {hoveredBarIdx !== null && dailySeries[hoveredBarIdx] && (
-              <div className="absolute right-2 top-1 z-10 px-2.5 py-1 rounded-md bg-slate-900 text-white text-[11px] font-mono tabular-nums shadow-md pointer-events-none">
+              <div className="absolute right-2 top-1 z-10 px-2.5 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-mono tabular-nums shadow-md pointer-events-none ui-pop">
                 {dailySeries[hoveredBarIdx].date}:{' '}
                 {barTab === 'revenue'
                   ? formatMoneyCents(barValues[hoveredBarIdx])
@@ -514,56 +518,64 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                     })}
 
                     {/* Bars & X-axis labels */}
-                    {dailySeries.map((d, i) => {
-                      const v = Math.max(0, barValues[i] || 0);
-                      const barH = barAxisMax > 0 ? Math.max(v > 0 ? 3 : 0, (v / barAxisMax) * plotH) : 0;
-                      const x = padL + i * slotW + (slotW - barW) / 2;
-                      const y = padT + plotH - barH;
-                      const isHovered = hoveredBarIdx === i;
-                      const showLabel = i === 0 || i === dailySeries.length - 1 || i % labelEvery === 0;
-                      const shortDate = `${d.date.slice(5, 7)}-${d.date.slice(8, 10)}`;
+                    <g key={`bars-${fromDate}-${toDate}`}>
+                      {dailySeries.map((d, i) => {
+                        const v = Math.max(0, barValues[i] || 0);
+                        const barH = barAxisMax > 0 ? Math.max(v > 0 ? 3 : 0, (v / barAxisMax) * plotH) : 0;
+                        const x = padL + i * slotW + (slotW - barW) / 2;
+                        const y = padT + plotH - barH;
+                        const isHovered = hoveredBarIdx === i;
+                        const distFromEnd = dailySeries.length - 1 - i;
+                        const showLabel =
+                          i === 0 ||
+                          i === dailySeries.length - 1 ||
+                          (i % labelEvery === 0 && distFromEnd >= Math.max(2, Math.ceil(labelEvery * 0.6)));
+                        const shortDate = `${d.date.slice(5, 7)}-${d.date.slice(8, 10)}`;
 
-                      return (
-                        <g
-                          key={d.date}
-                          onMouseEnter={() => setHoveredBarIdx(i)}
-                          onMouseLeave={() => setHoveredBarIdx(null)}
-                          className="cursor-pointer"
-                        >
-                          <rect
-                            x={padL + i * slotW}
-                            y={padT}
-                            width={slotW}
-                            height={plotH}
-                            fill="transparent"
-                          />
-                          <rect
-                            x={x}
-                            y={y}
-                            width={barW}
-                            height={barH}
-                            rx={5}
-                            fill={isHovered ? '#4338ca' : '#5865f2'}
-                            style={{
-                              transition:
-                                'height 320ms cubic-bezier(0.16, 1, 0.3, 1), y 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease',
-                            }}
-                          />
-                          {showLabel && (
-                            <text
-                              x={padL + i * slotW + slotW / 2}
-                              y={padT + plotH + 16}
-                              textAnchor="middle"
-                              fill="#94a3b8"
-                              fontSize="9.5"
-                              fontFamily="ui-monospace, monospace"
-                            >
-                              {shortDate}
-                            </text>
-                          )}
-                        </g>
-                      );
-                    })}
+                        return (
+                          <g
+                            key={d.date}
+                            onMouseEnter={() => setHoveredBarIdx(i)}
+                            onMouseLeave={() => setHoveredBarIdx(null)}
+                            className="cursor-pointer"
+                          >
+                            <rect
+                              x={padL + i * slotW}
+                              y={padT}
+                              width={slotW}
+                              height={plotH}
+                              fill="transparent"
+                            />
+                            <rect
+                              x={x}
+                              y={y}
+                              width={barW}
+                              height={barH}
+                              rx={5}
+                              fill={isHovered ? '#4338ca' : '#5865f2'}
+                              className="ui-bar-grow"
+                              style={{
+                                animationDelay: `${Math.min(i * 18, 360)}ms`,
+                                transition:
+                                  'height 320ms cubic-bezier(0.16, 1, 0.3, 1), y 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease',
+                              }}
+                            />
+                            {showLabel && (
+                              <text
+                                x={padL + i * slotW + slotW / 2}
+                                y={padT + plotH + 16}
+                                textAnchor="middle"
+                                fill="#94a3b8"
+                                fontSize="9.5"
+                                fontFamily="ui-monospace, monospace"
+                              >
+                                {shortDate}
+                              </text>
+                            )}
+                          </g>
+                        );
+                      })}
+                    </g>
                   </>
                 );
               })()}
@@ -585,7 +597,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
             <div className="relative w-full">
               {hoveredPointIdx !== null && trendSeries[hoveredPointIdx] && (
-                <div className="absolute right-2 top-1 z-10 px-2.5 py-1 rounded-md bg-slate-900 text-white text-[11px] font-mono tabular-nums shadow-md pointer-events-none">
+                <div className="absolute right-2 top-1 z-10 px-2.5 py-1 rounded-lg bg-slate-900 text-white text-[11px] font-mono tabular-nums shadow-md pointer-events-none ui-pop">
                   {trendSeries[hoveredPointIdx].label}:{' '}
                   {formatMoneyCents(trendSeries[hoveredPointIdx].revenueCents)}
                 </div>
@@ -653,46 +665,52 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                         );
                       })}
 
-                      {areaStr && <path d={areaStr} fill="url(#trendAreaFill)" />}
-                      {pts.length >= 2 && (
-                        <polyline
-                          fill="none"
-                          stroke="#4f46e5"
-                          strokeWidth="2.5"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          points={polylineStr}
-                        />
-                      )}
-
-                      {pts.map(({ x, y, pt }, idx) => (
-                        <g
-                          key={pt.label}
-                          onMouseEnter={() => setHoveredPointIdx(idx)}
-                          onMouseLeave={() => setHoveredPointIdx(null)}
-                          className="cursor-pointer"
-                        >
-                          <circle cx={x} cy={y} r={12} fill="transparent" />
-                          <circle
-                            cx={x}
-                            cy={y}
-                            r={hoveredPointIdx === idx ? 5 : 3.5}
-                            fill="#4f46e5"
-                            stroke="#ffffff"
-                            strokeWidth={1.5}
+                      <g key={`trend-${fromDate}-${toDate}`}>
+                        {areaStr && <path d={areaStr} fill="url(#trendAreaFill)" className="ui-area-fade" />}
+                        {pts.length >= 2 && (
+                          <polyline
+                            pathLength={1}
+                            fill="none"
+                            stroke="#4f46e5"
+                            strokeWidth="2.5"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                            points={polylineStr}
+                            className="ui-line-draw"
                           />
-                          <text
-                            x={x}
-                            y={padT + plotH + 16}
-                            textAnchor="middle"
-                            fill="#94a3b8"
-                            fontSize="9.5"
-                            fontFamily="ui-monospace, monospace"
+                        )}
+
+                        {pts.map(({ x, y, pt }, idx) => (
+                          <g
+                            key={pt.label}
+                            onMouseEnter={() => setHoveredPointIdx(idx)}
+                            onMouseLeave={() => setHoveredPointIdx(null)}
+                            className="cursor-pointer"
                           >
-                            {pt.label}
-                          </text>
-                        </g>
-                      ))}
+                            <circle cx={x} cy={y} r={12} fill="transparent" />
+                            <circle
+                              cx={x}
+                              cy={y}
+                              r={hoveredPointIdx === idx ? 5 : 3.5}
+                              fill="#4f46e5"
+                              stroke="#ffffff"
+                              strokeWidth={1.5}
+                              className="ui-dot-pop transition-[r,fill] duration-150"
+                              style={{ animationDelay: `${180 + idx * 55}ms` }}
+                            />
+                            <text
+                              x={x}
+                              y={padT + plotH + 16}
+                              textAnchor="middle"
+                              fill="#94a3b8"
+                              fontSize="9.5"
+                              fontFamily="ui-monospace, monospace"
+                            >
+                              {pt.label}
+                            </text>
+                          </g>
+                        ))}
+                      </g>
                     </>
                   );
                 })()}
@@ -764,13 +782,16 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           ROW 3: 5 FINANCIAL PROFITABILITY & OPERATIONS CARDS
          ======================================================== */}
       <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3.5 ui-stagger">
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md ui-card-lift p-4 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-emerald-200/80 ui-card-lift group p-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 ui-icon-spring">
             <DollarSign className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <div className="text-base font-extrabold font-mono tabular-nums text-slate-900 truncate">
-              {formatMoneyCents(report?.netRevenueCents ?? 0)}
+              <AnimatedNumber
+                value={report?.netRevenueCents ?? 0}
+                format={(n) => formatMoneyCents(Math.round(n))}
+              />
             </div>
             <div className="text-[11px] font-semibold text-slate-500 mt-0.5">Net Revenue</div>
             <div className="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">
@@ -779,15 +800,17 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md ui-card-lift p-4 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-teal-50 border border-teal-100 text-teal-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-teal-200/80 ui-card-lift group p-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-teal-50 border border-teal-100 text-teal-600 flex items-center justify-center shrink-0 ui-icon-spring">
             <Percent className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <div className="text-base font-extrabold font-mono tabular-nums text-slate-900">
-              {report?.grossMarginPct !== null && report?.grossMarginPct !== undefined
-                ? `${report.grossMarginPct.toFixed(1)}%`
-                : '—'}
+              {report?.grossMarginPct !== null && report?.grossMarginPct !== undefined ? (
+                <AnimatedNumber value={report.grossMarginPct} format={(n) => `${n.toFixed(1)}%`} />
+              ) : (
+                '—'
+              )}
             </div>
             <div className="text-[11px] font-semibold text-slate-500 mt-0.5">Gross Margin</div>
             <div className="text-[10px] text-emerald-600 font-medium mt-0.5">
@@ -796,26 +819,32 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md ui-card-lift p-4 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-emerald-200/80 ui-card-lift group p-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0 ui-icon-spring">
             <TrendingUp className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <div className="text-base font-extrabold font-mono tabular-nums text-slate-900 truncate">
-              {formatMoneyCents(report?.grossProfitCents ?? 0)}
+              <AnimatedNumber
+                value={report?.grossProfitCents ?? 0}
+                format={(n) => formatMoneyCents(Math.round(n))}
+              />
             </div>
             <div className="text-[11px] font-semibold text-slate-500 mt-0.5">Gross Profit</div>
             <div className="text-[10px] text-slate-400 mt-0.5">Net rev - Parts COGS</div>
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md ui-card-lift p-4 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-sky-200/80 ui-card-lift group p-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 text-sky-600 flex items-center justify-center shrink-0 ui-icon-spring">
             <Package className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <div className="text-base font-extrabold font-mono tabular-nums text-slate-900 truncate">
-              {formatMoneyCents(report?.partsCostCents ?? 0)}
+              <AnimatedNumber
+                value={report?.partsCostCents ?? 0}
+                format={(n) => formatMoneyCents(Math.round(n))}
+              />
             </div>
             <div className="text-[11px] font-semibold text-slate-500 mt-0.5">Parts Cost (COGS)</div>
             <div className="text-[10px] text-slate-400 font-mono tabular-nums mt-0.5">
@@ -824,13 +853,16 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md ui-card-lift p-4 flex items-start gap-3 col-span-2 sm:col-span-1">
-          <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md hover:border-indigo-200/80 ui-card-lift group p-4 flex items-start gap-3 col-span-2 sm:col-span-1">
+          <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 ui-icon-spring">
             <Receipt className="w-4 h-4" />
           </div>
           <div className="min-w-0">
             <div className="text-base font-extrabold font-mono tabular-nums text-slate-900 truncate">
-              {formatMoneyCents(report?.avgTicketValueCents ?? 0)}
+              <AnimatedNumber
+                value={report?.avgTicketValueCents ?? 0}
+                format={(n) => formatMoneyCents(Math.round(n))}
+              />
             </div>
             <div className="text-[11px] font-semibold text-slate-500 mt-0.5">Avg Work Order</div>
             <div className="text-[10px] text-amber-700 font-mono font-semibold tabular-nums mt-0.5">
@@ -906,6 +938,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
         </div>
 
+        <div key={`${perfView}-${perfGroup}`} className="ui-view-enter">
         {perfView === 'table' ? (
           <div className="overflow-x-auto">
             <table className="w-full text-left border-collapse">
@@ -922,7 +955,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   <th className="py-3 px-3 xl:px-4 text-right">Avg Ticket</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-xs">
+              <tbody className="divide-y divide-slate-100 text-xs ui-row-stagger">
                 {perfRows.map((row) => (
                   <tr key={row.name} className="hover:bg-indigo-50/40 transition-colors duration-150">
                     <td className="py-3 px-3 xl:px-4 font-bold text-indigo-700 whitespace-nowrap">
@@ -959,7 +992,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             </table>
           </div>
         ) : (
-          <div className="p-5 space-y-3 ui-view-enter">
+          <div className="p-5 space-y-3">
             {perfRows.length === 0 ? (
               <div className="py-8 text-center text-xs text-slate-400 italic">
                 No performance data available in this date range yet.
@@ -992,6 +1025,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             )}
           </div>
         )}
+        </div>
       </div>
     </div>
   );

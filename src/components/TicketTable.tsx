@@ -217,7 +217,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                   <th className="py-2.5 px-3.5 text-right rounded-tr-2xl">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody key={`${activeFilter}-${pagination?.page ?? 1}`} className="divide-y divide-slate-100 ui-row-stagger">
                 {filteredTickets.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="text-center py-12 text-slate-400">
@@ -256,7 +256,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                           <div className="flex items-center space-x-1.5">
                             <span>#{ticket.ticketNumber}</span>
                             {ticket.priority === 'URGENT' && (
-                              <span className="w-1.5 h-1.5 rounded-full bg-red-500" title="Urgent Priority"></span>
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500 ui-pulse-ring" title="Urgent Priority"></span>
                             )}
                             {ticket.isWarranty && (
                               <span className="px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 text-[9px] font-extrabold uppercase tracking-tight">
@@ -419,7 +419,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                       onUpdateStatus(ticket.id, 'CHECKED_IN');
                                       setOpenMenuTicketId(null);
                                     }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
                                   >
                                     <span className="w-2 h-2 rounded-full bg-slate-400"></span>
                                     1. Checked In
@@ -429,7 +429,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                       onUpdateStatus(ticket.id, 'DIAGNOSING');
                                       setOpenMenuTicketId(null);
                                     }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
                                   >
                                     <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                                     2. Diagnosing
@@ -439,7 +439,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                       onUpdateStatus(ticket.id, 'WAITING_ON_APPROVAL');
                                       setOpenMenuTicketId(null);
                                     }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
                                   >
                                     <span className="w-2 h-2 rounded-full bg-purple-500"></span>
                                     3. Waiting on Approval
@@ -449,7 +449,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                       onUpdateStatus(ticket.id, 'WAITING_ON_PARTS');
                                       setOpenMenuTicketId(null);
                                     }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
                                   >
                                     <span className="w-2 h-2 rounded-full bg-amber-500"></span>
                                     4. Waiting on Part
@@ -459,7 +459,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                       onUpdateStatus(ticket.id, 'READY_FOR_PICKUP');
                                       setOpenMenuTicketId(null);
                                     }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
                                   >
                                     <span className="w-2 h-2 rounded-full bg-teal-500"></span>
                                     5. Ready for Pickup
@@ -469,7 +469,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                       onUpdateStatus(ticket.id, 'COMPLETED');
                                       setOpenMenuTicketId(null);
                                     }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
                                   >
                                     <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                                     6. Completed / Paid
@@ -482,7 +482,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                       onPrintTicket(ticket);
                                       setOpenMenuTicketId(null);
                                     }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
                                   >
                                     <Printer className="w-3.5 h-3.5 text-slate-400" />
                                     Print Work Order
@@ -492,7 +492,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                       onSelectTicket(ticket);
                                       setOpenMenuTicketId(null);
                                     }}
-                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium"
+                                    className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
                                   >
                                     <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
                                     Open Full Ticket
@@ -508,7 +508,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                           setDeletingTicket(ticket);
                                           setOpenMenuTicketId(null);
                                         }}
-                                        className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center justify-between cursor-pointer font-semibold"
+                                        className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center justify-between cursor-pointer font-semibold transition-[background-color,transform] duration-150 hover:translate-x-0.5"
                                       >
                                         <span className="flex items-center gap-2">
                                           <Trash2 className="w-3.5 h-3.5" />
@@ -534,7 +534,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
           </div>
 
           {/* Mobile Stacked Cards List (< sm viewports) */}
-          <div className="sm:hidden divide-y divide-slate-100">
+          <div key={`${activeFilter}-${pagination?.page ?? 1}-mobile`} className="sm:hidden divide-y divide-slate-100 ui-row-stagger">
             {filteredTickets.length === 0 ? (
               <div className="text-center py-10 px-4 text-slate-400">
                 <Inbox className="w-8 h-8 mx-auto text-slate-300 mb-2" />

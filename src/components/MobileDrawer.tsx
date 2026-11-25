@@ -54,17 +54,17 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
     <div className="fixed inset-0 z-50 md:hidden flex">
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs transition-opacity animate-in fade-in"
+        className="fixed inset-0 bg-slate-900/40 backdrop-blur-xs ui-backdrop"
         onClick={onClose}
       />
 
       {/* Slide-out Drawer */}
-      <div className="relative w-4/5 max-w-xs bg-white h-full shadow-2xl flex flex-col justify-between z-10 animate-in slide-in-from-left duration-200 border-r border-slate-200">
+      <div className="relative w-4/5 max-w-xs bg-white h-full shadow-2xl flex flex-col justify-between z-10 ui-drawer-left rounded-r-3xl overflow-hidden border-r border-slate-200">
         <div>
           {/* Drawer Header */}
           <div className="p-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
             <div className="flex items-center space-x-2.5">
-              <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center shadow-xs">
+              <div className="w-8 h-8 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-xs">
                 <Wrench className="w-4 h-4" />
               </div>
               <div>
@@ -74,7 +74,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
             </div>
             <button
               onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition cursor-pointer"
+              className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 ui-press cursor-pointer"
             >
               <X className="w-5 h-5" />
             </button>
@@ -103,7 +103,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
           <nav className="p-3 space-y-1">
             <button
               onClick={() => handleSelectTab('repairs')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer min-h-[44px] ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold ui-press cursor-pointer min-h-[44px] ${
                 currentTab === 'repairs'
                   ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
                   : 'text-slate-700 hover:bg-slate-50'
@@ -113,14 +113,14 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                 <LayoutDashboard className="w-4 h-4 text-indigo-600" />
                 <span>Work Orders</span>
               </div>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 font-bold tabular-nums">
                 {stats?.totalActive ?? 0}
               </span>
             </button>
 
             <button
               onClick={handleCreate}
-              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition text-slate-700 hover:bg-slate-50 cursor-pointer min-h-[44px]"
+              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold ui-press text-slate-700 hover:bg-slate-50 cursor-pointer min-h-[44px]"
             >
               <div className="flex items-center space-x-3">
                 <PlusCircle className="w-4 h-4 text-indigo-600" />
@@ -133,7 +133,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
 
             <button
               onClick={() => handleSelectTab('customers')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer min-h-[44px] ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold ui-press cursor-pointer min-h-[44px] ${
                 currentTab === 'customers'
                   ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
                   : 'text-slate-700 hover:bg-slate-50'
@@ -143,14 +143,14 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                 <Users className="w-4 h-4 text-indigo-600" />
                 <span>Customers</span>
               </div>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold">
+              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-100 text-slate-700 font-semibold tabular-nums">
                 {stats?.customerCount ?? 0}
               </span>
             </button>
 
             <button
               onClick={() => handleSelectTab('analytics')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer min-h-[44px] ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold ui-press cursor-pointer min-h-[44px] ${
                 currentTab === 'analytics'
                   ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
                   : 'text-slate-700 hover:bg-slate-50'
@@ -168,7 +168,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
                   onClose();
                   onOpenTimeClock();
                 }}
-                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer min-h-[44px] text-slate-700 hover:bg-slate-50"
+                className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold ui-press cursor-pointer min-h-[44px] text-slate-700 hover:bg-slate-50"
               >
                 <div className="flex items-center space-x-3">
                   <Clock className="w-4 h-4 text-emerald-600" />
@@ -182,7 +182,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
 
             <button
               onClick={() => handleSelectTab('settings')}
-              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer min-h-[44px] ${
+              className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold ui-press cursor-pointer min-h-[44px] ${
                 currentTab === 'settings'
                   ? 'bg-indigo-50 text-indigo-700 border border-indigo-100'
                   : 'text-slate-700 hover:bg-slate-50'
@@ -197,7 +197,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
             {isAdmin && (
               <button
                 onClick={() => handleSelectTab('admin')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer min-h-[44px] ${
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-xl text-xs font-bold ui-press cursor-pointer min-h-[44px] ${
                   currentTab === 'admin'
                     ? 'bg-purple-600 text-white shadow-xs'
                     : 'text-purple-700 hover:bg-purple-50'
@@ -224,7 +224,7 @@ export const MobileDrawer: React.FC<MobileDrawerProps> = ({
               onClose();
               onLogout();
             }}
-            className="w-full py-2.5 px-3 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold transition flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
+            className="w-full py-2.5 px-3 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold ui-press flex items-center justify-center gap-2 cursor-pointer min-h-[44px]"
           >
             <LogOut className="w-4 h-4 text-rose-600" />
             <span>Sign Out of POS</span>

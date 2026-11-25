@@ -117,8 +117,8 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
   };
 
   return (
-    <div data-print-root className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto print:static print:inset-auto print:block print:p-0 print:m-0 print:w-full print:bg-white print:overflow-visible print:backdrop-blur-none">
-      <div data-print-card className="bg-white rounded-2xl max-w-4xl w-full max-h-[94dvh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden my-auto print:max-h-none print:block print:border-none print:shadow-none print:max-w-none print:rounded-none print:overflow-visible print:my-0">
+    <div data-print-root className="fixed inset-0 z-50 flex items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto ui-backdrop print:static print:inset-auto print:block print:p-0 print:m-0 print:w-full print:bg-white print:overflow-visible print:backdrop-blur-none print:animate-none">
+      <div data-print-card className="bg-white rounded-3xl max-w-4xl w-full max-h-[94dvh] flex flex-col shadow-2xl border border-slate-200 overflow-hidden my-auto ui-modal print:max-h-none print:block print:border-none print:shadow-none print:max-w-none print:rounded-none print:overflow-visible print:my-0 print:animate-none">
         {/* Interactive Top Control Bar (Hidden during window.print) */}
         <div className="px-3 sm:px-5 py-3 border-b border-slate-200 flex flex-wrap items-center justify-between gap-2.5 sm:gap-3 bg-slate-50 shrink-0 print:hidden">
           <div className="flex items-center gap-2 min-w-0">
@@ -133,11 +133,11 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
 
           <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 max-w-full">
             {/* Paper Format Switcher */}
-            <div className="inline-flex p-0.5 bg-slate-200/80 rounded-lg text-xs font-semibold max-w-full overflow-x-auto">
+            <div className="inline-flex p-0.5 bg-slate-200/80 rounded-xl text-xs font-semibold max-w-full overflow-x-auto">
               <button
                 type="button"
                 onClick={() => setPaperFormat('letter')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition ${
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg ui-press cursor-pointer ${
                   paperFormat === 'letter'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -149,7 +149,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               <button
                 type="button"
                 onClick={() => setPaperFormat('receipt')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition ${
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg ui-press cursor-pointer ${
                   paperFormat === 'receipt'
                     ? 'bg-white text-slate-900 shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -161,7 +161,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               <button
                 type="button"
                 onClick={() => setPaperFormat('sticker')}
-                className={`flex items-center gap-1.5 px-3 py-1 rounded-md transition ${
+                className={`flex items-center gap-1.5 px-3 py-1 rounded-lg ui-press cursor-pointer ${
                   paperFormat === 'sticker'
                     ? 'bg-white text-indigo-700 font-bold shadow-xs'
                     : 'text-slate-600 hover:text-slate-900'
@@ -177,7 +177,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               disabled={isEscPosPrinting}
               onClick={() => handleEscPosDirect('usb')}
               title="Print directly to USB thermal receipt printer via WebUSB"
-              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-xs cursor-pointer transition disabled:opacity-50"
+              className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs ui-press ui-btn-glow cursor-pointer disabled:opacity-50"
             >
               <Usb className="w-3.5 h-3.5" />
               <span>{isEscPosPrinting ? 'Printing...' : 'Direct ESC/POS'}</span>
@@ -187,7 +187,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               type="button"
               onClick={() => printReceipt(ticket, '80mm')}
               title="Print 80mm thermal receipt"
-              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-xs cursor-pointer transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 shadow-xs ui-press ui-btn-glow cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Receipt 80mm</span>
@@ -195,7 +195,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             <button
               type="button"
               onClick={handlePrint}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 shadow-xs cursor-pointer transition"
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 text-white rounded-xl text-xs font-bold hover:bg-indigo-700 shadow-xs ui-press ui-btn-glow cursor-pointer"
             >
               <Printer className="w-3.5 h-3.5" />
               <span>Print {paperFormat === 'letter' ? 'Letter' : paperFormat === 'sticker' ? 'Sticker' : 'Slip'}</span>
@@ -204,7 +204,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               type="button"
               onClick={() => openPrintSlip(ticket, paperFormat === 'letter' ? 'letter' : 'slip')}
               title="Open clean printable view in new tab"
-              className="p-1.5 text-slate-500 hover:text-slate-800 rounded-lg hover:bg-slate-200 transition cursor-pointer"
+              className="p-1.5 text-slate-500 hover:text-slate-800 rounded-xl hover:bg-slate-200 ui-press cursor-pointer"
             >
               <ExternalLink className="w-4 h-4" />
             </button>
@@ -212,7 +212,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             <button
               type="button"
               onClick={onClose}
-              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg hover:bg-slate-200 transition"
+              className="p-1.5 text-slate-400 hover:text-slate-600 rounded-xl hover:bg-slate-200 ui-press cursor-pointer"
             >
               <X className="w-4 h-4" />
             </button>
@@ -221,15 +221,16 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
 
         {/* ESC/POS Status Notification */}
         {escPosStatus && (
-          <div className="px-5 py-2 bg-slate-900 text-white text-xs font-semibold flex items-center justify-between shrink-0 print:hidden">
+          <div className="px-5 py-2 bg-slate-900 text-white text-xs font-semibold flex items-center justify-between shrink-0 print:hidden ui-pop">
             <span>{escPosStatus}</span>
-            <button onClick={() => setEscPosStatus(null)} className="text-slate-400 hover:text-white">
+            <button onClick={() => setEscPosStatus(null)} className="text-slate-400 hover:text-white cursor-pointer">
               <X className="w-3.5 h-3.5" />
             </button>
           </div>
         )}
 
         <div className="flex-1 overflow-y-auto overflow-x-auto print:overflow-visible">
+        <div key={paperFormat} className="ui-view-enter print:animate-none">
         {/* ========================================================
             FORMAT 1: LETTER (8.5x11) FULL INVOICE & WORK ORDER (Stitch Screen a7773021)
            ======================================================== */}
@@ -853,6 +854,7 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
             </p>
           </div>
         )}
+        </div>
         </div>
       </div>
     </div>

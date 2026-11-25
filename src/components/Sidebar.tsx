@@ -191,7 +191,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </p>
                   </div>
                 </div>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0 ml-1" title="Session Active" />
+                <span className="w-2 h-2 rounded-full bg-emerald-500 ui-pulse-ring shrink-0 ml-1" title="Session Active" />
               </div>
 
               {isAdmin && (
@@ -199,13 +199,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   <button
                     type="button"
                     onClick={() => setCurrentTab('admin')}
-                    className={`w-full py-1.5 rounded-xl text-[11px] font-bold text-center ui-press cursor-pointer ${
+                    className={`w-full py-1.5 rounded-xl text-[11px] font-bold text-center ui-press ui-btn-glow group cursor-pointer ${
                       currentTab === 'admin'
                         ? 'bg-purple-700 text-white'
                         : 'bg-purple-600 hover:bg-purple-700 text-white shadow-xs'
                     }`}
                   >
-                    Open Admin Console &rarr;
+                    Open Admin Console <span className="inline-block transition-transform duration-150 group-hover:translate-x-1">&rarr;</span>
                   </button>
                 </div>
               )}

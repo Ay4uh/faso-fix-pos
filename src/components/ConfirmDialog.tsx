@@ -73,7 +73,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs overflow-y-auto animate-in fade-in duration-150"
+      className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-xs overflow-y-auto ui-backdrop"
       onClick={() => {
         if (!isProcessing) onCancel();
       }}
@@ -84,7 +84,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
         aria-labelledby={titleId}
         aria-describedby={descId}
         onClick={(e) => e.stopPropagation()}
-        className={`relative bg-white rounded-2xl p-5 sm:p-6 max-w-md w-full max-h-[90dvh] overflow-y-auto my-auto space-y-4 shadow-2xl border animate-in zoom-in-95 duration-150 ${
+        className={`relative bg-white rounded-3xl p-5 sm:p-6 max-w-md w-full max-h-[90dvh] overflow-y-auto my-auto space-y-4 shadow-2xl border ui-modal ${
           isDanger ? 'border-red-200' : 'border-amber-200'
         }`}
       >
@@ -93,13 +93,13 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
           onClick={onCancel}
           disabled={isProcessing}
           aria-label={cancelLabel}
-          className="absolute top-3.5 right-3.5 p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 transition cursor-pointer disabled:opacity-40"
+          className="absolute top-3.5 right-3.5 p-1.5 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-100 ui-press cursor-pointer disabled:opacity-40"
         >
           <X className="w-4 h-4" />
         </button>
 
         <div
-          className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ${
+          className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto ui-pop ${
             isDanger ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'
           }`}
         >
@@ -154,7 +154,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             type="button"
             onClick={onCancel}
             disabled={isProcessing}
-            className="w-full min-h-[44px] px-4 py-2.5 border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold cursor-pointer transition disabled:opacity-50"
+            className="w-full min-h-[44px] px-4 py-2.5 border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 rounded-xl text-xs font-bold cursor-pointer ui-press disabled:opacity-50"
           >
             {cancelLabel}
           </button>
@@ -162,7 +162,7 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
             type="button"
             disabled={!canConfirm}
             onClick={() => onConfirm(requireReason ? reason.trim() : undefined)}
-            className={`w-full min-h-[44px] px-4 py-2.5 text-white rounded-xl text-xs font-bold cursor-pointer transition shadow-xs disabled:opacity-45 disabled:cursor-not-allowed ${
+            className={`w-full min-h-[44px] px-4 py-2.5 text-white rounded-xl text-xs font-bold cursor-pointer ui-press shadow-xs disabled:opacity-45 disabled:cursor-not-allowed ${
               isDanger ? 'bg-red-600 hover:bg-red-700' : 'bg-amber-600 hover:bg-amber-700'
             }`}
           >

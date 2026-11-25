@@ -986,8 +986,8 @@ export function App() {
     };
 
     return (
-      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 text-slate-800">
-        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden">
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center p-4 text-slate-800 ui-backdrop">
+        <div className="w-full max-w-sm bg-white rounded-3xl shadow-2xl border border-slate-200 overflow-hidden ui-modal">
           <div className="bg-slate-50 px-6 py-5 border-b border-slate-200 flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-indigo-600 text-white flex items-center justify-center shadow-sm">
               <Lock className="w-5 h-5" />
@@ -1002,7 +1002,7 @@ export function App() {
 
           <form onSubmit={handleUnlockSubmit} className="p-6 space-y-4">
             {unlockError && (
-              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium">
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-xl text-xs text-rose-700 font-medium ui-shake">
                 {unlockError}
               </div>
             )}
@@ -1016,7 +1016,7 @@ export function App() {
                 value={unlockPassword}
                 onChange={(e) => setUnlockPassword(e.target.value)}
                 placeholder="Enter password to unlock"
-                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-mono"
+                className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-mono transition-colors"
               />
             </div>
 
@@ -1029,7 +1029,7 @@ export function App() {
                   value={unlockCode}
                   onChange={(e) => setUnlockCode(e.target.value)}
                   placeholder="6-digit TOTP or recovery code"
-                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-mono"
+                  className="w-full px-3.5 py-2.5 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white font-mono transition-colors"
                 />
               </div>
             )}
@@ -1037,7 +1037,7 @@ export function App() {
             <button
               type="submit"
               disabled={isUnlocking}
-              className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm cursor-pointer disabled:opacity-50"
+              className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold shadow-sm ui-press ui-btn-glow cursor-pointer disabled:opacity-50"
             >
               {isUnlocking ? 'Unlocking...' : 'Unlock Counter Terminal'}
             </button>
@@ -1045,7 +1045,7 @@ export function App() {
             <button
               type="button"
               onClick={handleLogout}
-              className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold cursor-pointer"
+              className="w-full py-2 px-4 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold ui-press cursor-pointer"
             >
               Sign Out / Switch User
             </button>
@@ -1059,14 +1059,20 @@ export function App() {
     <div className="min-h-screen bg-[#F8FAFC] text-slate-800 flex flex-col font-sans overflow-x-clip">
       {/* Top Loading Progress Line */}
       {isLoading && (
-        <div className="fixed top-0 left-0 right-0 h-0.5 bg-indigo-600 z-50 animate-pulse" />
+        <div className="fixed top-0 left-0 right-0 h-1 bg-indigo-100/80 z-50 overflow-hidden pointer-events-none">
+          <div className="h-full w-2/5 bg-gradient-to-r from-indigo-500 via-violet-500 to-indigo-600 rounded-full ui-progress-indeterminate" />
+        </div>
       )}
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-20 md:bottom-6 left-4 right-4 sm:left-auto sm:right-6 z-50 bg-white text-slate-900 px-4 py-2.5 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-2 text-xs font-semibold animate-in slide-in-from-bottom-5">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+        <div
+          key={toastMessage}
+          className="fixed bottom-20 md:bottom-6 left-4 right-4 sm:left-auto sm:right-6 z-50 bg-white text-slate-900 px-4 py-2.5 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-2 text-xs font-semibold overflow-hidden ui-toast"
+        >
+          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 ui-pop" />
           <span className="truncate">{toastMessage}</span>
+          <div className="absolute bottom-0 left-0 right-0 h-0.5 bg-emerald-500/80 ui-toast-bar" />
         </div>
       )}
 

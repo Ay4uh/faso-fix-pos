@@ -993,9 +993,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               type="button"
               disabled={!canEditItems}
               onClick={() => setIsAddItemModalOpen(true)}
-              className="h-9 inline-flex items-center gap-1.5 px-3.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-xl text-sm font-bold cursor-pointer ui-press shadow-2xs shrink-0"
+              className="h-9 inline-flex items-center gap-1.5 px-3.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-xl text-sm font-bold cursor-pointer ui-press ui-btn-glow group shadow-2xs shrink-0"
             >
-              <Plus className="w-4 h-4" />
+              <Plus className="w-4 h-4 transition-transform duration-200 group-hover:rotate-90" />
               <span>Add Item</span>
             </button>
 
@@ -1333,7 +1333,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       setIsPaymentModalOpen(true);
                     }}
                     title="Collect remaining balance"
-                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-sm font-bold cursor-pointer ui-press shadow-xs flex items-center justify-center gap-2 tabular-nums"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-sm font-bold cursor-pointer ui-press ui-btn-glow shadow-xs flex items-center justify-center gap-2 tabular-nums"
                   >
                     <CreditCard className="w-4 h-4" />
                     <span>Checkout &amp; Pay (${balanceOwing.toFixed(2)})</span>
@@ -1562,7 +1562,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             <th className="py-2.5 px-4 text-right">Actions</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
+                        <tbody key={activeTab} className="divide-y divide-slate-100 ui-row-stagger">
                           {activeNoteRows.map((ev) => {
                             const isEditing = editingNoteId === ev.id;
                             return (
@@ -1664,7 +1664,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             <th className="py-2.5 px-4">Details</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
+                        <tbody key={activeTab} className="divide-y divide-slate-100 ui-row-stagger">
                           {ticket.events?.map((ev) => (
                             <tr key={ev.id} className="hover:bg-slate-50/80 transition-colors">
                               <td className="py-3 px-4 font-mono tabular-nums text-slate-500 whitespace-nowrap text-[13px]">
@@ -1745,7 +1745,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             <th className="py-2.5 px-4 text-right">Action</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
+                        <tbody key={activeTab} className="divide-y divide-slate-100 ui-row-stagger">
                           {ticket.payments?.map((pmt) => (
                             <tr key={pmt.id} className="hover:bg-slate-50/80 transition-colors">
                               <td className="py-3 px-4 font-mono tabular-nums text-[13px] text-slate-500 whitespace-nowrap">
@@ -1839,9 +1839,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     type="button"
                     disabled={!canEditItems}
                     onClick={() => setIsAddItemModalOpen(true)}
-                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-xl text-sm font-bold shadow-2xs ui-press cursor-pointer"
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-xl text-sm font-bold shadow-2xs ui-press ui-btn-glow group cursor-pointer"
                   >
-                    <Plus className="w-4 h-4" />
+                    <Plus className="w-4 h-4 transition-transform duration-200 group-hover:rotate-90" />
                     <span>Attach Part / Labor</span>
                   </button>
                 </div>
@@ -1861,7 +1861,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       <th className="py-2.5 px-3 xl:py-3 xl:px-5 text-right">Action</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-100">
+                  <tbody className="divide-y divide-slate-100 ui-row-stagger">
                     {ticket.laborCents > 0 && (
                       <tr className="hover:bg-indigo-50/40 transition-colors duration-150">
                         <td className="py-3 px-3 xl:py-3.5 xl:px-5 whitespace-nowrap">

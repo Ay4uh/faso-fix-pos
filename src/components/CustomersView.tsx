@@ -482,9 +482,9 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
          ======================================================== */}
       <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 sm:p-5 space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div>
+          <div className="group">
             <div className="flex items-center gap-2">
-              <CalendarIcon className="w-5 h-5 text-indigo-600 shrink-0" />
+              <CalendarIcon className="w-5 h-5 text-indigo-600 shrink-0 ui-icon-spring" />
               <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">
                 Customer History
               </h1>
@@ -880,7 +880,7 @@ export const CustomersView: React.FC<CustomersViewProps> = ({
                 </div>
 
                 {/* Ticket Rows for this Day */}
-                <div className="divide-y divide-slate-100">
+                <div key={`${selectedDayKey || 'all'}-${statusFilter}`} className="divide-y divide-slate-100 ui-row-stagger">
                   {group.items.map((t) => {
                     const m = classifyTicket(t);
                     const workMeta = getWorkStatusMeta(t.status);

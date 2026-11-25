@@ -30,14 +30,14 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <button
           type="button"
           onClick={() => setCurrentTab('repairs')}
-          className={`flex flex-col items-center justify-center flex-1 h-full py-1 min-w-[50px] transition cursor-pointer ${
+          className={`flex flex-col items-center justify-center flex-1 h-full py-1 min-w-[50px] ui-press cursor-pointer ${
             currentTab === 'repairs' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-800'
           }`}
         >
           <div className="relative">
-            <LayoutDashboard className="w-5 h-5" />
+            <LayoutDashboard className={`w-5 h-5 transition-transform duration-200 ${currentTab === 'repairs' ? 'scale-110' : ''}`} />
             {(stats?.totalActive ?? 0) > 0 && (
-              <span className="absolute -top-1 -right-2 px-1 py-0.2 bg-indigo-600 text-white text-[9px] font-bold rounded-full">
+              <span className="absolute -top-1 -right-2 px-1 py-0.2 bg-indigo-600 text-white text-[9px] font-bold rounded-full tabular-nums">
                 {stats?.totalActive}
               </span>
             )}
@@ -49,11 +49,11 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <button
           type="button"
           onClick={() => setCurrentTab('customers')}
-          className={`flex flex-col items-center justify-center flex-1 h-full py-1 min-w-[50px] transition cursor-pointer ${
+          className={`flex flex-col items-center justify-center flex-1 h-full py-1 min-w-[50px] ui-press cursor-pointer ${
             currentTab === 'customers' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-800'
           }`}
         >
-          <Users className="w-5 h-5" />
+          <Users className={`w-5 h-5 transition-transform duration-200 ${currentTab === 'customers' ? 'scale-110' : ''}`} />
           <span className="text-[10px] mt-0.5">Clients</span>
         </button>
 
@@ -61,11 +61,11 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <button
           type="button"
           onClick={openCreateModal}
-          className="flex flex-col items-center justify-center px-3 -mt-4 transition cursor-pointer group"
+          className="flex flex-col items-center justify-center px-3 -mt-4 cursor-pointer group"
           title="New Ticket"
         >
-          <div className="w-12 h-12 rounded-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white flex items-center justify-center shadow-lg shadow-indigo-600/30 ring-4 ring-white transition-transform group-active:scale-95">
-            <Plus className="w-6 h-6 stroke-[2.5]" />
+          <div className="w-12 h-12 rounded-full bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white flex items-center justify-center shadow-lg shadow-indigo-600/30 ring-4 ring-white ui-btn-glow transition-transform group-active:scale-95">
+            <Plus className="w-6 h-6 stroke-[2.5] transition-transform duration-200 group-hover:rotate-90" />
           </div>
           <span className="text-[10px] font-bold text-indigo-700 mt-1">New</span>
         </button>
@@ -74,11 +74,11 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <button
           type="button"
           onClick={() => setCurrentTab('analytics')}
-          className={`flex flex-col items-center justify-center flex-1 h-full py-1 min-w-[50px] transition cursor-pointer ${
+          className={`flex flex-col items-center justify-center flex-1 h-full py-1 min-w-[50px] ui-press cursor-pointer ${
             currentTab === 'analytics' ? 'text-indigo-600 font-bold' : 'text-slate-500 hover:text-slate-800'
           }`}
         >
-          <BarChart3 className="w-5 h-5" />
+          <BarChart3 className={`w-5 h-5 transition-transform duration-200 ${currentTab === 'analytics' ? 'scale-110' : ''}`} />
           <span className="text-[10px] mt-0.5">Analytics</span>
         </button>
 
@@ -86,7 +86,7 @@ export const MobileBottomNav: React.FC<MobileBottomNavProps> = ({
         <button
           type="button"
           onClick={openMobileMenu}
-          className="flex flex-col items-center justify-center flex-1 h-full py-1 min-w-[50px] text-slate-500 hover:text-slate-800 transition cursor-pointer"
+          className="flex flex-col items-center justify-center flex-1 h-full py-1 min-w-[50px] text-slate-500 hover:text-slate-800 ui-press cursor-pointer"
         >
           <Menu className="w-5 h-5" />
           <span className="text-[10px] mt-0.5">More</span>
