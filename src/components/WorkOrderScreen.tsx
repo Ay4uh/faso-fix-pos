@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Ticket, User } from '../types';
 import {
   X,
@@ -22,6 +22,7 @@ import {
   Tag,
   Shield,
   RotateCcw,
+  ChevronDown,
 } from 'lucide-react';
 import { posAudio } from '../utils/audio';
 import { fetchWithAuth } from '../utils/auth';
@@ -60,6 +61,17 @@ function toLocalDateInputValue(val: string | Date | null | undefined): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
+
+const WORK_ORDER_STATUS_OPTIONS = [
+  { value: 'CHECKED_IN', label: '1. Checked In', dot: 'bg-slate-400' },
+  { value: 'DIAGNOSING', label: '2. Diagnosing', dot: 'bg-blue-500' },
+  { value: 'WAITING_ON_APPROVAL', label: '3. Waiting on Approval', dot: 'bg-purple-500' },
+  { value: 'WAITING_ON_PARTS', label: '4. Waiting on Part', dot: 'bg-amber-500' },
+  { value: 'READY_FOR_PICKUP', label: '5. Ready for Pickup', dot: 'bg-teal-500' },
+  { value: 'COMPLETED', label: '6. Completed / Paid', dot: 'bg-emerald-500' },
+  { value: 'DECLINED', label: '7. Declined', dot: 'bg-rose-500' },
+  { value: 'CANCELLED', label: '8. Cancelled', dot: 'bg-slate-400' },
+] as const;
 
 interface WorkOrderScreenProps {
   ticket: Ticket;
@@ -103,7 +115,34 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     setIsEditingDueDate(false);
     setDueDateInput(toLocalDateInputValue(initialTicket.dueDate));
     setDueDateSaved(false);
+    setIsStatusMenuOpen(false);
   }, [initialTicket.id]);
+
+  const [isStatusMenuOpen, setIsStatusMenuOpen] = useState(false);
+  const statusMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!isStatusMenuOpen) return;
+    const handleOutside = (e: MouseEvent) => {
+      if (statusMenuRef.current && !statusMenuRef.current.contains(e.target as Node)) {
+        setIsStatusMenuOpen(false);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        setIsStatusMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    window.addEventListener('keydown', handleEscape, true);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      window.removeEventListener('keydown', handleEscape, true);
+    };
+  }, [isStatusMenuOpen]);
 
   // Promised Due Date inline editor
   const [isEditingDueDate, setIsEditingDueDate] = useState(false);
@@ -116,6 +155,16 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       setDueDateInput(toLocalDateInputValue(ticket.dueDate));
     }
   }, [ticket.dueDate, isEditingDueDate]);
+
+  const normalizedStatus =
+    ticket.status === 'PENDING'
+      ? 'CHECKED_IN'
+      : ticket.status === 'IN_PROGRESS'
+      ? 'DIAGNOSING'
+      : ticket.status;
+  const activeStatusOption =
+    WORK_ORDER_STATUS_OPTIONS.find((opt) => opt.value === normalizedStatus) ||
+    WORK_ORDER_STATUS_OPTIONS[0];
 
   const applyTicketUpdate = (freshTicket: Ticket) => {
     setTicket(freshTicket);
@@ -947,7 +996,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
         {/* ========================================================
             ZONE A: COMPACT TOP WORKORDER STRIP
            ======================================================== */}
-        <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 shrink-0">
+        <header className="relative z-30 bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 shrink-0">
           <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={onClose}
@@ -968,26 +1017,65 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               {getStatusBadge()}
             </div>
 
-            <select
-              value={ticket.status === 'PENDING' ? 'CHECKED_IN' : ticket.status === 'IN_PROGRESS' ? 'DIAGNOSING' : ticket.status}
-              onChange={async (e) => {
-                const nextStatus = e.target.value as any;
-                if (nextStatus === 'COMPLETED') posAudio.playSuccessChime();
-                setTicket((prev) => ({ ...prev, status: nextStatus }));
-                await onUpdateStatus(ticket.id, nextStatus);
-                onRefresh();
-              }}
-              className="h-9 bg-white border border-slate-300 rounded-xl text-sm font-semibold px-3 text-slate-800 hover:bg-slate-50 cursor-pointer ui-press focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 max-w-[180px] sm:max-w-none"
-            >
-              <option value="CHECKED_IN">1. Checked In</option>
-              <option value="DIAGNOSING">2. Diagnosing</option>
-              <option value="WAITING_ON_APPROVAL">3. Waiting on Approval</option>
-              <option value="WAITING_ON_PARTS">4. Waiting on Part</option>
-              <option value="READY_FOR_PICKUP">5. Ready for Pickup</option>
-              <option value="COMPLETED">6. Completed / Paid</option>
-              <option value="DECLINED">7. Declined</option>
-              <option value="CANCELLED">8. Cancelled</option>
-            </select>
+            <div ref={statusMenuRef} className="relative inline-flex items-center shrink-0">
+              <button
+                type="button"
+                aria-label="Work Order Status"
+                aria-haspopup="listbox"
+                aria-expanded={isStatusMenuOpen}
+                onClick={() => setIsStatusMenuOpen((prev) => !prev)}
+                className="h-9 inline-flex items-center justify-between gap-2 px-3.5 bg-white border border-slate-300 rounded-xl text-sm font-semibold text-slate-800 hover:bg-slate-50 hover:border-slate-400 cursor-pointer ui-press focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 whitespace-nowrap"
+              >
+                <span className="inline-flex items-center gap-2 min-w-0">
+                  <span className={`w-2 h-2 rounded-full shrink-0 ${activeStatusOption.dot}`} />
+                  <span className="truncate">{activeStatusOption.label}</span>
+                </span>
+                <ChevronDown
+                  className={`w-4 h-4 text-slate-400 shrink-0 transition-transform duration-200 ${
+                    isStatusMenuOpen ? 'rotate-180 text-indigo-600' : ''
+                  }`}
+                />
+              </button>
+
+              {isStatusMenuOpen && (
+                <div
+                  role="listbox"
+                  aria-label="Select Work Order Status"
+                  className="absolute left-0 top-full mt-1.5 w-56 bg-white rounded-2xl shadow-xl border border-slate-200 py-1.5 z-50 ui-pop"
+                >
+                  {WORK_ORDER_STATUS_OPTIONS.map((opt) => {
+                    const isSelected = opt.value === activeStatusOption.value;
+                    return (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        role="option"
+                        aria-selected={isSelected}
+                        onClick={async () => {
+                          setIsStatusMenuOpen(false);
+                          if (opt.value === normalizedStatus) return;
+                          if (opt.value === 'COMPLETED') posAudio.playSuccessChime();
+                          setTicket((prev) => ({ ...prev, status: opt.value as any }));
+                          await onUpdateStatus(ticket.id, opt.value as any);
+                          onRefresh();
+                        }}
+                        className={`w-full text-left px-3.5 py-2 text-xs font-semibold flex items-center justify-between gap-2 cursor-pointer transition-[background-color,transform] duration-150 hover:translate-x-0.5 ${
+                          isSelected
+                            ? 'bg-indigo-50/80 text-indigo-700'
+                            : 'text-slate-700 hover:bg-slate-50'
+                        }`}
+                      >
+                        <span className="inline-flex items-center gap-2.5 min-w-0">
+                          <span className={`w-2 h-2 rounded-full shrink-0 ${opt.dot}`} />
+                          <span className="truncate">{opt.label}</span>
+                        </span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-indigo-600 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
 
             <button
               type="button"
