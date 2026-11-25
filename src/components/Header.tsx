@@ -280,7 +280,7 @@ export const Header: React.FC<HeaderProps> = ({
   const renderSearchDropdown = () => {
     if (!isDropdownOpen || !query) return null;
     return (
-      <div className="absolute left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-xl shadow-2xl z-50 overflow-hidden animate-in fade-in zoom-in-95 duration-100">
+      <div className="absolute left-0 right-0 mt-1.5 bg-white border border-slate-200 rounded-2xl shadow-2xl z-50 overflow-hidden ui-pop">
         <div className="px-3.5 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between text-[11px] text-slate-500 font-semibold gap-2">
           <span>Matches ({searchResults.length})</span>
           {searchResults.length > 0 && (
@@ -366,14 +366,14 @@ export const Header: React.FC<HeaderProps> = ({
               onClick={onOpenMobileMenu}
               aria-label="Open navigation menu"
               title="Open navigation menu"
-              className="md:hidden h-9 w-9 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-lg transition cursor-pointer shrink-0 flex items-center justify-center"
+              className="md:hidden h-9 w-9 text-slate-600 hover:text-slate-900 hover:bg-slate-100 rounded-xl ui-press cursor-pointer shrink-0 flex items-center justify-center"
             >
               <Menu className="w-5 h-5" />
             </button>
           )}
 
           <div className="flex items-center text-sm font-medium text-slate-500 gap-1.5 sm:gap-2 min-w-0">
-            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-lg bg-indigo-600 flex items-center justify-center text-white shadow-xs shrink-0">
+            <div className="w-7 h-7 sm:w-8 sm:h-8 rounded-xl bg-indigo-600 flex items-center justify-center text-white shadow-xs shrink-0">
               <Wrench className="w-4 h-4" />
             </div>
             <span className="font-bold text-slate-900 hidden md:inline shrink-0">Faso Fix POS</span>
@@ -395,7 +395,7 @@ export const Header: React.FC<HeaderProps> = ({
         <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 md:flex-1 md:justify-end min-w-0">
           {/* Desktop & Tablet Inline Search */}
           <div className="hidden md:block relative flex-1 min-w-[140px] max-w-[200px] lg:max-w-[380px]" ref={dropdownRef}>
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={searchInputRef}
               type="text"
@@ -407,10 +407,10 @@ export const Header: React.FC<HeaderProps> = ({
                 setIsDropdownOpen(true);
               }}
               onKeyDown={handleKeyDownInput}
-              className="w-full pl-9 pr-10 py-2 text-xs bg-slate-50/90 border border-slate-300/90 rounded-lg text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition shadow-xs"
+              className="w-full pl-10 pr-10 py-2 text-xs bg-slate-50/90 border border-slate-300/90 rounded-full text-slate-900 placeholder:text-slate-400 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 transition-colors shadow-xs"
             />
 
-            <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
+            <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1.5 pointer-events-none">
               {searchQuery ? (
                 <button
                   type="button"
@@ -419,12 +419,12 @@ export const Header: React.FC<HeaderProps> = ({
                     setSearchQuery('');
                     setIsDropdownOpen(false);
                   }}
-                  className="pointer-events-auto text-slate-400 hover:text-slate-600 text-sm font-bold cursor-pointer w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-200 transition"
+                  className="pointer-events-auto text-slate-400 hover:text-slate-600 text-sm font-bold cursor-pointer w-4 h-4 flex items-center justify-center rounded-full hover:bg-slate-200 transition-colors"
                 >
                   ×
                 </button>
               ) : (
-                <kbd className="hidden lg:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-200/60 rounded border border-slate-300/60">
+                <kbd className="hidden lg:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-slate-200/60 rounded-md border border-slate-300/60">
                   /
                 </kbd>
               )}
@@ -443,7 +443,7 @@ export const Header: React.FC<HeaderProps> = ({
             }}
             aria-label="Search work orders"
             title="Search work orders"
-            className={`md:hidden h-9 w-9 inline-flex items-center justify-center rounded-lg border transition cursor-pointer shrink-0 ${
+            className={`md:hidden h-9 w-9 inline-flex items-center justify-center rounded-xl border ui-press cursor-pointer shrink-0 ${
               isMobileSearchOpen || searchQuery
                 ? 'bg-indigo-50 text-indigo-700 border-indigo-300'
                 : 'bg-slate-100 hover:bg-slate-200 text-slate-700 border-slate-200'
@@ -458,7 +458,7 @@ export const Header: React.FC<HeaderProps> = ({
             onClick={openCreateModal}
             aria-label="New Ticket"
             title="Create New Ticket (Hotkey: N)"
-            className="h-9 inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-2.5 lg:px-3.5 rounded-lg text-xs font-bold shadow-sm shadow-indigo-600/30 transition cursor-pointer shrink-0"
+            className="h-9 inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-3 lg:px-4 rounded-xl text-xs font-bold shadow-sm shadow-indigo-600/30 ui-press cursor-pointer shrink-0"
           >
             <Plus className="w-4 h-4" />
             <span className="hidden lg:inline">New Ticket</span>
@@ -473,7 +473,7 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={onOpenTimeClock}
                   aria-label="Staff Time Clock"
                   title="Open Staff Time Clock, History & Paystubs"
-                  className={`h-9 inline-flex items-center justify-center gap-1.5 px-2.5 sm:px-3 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 border shadow-2xs ${
+                  className={`h-9 inline-flex items-center justify-center gap-1.5 px-2.5 sm:px-3 rounded-xl text-xs font-bold ui-press cursor-pointer shrink-0 border shadow-2xs ${
                     isOnBreak
                       ? 'bg-amber-50 hover:bg-amber-100 text-amber-800 border-amber-300'
                       : isClockedIn
@@ -507,7 +507,7 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={onQuickClockIn}
                   aria-label="Punch In"
                   title="Instant 1-Click Clock In"
-                  className="hidden lg:inline-flex h-9 items-center gap-1 px-2.5 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-lg text-xs font-bold shadow-xs transition cursor-pointer shrink-0"
+                  className="hidden lg:inline-flex h-9 items-center gap-1 px-3 bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white rounded-xl text-xs font-bold shadow-xs ui-press cursor-pointer shrink-0"
                 >
                   <Zap className="w-3.5 h-3.5 fill-current" />
                   <span className="hidden xl:inline">Punch In</span>
@@ -523,7 +523,7 @@ export const Header: React.FC<HeaderProps> = ({
                       onClick={onQuickToggleBreak}
                       aria-label={isOnBreak ? 'Resume Shift' : 'Take Break'}
                       title={isOnBreak ? 'Resume Shift (End Break)' : 'Take Unpaid Break'}
-                      className={`h-9 w-9 inline-flex items-center justify-center rounded-lg text-xs font-bold transition cursor-pointer border shrink-0 ${
+                      className={`h-9 w-9 inline-flex items-center justify-center rounded-xl text-xs font-bold ui-press cursor-pointer border shrink-0 ${
                         isOnBreak
                           ? 'bg-amber-500 text-white border-amber-600 hover:bg-amber-600'
                           : 'bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200'
@@ -538,7 +538,7 @@ export const Header: React.FC<HeaderProps> = ({
                       onClick={onQuickClockOut}
                       aria-label="Clock Out"
                       title="Instant 1-Click Clock Out"
-                      className="h-9 w-9 inline-flex items-center justify-center bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-700 hover:text-red-800 border border-red-200 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 shadow-2xs"
+                      className="h-9 w-9 inline-flex items-center justify-center bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-700 hover:text-red-800 border border-red-200 rounded-xl text-xs font-bold ui-press cursor-pointer shrink-0 shadow-2xs"
                     >
                       <Square className="w-3.5 h-3.5 fill-current" />
                     </button>
@@ -560,7 +560,7 @@ export const Header: React.FC<HeaderProps> = ({
                 }}
                 aria-label="Notifications"
                 title="Notifications"
-                className="relative h-9 w-9 inline-flex items-center justify-center rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 transition cursor-pointer"
+                className="relative h-9 w-9 inline-flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 ui-press cursor-pointer"
               >
                 <Bell className="w-4 h-4" />
                 {unreadCount > 0 && (
@@ -571,7 +571,7 @@ export const Header: React.FC<HeaderProps> = ({
               </button>
 
               {isNotifOpen && (
-                <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-[62px] sm:top-full sm:mt-2 sm:w-96 bg-white rounded-2xl border border-slate-200 shadow-2xl overflow-hidden z-50">
+                <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-[62px] sm:top-full sm:mt-2 sm:w-96 bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden z-50 ui-pop">
                   <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <Bell className="w-4 h-4 text-[#0284c7]" />
@@ -637,7 +637,7 @@ export const Header: React.FC<HeaderProps> = ({
           {/* User Profile & Direct Logout Button */}
           {currentUser && onLogout && (
             <div className="flex items-center gap-1.5 sm:gap-2 pl-1.5 sm:pl-2 border-l border-slate-200 shrink-0">
-              <div className="hidden xl:flex items-center space-x-2 px-2.5 py-1 bg-slate-100 rounded-lg border border-slate-200/80">
+              <div className="hidden xl:flex items-center space-x-2 px-2.5 py-1 bg-slate-100 rounded-xl border border-slate-200/80">
                 <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-bold">
                   {currentUser.name.charAt(0)}
                 </div>
@@ -651,7 +651,7 @@ export const Header: React.FC<HeaderProps> = ({
                   onClick={onLockTerminal}
                   aria-label="Lock Terminal"
                   title="Quick-lock counter screen"
-                  className="h-9 inline-flex items-center justify-center gap-1.5 px-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 border border-slate-200 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 shadow-2xs"
+                  className="h-9 inline-flex items-center justify-center gap-1.5 px-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold ui-press cursor-pointer shrink-0 shadow-2xs"
                 >
                   <Lock className="w-3.5 h-3.5 text-slate-600" />
                   <span className="hidden xl:inline">Lock</span>
@@ -662,7 +662,7 @@ export const Header: React.FC<HeaderProps> = ({
                 onClick={onLogout}
                 aria-label="Log Out"
                 title={`Sign out of ${currentUser.name}`}
-                className="h-9 inline-flex items-center justify-center gap-1.5 px-2.5 lg:px-3 bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-700 hover:text-red-800 border border-red-200 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 shadow-2xs group"
+                className="h-9 inline-flex items-center justify-center gap-1.5 px-2.5 lg:px-3 bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-700 hover:text-red-800 border border-red-200 rounded-xl text-xs font-bold ui-press cursor-pointer shrink-0 shadow-2xs group"
               >
                 <LogOut className="w-3.5 h-3.5 text-red-600 group-hover:scale-110 transition-transform" />
                 <span className="hidden lg:inline">Log Out</span>
@@ -676,7 +676,7 @@ export const Header: React.FC<HeaderProps> = ({
       {(isMobileSearchOpen || Boolean(searchQuery)) && (
         <div ref={mobileSearchRef} className="md:hidden border-t border-slate-100 bg-slate-50/90 px-3 py-2 relative">
           <div className="relative">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               ref={mobileSearchInputRef}
               type="text"
@@ -688,7 +688,7 @@ export const Header: React.FC<HeaderProps> = ({
                 setIsDropdownOpen(true);
               }}
               onKeyDown={handleKeyDownInput}
-              className="w-full pl-9 pr-10 py-2 text-base sm:text-xs bg-white border border-slate-300 rounded-lg text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 shadow-xs"
+              className="w-full pl-10 pr-10 py-2 text-base sm:text-xs bg-white border border-slate-300 rounded-full text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/25 focus:border-indigo-600 shadow-xs"
             />
             <button
               type="button"

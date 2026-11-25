@@ -232,10 +232,10 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       {/* ========================================================
           HEADER: MASTER REPORT / KEY METRICS & DATE CONTROLS
          ======================================================== */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-4 sm:p-5">
+      <div className="bg-white rounded-3xl border border-slate-200/90 shadow-2xs p-4 sm:p-5">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-indigo-600 to-purple-600 text-white flex items-center justify-center shadow-xs shrink-0">
+            <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-600 to-purple-600 text-white flex items-center justify-center shadow-xs shrink-0">
               <BarChart3 className="w-5 h-5" />
             </div>
             <div>
@@ -250,13 +250,13 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
           <div className="flex flex-col lg:items-end gap-2.5">
             {/* Quick Date Presets */}
-            <div className="flex flex-wrap items-center gap-1 bg-slate-100/90 p-1 rounded-lg border border-slate-200/80">
+            <div className="flex flex-wrap items-center gap-1 bg-slate-100/90 p-1 rounded-full border border-slate-200/80">
               {PRESETS.map((p) => (
                 <button
                   key={p.key}
                   type="button"
                   onClick={() => handleSelectPreset(p.key)}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors cursor-pointer whitespace-nowrap ${
+                  className={`px-3 py-1.5 rounded-full text-[11px] font-semibold ui-press cursor-pointer whitespace-nowrap ${
                     preset === p.key
                       ? 'bg-indigo-600 text-white shadow-2xs'
                       : 'text-slate-600 hover:text-slate-900 hover:bg-white/70'
@@ -269,7 +269,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
             {/* Custom From/To + Refresh + Export */}
             <div className="flex flex-wrap items-center gap-2 text-xs">
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1">
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">From</span>
                 <input
                   type="date"
@@ -283,7 +283,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 />
               </div>
               <span className="text-slate-400 text-xs">to</span>
-              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1">
+              <div className="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-3 py-1.5">
                 <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400">To</span>
                 <input
                   type="date"
@@ -301,7 +301,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                 type="button"
                 onClick={() => setManualReloadTick((n) => n + 1)}
                 disabled={isLoading}
-                className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold inline-flex items-center gap-1.5 cursor-pointer transition-colors shadow-2xs disabled:opacity-60"
+                className="px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold inline-flex items-center gap-1.5 ui-press cursor-pointer shadow-2xs disabled:opacity-60"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`} />
                 <span>Refresh</span>
@@ -310,7 +310,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               <button
                 type="button"
                 onClick={handleExportTicketsCsv}
-                className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5 cursor-pointer transition-colors"
+                className="px-3.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 ui-press cursor-pointer"
               >
                 <Download className="w-3.5 h-3.5 text-slate-500" />
                 <span>Export CSV</span>
@@ -321,7 +321,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       </div>
 
       {reportError && (
-        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-medium">
+        <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-2xl text-xs font-medium">
           {reportError}
         </div>
       )}
@@ -329,11 +329,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       {/* ========================================================
           ROW 1: 4 EXECUTIVE KPI CARDS (HERO REVENUE + 3 COUNT CARDS)
          ======================================================== */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 ui-stagger">
         {/* Hero Gradient Revenue Card */}
-        <div className="rounded-2xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-purple-600 text-white p-5 shadow-sm flex flex-col justify-between gap-3">
+        <div className="rounded-3xl bg-gradient-to-br from-indigo-600 via-indigo-600 to-purple-600 text-white p-5 shadow-sm hover:shadow-lg ui-card-lift flex flex-col justify-between gap-3">
           <div className="flex items-start justify-between gap-3">
-            <div className="w-9 h-9 rounded-xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-2xl bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
               <DollarSign className="w-5 h-5 text-white" />
             </div>
             <div className="min-w-0 flex-1">
@@ -356,8 +356,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
 
         {/* Closed / Paid Tickets */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-2xs flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-md hover:border-indigo-200/80 ui-card-lift flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
             <CheckCircle2 className="w-5 h-5" />
           </div>
           <div className="min-w-0">
@@ -380,8 +380,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
 
         {/* New Customers */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-2xs flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-sky-50 border border-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-md hover:border-sky-200/80 ui-card-lift flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-sky-50 border border-sky-100 text-sky-600 flex items-center justify-center shrink-0">
             <UserPlus className="w-5 h-5" />
           </div>
           <div className="min-w-0">
@@ -396,8 +396,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
 
         {/* Returning Customers */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 p-5 shadow-2xs flex items-start gap-3.5">
-          <div className="w-10 h-10 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs hover:shadow-md hover:border-emerald-200/80 ui-card-lift flex items-start gap-3.5">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
             <Users className="w-5 h-5" />
           </div>
           <div className="min-w-0">
@@ -417,7 +417,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
          ======================================================== */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
         {/* Left: Tabbed Daily Bar Chart */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between gap-3">
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between gap-3">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2.5">
             <div className="flex items-center gap-4">
               {[
@@ -542,8 +542,12 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                             y={y}
                             width={barW}
                             height={barH}
-                            rx={3}
+                            rx={5}
                             fill={isHovered ? '#4338ca' : '#5865f2'}
+                            style={{
+                              transition:
+                                'height 320ms cubic-bezier(0.16, 1, 0.3, 1), y 320ms cubic-bezier(0.16, 1, 0.3, 1), opacity 150ms ease',
+                            }}
                           />
                           {showLabel && (
                             <text
@@ -568,7 +572,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
         </div>
 
         {/* Right: Trend Line Chart + Payment Method Mix Bar */}
-        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between gap-4">
+        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-2xs p-5 flex flex-col justify-between gap-4">
           <div>
             <div className="flex items-center justify-between gap-2 pb-2">
               <span className="text-xs font-bold text-slate-700">
@@ -697,7 +701,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
 
           {/* Payment Method Mix Inset */}
-          <div className="bg-slate-50/90 border border-slate-200/70 rounded-xl p-3.5 space-y-2">
+          <div className="bg-slate-50/90 border border-slate-200/70 rounded-2xl p-3.5 space-y-2">
             <div className="flex items-baseline justify-between gap-2">
               <div className="flex items-baseline gap-2">
                 <span className="text-base font-extrabold font-mono tabular-nums text-slate-900">
@@ -720,6 +724,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                   return (
                     <div
                       key={method}
+                      className="transition-[width] duration-500 ease-out"
                       style={{ width: `${pct}%`, backgroundColor: meta.color }}
                       title={`${meta.label}: ${formatMoneyCents(cents)} (${pct.toFixed(1)}%)`}
                     />
@@ -758,9 +763,9 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       {/* ========================================================
           ROW 3: 5 FINANCIAL PROFITABILITY & OPERATIONS CARDS
          ======================================================== */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3.5">
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs p-4 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+      <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-5 gap-3.5 ui-stagger">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md ui-card-lift p-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
             <DollarSign className="w-4 h-4" />
           </div>
           <div className="min-w-0">
@@ -774,8 +779,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs p-4 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-teal-50 border border-teal-100 text-teal-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md ui-card-lift p-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-teal-50 border border-teal-100 text-teal-600 flex items-center justify-center shrink-0">
             <Percent className="w-4 h-4" />
           </div>
           <div className="min-w-0">
@@ -791,8 +796,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs p-4 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md ui-card-lift p-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-emerald-50 border border-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
             <TrendingUp className="w-4 h-4" />
           </div>
           <div className="min-w-0">
@@ -804,8 +809,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs p-4 flex items-start gap-3">
-          <div className="w-9 h-9 rounded-lg bg-sky-50 border border-sky-100 text-sky-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md ui-card-lift p-4 flex items-start gap-3">
+          <div className="w-9 h-9 rounded-xl bg-sky-50 border border-sky-100 text-sky-600 flex items-center justify-center shrink-0">
             <Package className="w-4 h-4" />
           </div>
           <div className="min-w-0">
@@ -819,8 +824,8 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           </div>
         </div>
 
-        <div className="bg-white rounded-xl border border-slate-200/90 shadow-2xs p-4 flex items-start gap-3 col-span-2 sm:col-span-1">
-          <div className="w-9 h-9 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+        <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs hover:shadow-md ui-card-lift p-4 flex items-start gap-3 col-span-2 sm:col-span-1">
+          <div className="w-9 h-9 rounded-xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
             <Receipt className="w-4 h-4" />
           </div>
           <div className="min-w-0">
@@ -838,7 +843,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
       {/* ========================================================
           ROW 4: PERFORMANCE OVERVIEW (TABLE VIEW / CHART VIEW)
          ======================================================== */}
-      <div className="bg-white rounded-2xl border border-slate-200/90 shadow-2xs overflow-hidden">
+      <div className="bg-white rounded-3xl border border-slate-200/90 shadow-2xs overflow-hidden">
         <div className="p-4 sm:px-5 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <h2 className="text-sm font-bold text-slate-900">Performance Overview</h2>
 
@@ -848,7 +853,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setPerfView('table')}
-                className={`px-3 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 border cursor-pointer transition-colors ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 border ui-press cursor-pointer ${
                   perfView === 'table'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
                     : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
@@ -860,7 +865,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setPerfView('chart')}
-                className={`px-3 py-1.5 rounded-md text-xs font-bold inline-flex items-center gap-1.5 border cursor-pointer transition-colors ${
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold inline-flex items-center gap-1.5 border ui-press cursor-pointer ${
                   perfView === 'chart'
                     ? 'bg-indigo-600 text-white border-indigo-600 shadow-2xs'
                     : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
@@ -874,11 +879,11 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             <div className="h-5 w-px bg-slate-200 hidden sm:block" />
 
             {/* By Staff vs By Device toggle */}
-            <div className="inline-flex items-center gap-1 bg-slate-100 p-0.5 rounded-lg border border-slate-200">
+            <div className="inline-flex items-center gap-1 bg-slate-100 p-0.5 rounded-xl border border-slate-200">
               <button
                 type="button"
                 onClick={() => setPerfGroup('staff')}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold ui-press cursor-pointer ${
                   perfGroup === 'staff'
                     ? 'bg-white text-slate-900 shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
@@ -889,7 +894,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               <button
                 type="button"
                 onClick={() => setPerfGroup('device')}
-                className={`px-2.5 py-1 rounded-md text-xs font-semibold cursor-pointer transition-colors ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold ui-press cursor-pointer ${
                   perfGroup === 'device'
                     ? 'bg-white text-slate-900 shadow-2xs font-bold'
                     : 'text-slate-600 hover:text-slate-900'
@@ -919,7 +924,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {perfRows.map((row) => (
-                  <tr key={row.name} className="hover:bg-slate-50/80 transition-colors">
+                  <tr key={row.name} className="hover:bg-indigo-50/40 transition-colors duration-150">
                     <td className="py-3 px-3 xl:px-4 font-bold text-indigo-700 whitespace-nowrap">
                       {row.name}
                     </td>
@@ -954,7 +959,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
             </table>
           </div>
         ) : (
-          <div className="p-5 space-y-3">
+          <div className="p-5 space-y-3 ui-view-enter">
             {perfRows.length === 0 ? (
               <div className="py-8 text-center text-xs text-slate-400 italic">
                 No performance data available in this date range yet.
@@ -977,7 +982,7 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
                     </div>
                     <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
                       <div
-                        className="h-full bg-indigo-600 rounded-full transition-all"
+                        className="h-full bg-indigo-600 rounded-full transition-[width] duration-500 ease-out"
                         style={{ width: `${row.revenueCents > 0 ? pct : 0}%` }}
                       />
                     </div>

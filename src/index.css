@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
   font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
   margin: 0;
@@ -11,6 +16,138 @@ body {
 button,
 a {
   -webkit-tap-highlight-color: transparent;
+}
+
+/* Motion System — compositor-only keyframes & explicit transitions */
+@keyframes ui-backdrop-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes ui-modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.975);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ui-panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes ui-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ui-toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.ui-backdrop {
+  animation: ui-backdrop-in 160ms ease-out both;
+}
+
+.ui-modal {
+  animation: ui-modal-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ui-view-enter {
+  animation: ui-panel-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ui-pop {
+  animation: ui-pop-in 170ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.ui-card-lift {
+  transition-property: transform, box-shadow, border-color;
+  transition-duration: 180ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ui-card-lift:hover {
+  transform: translateY(-2px);
+}
+
+.ui-press {
+  transition-property: transform, background-color, border-color, color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ui-press:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.ui-stagger > * {
+  animation: ui-panel-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.ui-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.ui-stagger > *:nth-child(2) { animation-delay: 35ms; }
+.ui-stagger > *:nth-child(3) { animation-delay: 70ms; }
+.ui-stagger > *:nth-child(4) { animation-delay: 105ms; }
+.ui-stagger > *:nth-child(5) { animation-delay: 140ms; }
+.ui-stagger > *:nth-child(6) { animation-delay: 175ms; }
+
+/* Wire legacy utility entrance classes to crisp motion */
+.animate-in.zoom-in-95 {
+  animation: ui-modal-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-in.slide-in-from-bottom-5 {
+  animation: ui-toast-in 220ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.animate-in.fade-in:not(.zoom-in-95):not(.slide-in-from-bottom-5) {
+  animation: ui-backdrop-in 160ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-backdrop,
+  .ui-modal,
+  .ui-view-enter,
+  .ui-pop,
+  .ui-stagger > *,
+  .animate-in.zoom-in-95,
+  .animate-in.slide-in-from-bottom-5,
+  .animate-in.fade-in {
+    animation: none !important;
+  }
+
+  .ui-card-lift,
+  .ui-press {
+    transition-duration: 1ms !important;
+  }
+
+  .ui-card-lift:hover,
+  .ui-press:active:not(:disabled) {
+    transform: none !important;
+  }
 }
 
 /* Custom scrollbars */
@@ -37,6 +174,8 @@ a {
     filter: none !important;
     box-shadow: none !important;
     text-shadow: none !important;
+    animation: none !important;
+    transition: none !important;
   }
 
   html, body {

@@ -1064,7 +1064,7 @@ export function App() {
 
       {/* Toast Notification */}
       {toastMessage && (
-        <div className="fixed bottom-20 md:bottom-6 left-4 right-4 sm:left-auto sm:right-6 z-50 bg-white text-slate-900 px-4 py-2.5 rounded-xl shadow-xl border border-slate-200 flex items-center gap-2 text-xs font-semibold animate-in slide-in-from-bottom-5">
+        <div className="fixed bottom-20 md:bottom-6 left-4 right-4 sm:left-auto sm:right-6 z-50 bg-white text-slate-900 px-4 py-2.5 rounded-2xl shadow-xl border border-slate-200 flex items-center gap-2 text-xs font-semibold animate-in slide-in-from-bottom-5">
           <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
           <span className="truncate">{toastMessage}</span>
         </div>
@@ -1122,6 +1122,7 @@ export function App() {
 
         {/* Dynamic Content Workspace */}
         <main className="flex-1 p-3 sm:p-5 md:p-6 lg:p-8 max-w-[1720px] mx-auto w-full space-y-5 pb-24 md:pb-8 min-w-0 overflow-x-hidden">
+          <div key={currentTab} className="ui-view-enter">
           {/* 1. Primary Tab: Repairs Queue */}
           {currentTab === 'repairs' && (
             <div className="space-y-5">
@@ -1243,6 +1244,7 @@ export function App() {
               </div>
             )
           )}
+          </div>
         </main>
       </div>
 
