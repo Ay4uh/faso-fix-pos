@@ -548,7 +548,7 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* Notification Bell & Light-Theme Popover */}
+          {/* Missed Promise Date Notification Bell & Popover */}
           {currentUser && (
             <div ref={notifRef} className="relative shrink-0">
               <button
@@ -558,13 +558,13 @@ export const Header: React.FC<HeaderProps> = ({
                   setIsNotifOpen(next);
                   if (next) loadNotifications();
                 }}
-                aria-label="Notifications"
-                title="Notifications"
+                aria-label="Missed Promise Date Alerts"
+                title="Missed Promise Date Alerts"
                 className="relative h-9 w-9 inline-flex items-center justify-center rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 ui-press cursor-pointer"
               >
                 <Bell className="w-4 h-4" />
                 {unreadCount > 0 && (
-                  <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs">
+                  <span className="absolute -top-1 -right-1 min-w-[17px] h-[17px] px-1 rounded-full bg-rose-600 text-white text-[10px] font-black flex items-center justify-center shadow-xs animate-pulse">
                     {unreadCount > 99 ? '99+' : unreadCount}
                   </span>
                 )}
@@ -574,11 +574,20 @@ export const Header: React.FC<HeaderProps> = ({
                 <div className="fixed sm:absolute left-3 right-3 sm:left-auto sm:right-0 top-[62px] sm:top-full sm:mt-2 sm:w-96 bg-white rounded-3xl border border-slate-200 shadow-2xl overflow-hidden z-50 ui-pop">
                   <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                     <div className="flex items-center gap-2">
-                      <Bell className="w-4 h-4 text-[#0284c7]" />
-                      <span className="text-xs font-extrabold text-slate-900">Notifications</span>
+                      <div className="w-6 h-6 rounded-lg bg-rose-100 text-rose-600 flex items-center justify-center">
+                        <Bell className="w-3.5 h-3.5" />
+                      </div>
+                      <div>
+                        <span className="text-xs font-extrabold text-slate-900 block leading-tight">
+                          Missed Promise Date Alerts
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-medium">
+                          Overdue repair notifications
+                        </span>
+                      </div>
                       {unreadCount > 0 && (
-                        <span className="px-1.5 py-0.5 rounded-full bg-sky-100 text-[#0284c7] text-[10px] font-bold">
-                          {unreadCount} new
+                        <span className="ml-1 px-1.5 py-0.5 rounded-full bg-rose-100 text-rose-700 text-[10px] font-bold">
+                          {unreadCount} overdue
                         </span>
                       )}
                     </div>
@@ -586,7 +595,7 @@ export const Header: React.FC<HeaderProps> = ({
                       <button
                         type="button"
                         onClick={handleMarkAllRead}
-                        className="text-[11px] font-bold text-[#0284c7] hover:underline inline-flex items-center gap-1 cursor-pointer"
+                        className="text-[11px] font-bold text-rose-600 hover:text-rose-700 hover:underline inline-flex items-center gap-1 cursor-pointer"
                       >
                         <Check className="w-3 h-3" />
                         <span>Mark all read</span>
@@ -596,8 +605,14 @@ export const Header: React.FC<HeaderProps> = ({
 
                   <div className="max-h-80 overflow-y-auto divide-y divide-slate-100">
                     {notifications.length === 0 ? (
-                      <div className="p-6 text-center text-xs text-slate-400">
-                        No notifications yet. Schedule updates, shift requests, and paystubs will appear here.
+                      <div className="p-6 text-center text-xs text-slate-500">
+                        <div className="w-10 h-10 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto mb-2">
+                          <Check className="w-5 h-5" />
+                        </div>
+                        <p className="font-semibold text-slate-800">All repairs on schedule</p>
+                        <p className="text-[11px] text-slate-500 mt-1 max-w-[240px] mx-auto leading-relaxed">
+                          You will only be alerted here when an active repair misses its promised due date.
+                        </p>
                       </div>
                     ) : (
                       notifications.map((n) => (
@@ -606,17 +621,17 @@ export const Header: React.FC<HeaderProps> = ({
                           type="button"
                           onClick={() => handleMarkNotificationRead(n)}
                           className={`w-full text-left px-4 py-3 hover:bg-slate-50 transition flex items-start gap-2.5 cursor-pointer ${
-                            !n.isRead ? 'bg-sky-50/50' : 'bg-white'
+                            !n.isRead ? 'bg-rose-50/40' : 'bg-white'
                           }`}
                         >
                           <span
                             className={`mt-1.5 w-2 h-2 rounded-full shrink-0 ${
-                              !n.isRead ? 'bg-[#0284c7]' : 'bg-slate-200'
+                              !n.isRead ? 'bg-rose-600' : 'bg-slate-200'
                             }`}
                           />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center justify-between gap-2">
-                              <span className={`text-xs truncate ${!n.isRead ? 'font-bold text-slate-900' : 'font-semibold text-slate-700'}`}>
+                              <span className={`text-xs truncate ${!n.isRead ? 'font-bold text-rose-950' : 'font-semibold text-slate-700'}`}>
                                 {n.title}
                               </span>
                               <span className="text-[10px] text-slate-400 shrink-0">
@@ -624,6 +639,9 @@ export const Header: React.FC<HeaderProps> = ({
                               </span>
                             </div>
                             <p className="text-[11px] text-slate-600 mt-0.5 leading-snug">{n.message}</p>
+                            <span className="inline-block mt-1 text-[10px] font-bold text-rose-700 bg-rose-50 px-1.5 py-0.5 rounded border border-rose-200/60">
+                              Click to view repair →
+                            </span>
                           </div>
                         </button>
                       ))

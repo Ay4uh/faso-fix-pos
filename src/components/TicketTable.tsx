@@ -315,12 +315,29 @@ export const TicketTable: React.FC<TicketTableProps> = ({
 
                         {/* Due Date */}
                         <td className="py-2 px-3.5 whitespace-nowrap">
-                          <div className="flex items-center space-x-1.5 text-slate-700 font-medium text-xs">
-                            <Calendar className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                            <span>
-                              {ticket.dueDate ? new Date(ticket.dueDate).toLocaleDateString() : 'Pending'}
-                            </span>
-                          </div>
+                          {(() => {
+                            const isOverdue = Boolean(
+                              ticket.dueDate &&
+                              new Date(ticket.dueDate).getTime() < Date.now() &&
+                              !['COMPLETED', 'DECLINED', 'CANCELLED'].includes(ticket.status)
+                            );
+                            return (
+                              <div className="flex flex-col">
+                                <div className={`flex items-center space-x-1.5 text-xs ${isOverdue ? 'text-rose-700 font-bold' : 'text-slate-700 font-medium'}`}>
+                                  <Calendar className={`w-3.5 h-3.5 shrink-0 ${isOverdue ? 'text-rose-600' : 'text-slate-500'}`} />
+                                  <span>
+                                    {ticket.dueDate ? new Date(ticket.dueDate).toLocaleDateString() : 'Pending'}
+                                  </span>
+                                </div>
+                                {isOverdue && (
+                                  <span className="inline-flex items-center gap-1 mt-0.5 text-[10px] font-extrabold text-rose-600">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-rose-600 animate-pulse" />
+                                    Missed Promise Date
+                                  </span>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </td>
 
                         {/* Price: Explicit Before-Tax vs After-Tax or Pending Diagnosis */}

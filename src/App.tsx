@@ -561,7 +561,23 @@ export function App() {
   }, [selectedTicket, printTicket, smsTicket, isCreateModalOpen]);
 
   const handleNavigateNotification = (linkTab: string) => {
-    if (linkTab === 'timeclock:schedule') {
+    if (linkTab.startsWith('repairs:')) {
+      const ticketId = linkTab.split(':')[1];
+      setCurrentTab('repairs');
+      if (ticketId) {
+        fetchWithAuth(`/api/tickets/${ticketId}`)
+          .then((r) => r.json())
+          .then((json) => {
+            if (json.data) {
+              selectedTicketIdRef.current = json.data.id;
+              setSelectedTicket(json.data);
+            }
+          })
+          .catch(() => {});
+      }
+    } else if (linkTab === 'repairs') {
+      setCurrentTab('repairs');
+    } else if (linkTab === 'timeclock:schedule') {
       setTimeClockInitialTab('schedule');
       setIsTimeClockModalOpen(true);
     } else if (linkTab === 'timeclock:paystubs') {

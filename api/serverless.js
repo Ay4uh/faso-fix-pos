@@ -4190,10 +4190,75 @@ async function notifyAdmins(params) {
 		console.error("[NotifyAdmins Error]", err);
 	}
 }
+/**
+* Automatically syncs missed promise date notifications for active repair tickets.
+* Checks for any tickets past their dueDate that are not completed/declined/cancelled.
+*/
+async function syncOverdueRepairNotifications(userId) {
+	try {
+		const now = /* @__PURE__ */ new Date();
+		const overdueTickets = await prisma.ticket.findMany({
+			where: {
+				deletedAt: null,
+				status: { notIn: [
+					"COMPLETED",
+					"DECLINED",
+					"CANCELLED"
+				] },
+				dueDate: { lt: now }
+			},
+			include: {
+				customer: { select: { fullName: true } },
+				device: { select: { name: true } }
+			},
+			orderBy: { dueDate: "asc" }
+		});
+		const activeOverdueLinkTabs = new Set(overdueTickets.map((t) => `repairs:${t.id}`));
+		const existingOverdueNotifs = await prisma.notification.findMany({
+			where: {
+				userId,
+				type: "OVERDUE_REPAIR"
+			},
+			select: {
+				id: true,
+				linkTab: true
+			}
+		});
+		for (const notif of existingOverdueNotifs) if (notif.linkTab && !activeOverdueLinkTabs.has(notif.linkTab)) await prisma.notification.delete({ where: { id: notif.id } }).catch(() => {});
+		for (const ticket of overdueTickets) {
+			const linkTab = `repairs:${ticket.id}`;
+			if (!await prisma.notification.findFirst({ where: {
+				userId,
+				type: "OVERDUE_REPAIR",
+				linkTab
+			} })) {
+				const formattedDate = new Date(ticket.dueDate).toLocaleDateString("en-US", {
+					month: "short",
+					day: "numeric",
+					year: "numeric"
+				});
+				const customerName = ticket.customer?.fullName || "Customer";
+				const deviceName = ticket.device?.name || "Device";
+				await prisma.notification.create({ data: {
+					userId,
+					type: "OVERDUE_REPAIR",
+					title: `⚠️ Missed Promise Date: WO #${ticket.ticketNumber}`,
+					message: `Work order #${ticket.ticketNumber} for ${customerName} (${deviceName}) missed its promised date (${formattedDate}).`,
+					linkTab,
+					isRead: false
+				} });
+			}
+		}
+	} catch (err) {
+		console.error("[SyncOverdueRepairs Error]", err);
+	}
+}
 async function listUserNotifications(userId, params) {
+	await syncOverdueRepairNotifications(userId);
 	const limit = Math.min(Math.max(params?.limit ?? 30, 1), 100);
 	const where = {
 		userId,
+		type: "OVERDUE_REPAIR",
 		...params?.unreadOnly ? { isRead: false } : {}
 	};
 	const [notifications, unreadCount] = await Promise.all([prisma.notification.findMany({
@@ -4202,6 +4267,7 @@ async function listUserNotifications(userId, params) {
 		take: limit
 	}), prisma.notification.count({ where: {
 		userId,
+		type: "OVERDUE_REPAIR",
 		isRead: false
 	} })]);
 	return {
@@ -4221,6 +4287,7 @@ async function markAllNotificationsRead(userId) {
 	return { markedCount: (await prisma.notification.updateMany({
 		where: {
 			userId,
+			type: "OVERDUE_REPAIR",
 			isRead: false
 		},
 		data: { isRead: true }
