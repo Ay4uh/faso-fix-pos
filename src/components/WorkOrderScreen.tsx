@@ -38,7 +38,6 @@ import {
   stripQuoteEventMeta,
   isTicketPaidInFull,
 } from '../utils/repairPricing';
-import { SignaturePad } from './SignaturePad';
 import { PatternLockModal, PatternLockPreview } from './PatternLockModal';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -132,7 +131,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   };
 
   const [activeTab, setActiveTab] = useState<
-    'customer_notes' | 'internal_notes' | 'history' | 'payments' | 'sms' | 'signature'
+    'customer_notes' | 'internal_notes' | 'history' | 'payments' | 'sms'
   >('customer_notes');
 
   // Email invoice modal
@@ -882,28 +881,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     }
   };
 
-  const handleSaveSignature = async (dataUrl: string) => {
-    try {
-      const res = await fetchWithAuth(`/api/tickets/${ticket.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          signature: dataUrl,
-          expectedUpdatedAt: ticket.updatedAt,
-        }),
-      });
-      if (res.status === 409) {
-        onRefresh();
-        throw new Error(await getErrorMessage(res, 'Conflict: Ticket changed elsewhere; refreshed latest data.'));
-      }
-      if (!res.ok) throw new Error(await getErrorMessage(res, 'Could not save customer signature'));
-      const json = await res.json();
-      if (json.data) applyTicketUpdate(json.data);
-    } catch (err: any) {
-      alert(err?.message || 'Could not save customer signature');
-    }
-  };
-
   const handleSendEmail = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!emailTo.trim()) return;
@@ -1583,7 +1560,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   { id: 'history', label: `Audit History (${ticket.events?.length || 0})` },
                   { id: 'payments', label: `Payments (${ticket.payments?.length || 0})` },
                   { id: 'sms', label: 'SMS' },
-                  { id: 'signature', label: ticket.signature ? 'Signature ✓' : 'Signature' },
                 ].map((tab) => {
                   const isActive = activeTab === tab.id;
                   return (
@@ -1915,32 +1891,6 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                         </button>
                       </div>
                     </form>
-                  </div>
-                )}
-
-                {/* 6. CUSTOMER SIGNATURE WAIVER */}
-                {activeTab === 'signature' && (
-                  <div className="space-y-3 max-w-2xl">
-                    <div className="flex items-center justify-between gap-2">
-                      <div>
-                        <h4 className="font-bold text-base text-slate-900">Customer Legal Authorization</h4>
-                        <p className="text-xs text-slate-500">
-                          Intake diagnostic authorization &amp; release acknowledgment
-                        </p>
-                      </div>
-                      {ticket.signature && (
-                        <span className="text-emerald-700 font-semibold bg-emerald-50 px-2.5 py-0.5 rounded text-xs border border-emerald-200">
-                          Verified on File
-                        </span>
-                      )}
-                    </div>
-
-                    <SignaturePad
-                      initialSignature={ticket.signature}
-                      onSave={handleSaveSignature}
-                      onClear={() => handleSaveSignature('')}
-                      height={145}
-                    />
                   </div>
                 )}
               </div>

@@ -712,66 +712,30 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
               </div>
             </div>
 
-            {/* Authorizations & Signatures */}
+            {/* Technician Sign-off */}
             <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {/* Tech Sign-off */}
-                <div className="flex flex-col justify-end">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-mono text-[10px] uppercase text-slate-400 font-bold">
-                      Technician Sign-off
-                    </span>
-                    <span className="font-mono text-[10px] text-emerald-600 font-bold">VERIFIED</span>
-                  </div>
-                  <div className="h-12 bg-white border border-slate-200 rounded-lg p-2 flex items-center justify-between shadow-2xs">
-                    <div className="flex items-center gap-2">
-                      <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs">
-                        <CheckCircle2 className="w-4 h-4" />
+              <div className="flex flex-col justify-end">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="font-mono text-[10px] uppercase text-slate-400 font-bold">
+                    Technician Sign-off
+                  </span>
+                  <span className="font-mono text-[10px] text-emerald-600 font-bold">VERIFIED</span>
+                </div>
+                <div className="h-12 bg-white border border-slate-200 rounded-lg p-2 flex items-center justify-between shadow-2xs">
+                  <div className="flex items-center gap-2">
+                    <div className="w-7 h-7 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs">
+                      <CheckCircle2 className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="font-bold text-xs text-indigo-700 italic">
+                        {ticket.technician || 'Authorized Technician'}
                       </div>
-                      <div>
-                        <div className="font-bold text-xs text-indigo-700 italic">
-                          {ticket.technician || 'Authorized Technician'}
-                        </div>
-                        <div className="font-mono text-[9px] text-slate-400">
-                          Digitally Certified • Station {ticket.bench || 'Front Counter'}
-                        </div>
+                      <div className="font-mono text-[9px] text-slate-400">
+                        Digitally Certified • Station {ticket.bench || 'Front Counter'}
                       </div>
                     </div>
-                    <span className="font-mono text-[10px] text-slate-400">*{woBarcode}*</span>
                   </div>
-                </div>
-
-                {/* Customer Signature */}
-                <div className="flex flex-col justify-end">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="font-mono text-[10px] uppercase text-slate-400 font-bold">
-                      Customer Acceptance
-                    </span>
-                    <span className="font-mono text-[10px] text-slate-400">
-                      Received In Good Order
-                    </span>
-                  </div>
-                  <div className="h-12 bg-white border border-slate-200 rounded-lg p-2 flex items-center justify-between shadow-2xs">
-                    {ticket.signature ? (
-                      <div className="flex items-center gap-2">
-                        <img
-                          src={ticket.signature}
-                          alt="Customer Signature"
-                          className="h-9 object-contain max-w-[140px]"
-                        />
-                        <span className="font-mono text-[10px] text-slate-500">
-                          {ticket.customer.fullName}
-                        </span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center justify-between w-full">
-                        <span className="font-mono text-[11px] text-slate-400 italic">
-                          Signature on electronic intake acknowledgment
-                        </span>
-                        <Check className="w-4 h-4 text-emerald-600" />
-                      </div>
-                    )}
-                  </div>
+                  <span className="font-mono text-[10px] text-slate-400">*{woBarcode}*</span>
                 </div>
               </div>
             </div>
@@ -814,19 +778,19 @@ export const PrintTicketModal: React.FC<PrintTicketModalProps> = ({ ticket, onCl
                 &ldquo;{ticket.faultDescription}&rdquo;
               </div>
 
-              <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] space-y-0.5">
+              <div className="p-2 bg-slate-50 border border-slate-200 rounded-lg text-[10px] space-y-1">
                 <div className="flex justify-between">
-                  <span className="text-slate-500">Pricing:</span>
-                  <span className="font-bold text-slate-800">{quoteState.pricingLabel}</span>
+                  <span className="text-slate-500">Created:</span>
+                  <span className="font-bold text-slate-800">
+                    {new Date(ticket.createdAt).toLocaleDateString()}
+                  </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Approval:</span>
-                  <span className="font-bold text-slate-800">{quoteState.approvalLabel}</span>
-                </div>
-                <div className="flex justify-between pt-0.5 border-t border-slate-200 font-bold">
-                  <span>{quoteState.hasPrice ? (isPaid ? 'Total Paid:' : 'Est. Total:') : 'Estimate:'}</span>
-                  <span>
-                    {quoteState.hasPrice ? `$${(totals.totalCents / 100).toFixed(2)}` : 'Price Pending Diagnosis'}
+                <div className="flex justify-between pt-1 border-t border-slate-200 font-bold">
+                  <span className="text-slate-700">Total:</span>
+                  <span className="text-slate-900">
+                    {quoteState.hasPrice
+                      ? `${shop.currencySymbol || '$'}${(totals.totalCents / 100).toFixed(2)}`
+                      : 'Price Pending Diagnosis'}
                   </span>
                 </div>
               </div>

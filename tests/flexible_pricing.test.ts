@@ -166,6 +166,12 @@ describe('Flexible Repair Pricing & Approval Workflow (Staging PostgreSQL)', () 
       assert.ok(!output.includes('$0.00'), 'Unpriced ticket must NEVER show $0.00 total');
     }
     assert.ok(slip.includes('Price Pending Diagnosis'));
+    assert.ok(slip.includes('Created:'));
+    assert.ok(slip.includes('Total:'));
+    assert.ok(!slip.includes('Pricing:'), 'Compact slip must NOT show Pricing row');
+    assert.ok(!slip.includes('Approval:'), 'Compact slip must NOT show Approval row');
+    assert.ok(!letter.includes('Customer Acceptance'), 'Letter invoice must NOT show Customer Acceptance signature block');
+    assert.ok(!letter.includes('Signature on electronic intake acknowledgment'));
   });
 
   test('3. Direct line-item editing & settlement: PUT /api/tickets/:id/items/:itemId updates totals, audit logs & settles with deposit without reapproval locks', async () => {
@@ -328,6 +334,12 @@ describe('Flexible Repair Pricing & Approval Workflow (Staging PostgreSQL)', () 
     const letter = buildLetterInvoiceHtml(decRes.json.data, shop);
     assert.ok(letter.includes('$31.64'));
     assert.ok(!letter.includes('PAID IN FULL'));
+    const slip = buildBenchSlipHtml(decRes.json.data, shop);
+    assert.ok(slip.includes('Created:'));
+    assert.ok(slip.includes('Total:'));
+    assert.ok(slip.includes('$31.64'));
+    assert.ok(!slip.includes('Pricing:'));
+    assert.ok(!slip.includes('Approval:'));
 
     // Cancel work order -> restocks remaining 1 item (4 -> 5), and further item edits return 409
     const cancelled = await req(`/api/tickets/${ticketId}`, {

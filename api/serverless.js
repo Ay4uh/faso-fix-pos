@@ -7305,10 +7305,11 @@ ${(() => {
 			paidCents: 0,
 			balanceCents: ticket.laborCents || 0
 		});
-		const priceText = qs.hasPrice ? `${shop.currencySymbol || "$"}${(qs.quotedTotalCents / 100).toFixed(2)}` : "Price Pending Diagnosis";
+		const totalCents = t?.totalCents ?? qs.quotedTotalCents;
+		const priceText = qs.hasPrice ? `${shop.currencySymbol || "$"}${(totalCents / 100).toFixed(2)}` : "Price Pending Diagnosis";
 		return `<div style="font-size:10px;border-top:1px dashed #cbd5e1;padding-top:4px;margin-top:4px">
-    <div><strong>Pricing:</strong> ${esc(qs.pricingLabel)} (${esc(priceText)})</div>
-    <div><strong>Approval:</strong> ${esc(qs.approvalLabel)}</div>
+    <div style="display:flex;justify-content:space-between;margin-bottom:2px"><span>Created:</span><strong>${esc(new Date(ticket.createdAt).toLocaleDateString())}</strong></div>
+    <div style="display:flex;justify-content:space-between;border-top:1px solid #e2e8f0;padding-top:2px"><strong>Total:</strong><strong>${esc(priceText)}</strong></div>
   </div>`;
 	})()}
 <div class="barcode-box">
@@ -7550,20 +7551,11 @@ th { background: #f1f5f9; padding: 6px 8px; text-align: left; font-size: 10px; t
   </div>
 </div>
 
-<div class="grid-2">
-  <div>
-    <div class="card-label">Lead Technician Sign-off</div>
-    <div class="sig-box">
-      <div style="font-weight:bold;font-style:italic;color:#4338ca;font-size:12px">${esc(ticket.technician || "Authorized Technician")}</div>
-      <div style="font-size:9px;color:#64748b;font-family:monospace">DIGITALLY CERTIFIED • ${esc(ticket.bench || "Front Counter")}</div>
-    </div>
-  </div>
-  <div>
-    <div class="card-label">Customer Acceptance</div>
-    <div class="sig-box">
-      ${ticket.signature ? `<img src="${ticket.signature}" style="height:34px;object-fit:contain" alt="Signature" />` : "<div style=\"font-size:10px;color:#64748b;font-style:italic\">Signature on electronic intake acknowledgment</div>"}
-      <div style="font-size:9px;color:#059669;font-weight:bold">VERIFIED</div>
-    </div>
+<div>
+  <div class="card-label">Lead Technician Sign-off</div>
+  <div class="sig-box">
+    <div style="font-weight:bold;font-style:italic;color:#4338ca;font-size:12px">${esc(ticket.technician || "Authorized Technician")}</div>
+    <div style="font-size:9px;color:#64748b;font-family:monospace">DIGITALLY CERTIFIED • ${esc(ticket.bench || "Front Counter")}</div>
   </div>
 </div>
 
