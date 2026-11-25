@@ -1121,7 +1121,7 @@ export function App() {
         </div>
 
         {/* Dynamic Content Workspace */}
-        <main className="flex-1 p-3 sm:p-5 md:p-6 lg:p-8 max-w-7xl mx-auto w-full space-y-5 pb-24 md:pb-8 min-w-0 overflow-x-hidden">
+        <main className="flex-1 p-3 sm:p-5 md:p-6 lg:p-8 max-w-[1720px] mx-auto w-full space-y-5 pb-24 md:pb-8 min-w-0 overflow-x-hidden">
           {/* 1. Primary Tab: Repairs Queue */}
           {currentTab === 'repairs' && (
             <div className="space-y-5">

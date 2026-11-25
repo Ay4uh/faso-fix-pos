@@ -872,7 +872,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
   const getStatusBadge = () => {
     if (ticket.status === 'COMPLETED' && isPaidInFull) {
       return (
-        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-600 text-white shadow-xs">
+        <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white shadow-xs">
           <CheckCircle2 className="w-3.5 h-3.5" />
           DONE &amp; PAID
         </span>
@@ -881,46 +881,46 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     switch (ticket.status) {
       case 'COMPLETED':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
             {isPaidInFull ? 'COMPLETED / PAID' : 'COMPLETED'}
           </span>
         );
       case 'DECLINED':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300">
+          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-rose-100 text-rose-800 border border-rose-300">
             DECLINED
           </span>
         );
       case 'CANCELLED':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-200 text-slate-600 border border-slate-300 line-through">
+          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-slate-200 text-slate-600 border border-slate-300 line-through">
             CANCELLED
           </span>
         );
       case 'READY_FOR_PICKUP':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-teal-100 text-teal-800 border border-teal-300">
+          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-teal-100 text-teal-800 border border-teal-300">
             READY FOR PICKUP
           </span>
         );
       case 'WAITING_ON_PARTS':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-300">
+          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300">
             <Package className="w-3.5 h-3.5 text-amber-600" />
             WAITING ON PART
           </span>
         );
       case 'WAITING_ON_APPROVAL':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-purple-100 text-purple-800 border border-purple-300">
+          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-purple-100 text-purple-800 border border-purple-300">
             WAITING ON APPROVAL
           </span>
         );
       case 'DIAGNOSING':
       case 'IN_PROGRESS':
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-blue-100 text-blue-800 border border-blue-300">
+          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300">
             <Clock className="w-3.5 h-3.5 text-blue-600" />
             DIAGNOSING
           </span>
@@ -929,7 +929,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
       case 'PENDING':
       default:
         return (
-          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-100 text-slate-700 border border-slate-300">
+          <span className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300">
             CHECKED IN
           </span>
         );
@@ -974,27 +974,27 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
     : [];
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-0 sm:p-4 overflow-hidden sm:overflow-y-auto">
-      <div className="bg-slate-100 rounded-none sm:rounded-2xl w-full max-w-7xl h-[100dvh] sm:h-[94vh] shadow-2xl border-0 sm:border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+    <div className="fixed inset-0 z-50 bg-slate-900/40 backdrop-blur-xs flex items-center justify-center p-0 sm:p-2 lg:p-3 overflow-hidden">
+      <div className="bg-slate-100 rounded-none sm:rounded-xl w-full max-w-[1920px] h-[100dvh] sm:h-[calc(100dvh-16px)] lg:h-[calc(100dvh-24px)] shadow-2xl border-0 sm:border border-slate-200 flex flex-col overflow-hidden animate-in fade-in zoom-in-95 duration-150">
         {/* ========================================================
             ZONE A: COMPACT TOP WORKORDER STRIP
            ======================================================== */}
-        <header className="bg-white border-b border-slate-200 px-3 sm:px-5 py-2.5 flex flex-wrap items-center justify-between gap-2.5 shrink-0">
-          <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 min-w-0">
+        <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-3.5 flex flex-wrap items-center justify-between gap-3 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 min-w-0">
             <button
               onClick={onClose}
               aria-label="Close Work Order"
-              className="h-8 w-8 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 cursor-pointer transition-colors shrink-0"
+              className="h-9 w-9 flex items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 hover:text-slate-900 hover:bg-slate-50 cursor-pointer transition-colors shrink-0"
               title="Close Work Order"
             >
               <X className="w-4 h-4" />
             </button>
 
-            <div className="flex items-center gap-2 min-w-0">
-              <span className="hidden sm:inline text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <span className="hidden sm:inline text-[11px] font-bold uppercase tracking-wider text-slate-400">
                 Service
               </span>
-              <h1 className="text-lg sm:text-xl font-extrabold tracking-tight text-slate-900 font-mono leading-none shrink-0">
+              <h1 className="text-xl sm:text-2xl font-extrabold tracking-tight text-slate-900 font-mono leading-none shrink-0">
                 WO #{ticket.ticketNumber}
               </h1>
               {getStatusBadge()}
@@ -1009,7 +1009,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 await onUpdateStatus(ticket.id, nextStatus);
                 onRefresh();
               }}
-              className="h-8 bg-white border border-slate-300 rounded-md text-xs font-semibold px-2.5 text-slate-800 hover:bg-slate-50 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 max-w-[165px] sm:max-w-none"
+              className="h-9 bg-white border border-slate-300 rounded-md text-sm font-semibold px-3 text-slate-800 hover:bg-slate-50 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 max-w-[180px] sm:max-w-none"
             >
               <option value="CHECKED_IN">1. Checked In</option>
               <option value="DIAGNOSING">2. Diagnosing</option>
@@ -1025,9 +1025,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               type="button"
               disabled={!canEditItems}
               onClick={() => setIsAddItemModalOpen(true)}
-              className="h-8 inline-flex items-center gap-1 px-2.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-md text-xs font-bold cursor-pointer transition-colors shadow-2xs shrink-0"
+              className="h-9 inline-flex items-center gap-1.5 px-3.5 bg-teal-600 hover:bg-teal-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-md text-sm font-bold cursor-pointer transition-colors shadow-2xs shrink-0"
             >
-              <Plus className="w-3.5 h-3.5" />
+              <Plus className="w-4 h-4" />
               <span>Add Item</span>
             </button>
 
@@ -1035,64 +1035,64 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               type="button"
               disabled={isTogglingWarranty}
               onClick={handleToggleWarranty}
-              className={`h-8 inline-flex items-center gap-1 px-2.5 rounded-md text-xs font-semibold border transition-colors cursor-pointer shrink-0 ${
+              className={`h-9 inline-flex items-center gap-1.5 px-3.5 rounded-md text-sm font-semibold border transition-colors cursor-pointer shrink-0 ${
                 ticket.isWarranty
                   ? 'bg-blue-50 text-blue-700 border-blue-300'
                   : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
               }`}
               title="Toggle Warranty Coverage"
             >
-              <Shield className="w-3.5 h-3.5" />
+              <Shield className="w-4 h-4" />
               <span className="hidden sm:inline">{ticket.isWarranty ? 'Warranty Repair' : 'Mark Warranty'}</span>
               <span className="sm:hidden">Warranty</span>
             </button>
 
             {ticket.createdBy && (
-              <span className="hidden xl:inline text-xs text-slate-500 pl-1">
+              <span className="hidden xl:inline text-sm text-slate-500 pl-2">
                 Created by <strong className="font-semibold text-slate-700">{ticket.createdBy}</strong>
               </span>
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {isPaidInFull ? (
-              <span className="h-8 inline-flex items-center gap-1 px-2.5 rounded-md text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+              <span className="h-9 inline-flex items-center gap-1.5 px-3 rounded-md text-xs sm:text-sm font-bold bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                 Paid in Full
               </span>
             ) : hasDepositCredit ? (
-              <span className="h-8 inline-flex items-center gap-1 px-2.5 rounded-md text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 tabular-nums">
-                <CheckCircle2 className="w-3.5 h-3.5 text-indigo-600" />
+              <span className="h-9 inline-flex items-center gap-1.5 px-3 rounded-md text-xs sm:text-sm font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 tabular-nums">
+                <CheckCircle2 className="w-4 h-4 text-indigo-600" />
                 Deposit Credited (${totalPaid.toFixed(2)})
               </span>
             ) : !quoteState.hasPrice ? (
-              <span className="h-8 inline-flex items-center gap-1 px-2.5 rounded-md text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+              <span className="h-9 inline-flex items-center gap-1.5 px-3 rounded-md text-xs sm:text-sm font-semibold bg-amber-50 text-amber-800 border border-amber-200">
                 No Charges Yet
               </span>
             ) : null}
 
             <button
               onClick={() => printDeviceStickerLabel(ticket)}
-              className="h-8 flex items-center gap-1 px-2.5 bg-white hover:bg-slate-50 text-slate-700 rounded-md text-xs font-semibold border border-slate-300 transition-colors cursor-pointer"
+              className="h-9 flex items-center gap-1.5 px-3.5 bg-white hover:bg-slate-50 text-slate-700 rounded-md text-sm font-semibold border border-slate-300 transition-colors cursor-pointer"
               title="Print 2x1 Adhesive Device Label"
             >
-              <Tag className="w-3.5 h-3.5 text-slate-500" />
+              <Tag className="w-4 h-4 text-slate-500" />
               <span>Sticker</span>
             </button>
 
             <button
               onClick={() => onPrint(ticket)}
-              className="h-8 flex items-center gap-1.5 px-3 bg-[#0f2942] hover:bg-slate-800 text-white rounded-md text-xs font-semibold shadow-2xs transition-colors cursor-pointer"
+              className="h-9 flex items-center gap-1.5 px-3.5 bg-[#0f2942] hover:bg-slate-800 text-white rounded-md text-sm font-semibold shadow-2xs transition-colors cursor-pointer"
               title="Print Receipt"
             >
-              <Printer className="w-3.5 h-3.5" />
+              <Printer className="w-4 h-4" />
               <span>Print</span>
             </button>
 
             <button
               onClick={() => setIsEmailModalOpen(true)}
               aria-label="Email Invoice"
-              className="h-8 w-8 flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 hover:bg-slate-50 transition-colors cursor-pointer"
+              className="h-9 w-9 flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 hover:text-indigo-600 hover:bg-slate-50 transition-colors cursor-pointer"
               title="Email Invoice"
             >
               <Mail className="w-4 h-4" />
@@ -1102,7 +1102,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               <button
                 onClick={() => setIsDeleteConfirmOpen(true)}
                 aria-label="Delete Work Order"
-                className="h-8 w-8 flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-colors cursor-pointer"
+                className="h-9 w-9 flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:text-red-600 hover:bg-red-50 hover:border-red-200 transition-colors cursor-pointer"
                 title="Delete Work Order (Admin Only)"
               >
                 <Trash2 className="w-4 h-4" />
@@ -1116,25 +1116,25 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
            ======================================================== */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden flex flex-col lg:flex-row">
           {/* ZONE B: SLIM ORGANIZED LEFT SIDEBAR */}
-          <aside className="w-full lg:w-[290px] bg-white border-b lg:border-b-0 lg:border-r border-slate-200 shrink-0 lg:overflow-y-auto flex flex-col">
+          <aside className="w-full lg:w-[300px] xl:w-[360px] 2xl:w-[400px] bg-white border-b lg:border-b-0 lg:border-r border-slate-200 shrink-0 lg:overflow-y-auto flex flex-col">
             {/* Customer Summary */}
-            <div className="p-4 space-y-2.5">
-              <div className="flex items-start justify-between gap-2.5">
+            <div className="p-5 xl:p-6 space-y-3">
+              <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h3 className="text-lg font-extrabold text-slate-900 tracking-tight leading-tight truncate">
+                  <h3 className="text-xl xl:text-2xl font-extrabold text-slate-900 tracking-tight leading-tight truncate">
                     {ticket.customer.fullName}
                   </h3>
-                  <div className="text-[13px] font-mono font-semibold text-slate-700 tabular-nums mt-0.5">
+                  <div className="text-sm xl:text-base font-mono font-bold text-slate-700 tabular-nums mt-0.5">
                     {ticket.customer.phone}
                   </div>
-                  <span className="text-[10px] text-slate-400 font-mono block mt-0.5">
+                  <span className="text-xs text-slate-400 font-mono block mt-0.5">
                     Client #{ticket.customer.id.slice(0, 8)}
                   </span>
                 </div>
 
                 <a
                   href={`tel:${ticket.customer.phone}`}
-                  className="w-9 h-9 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-xs cursor-pointer transition-colors shrink-0"
+                  className="w-10 h-10 rounded-full bg-emerald-600 hover:bg-emerald-700 text-white flex items-center justify-center shadow-xs cursor-pointer transition-colors shrink-0"
                   title="Call Customer"
                 >
                   <Phone className="w-4 h-4" />
@@ -1142,10 +1142,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               </div>
 
               {(ticket.customer.altPhone || ticket.customer.email || ticket.customer.address) && (
-                <div className="space-y-1.5 pt-2 border-t border-slate-100 text-xs">
+                <div className="space-y-2 pt-2.5 border-t border-slate-100 text-[13px]">
                   {ticket.customer.altPhone && (
                     <div className="flex justify-between items-center gap-2">
-                      <span className="text-[11px] font-medium text-slate-400">Alt Phone</span>
+                      <span className="text-xs font-medium text-slate-400">Alt Phone</span>
                       <a
                         href={`tel:${ticket.customer.altPhone}`}
                         className="font-mono font-semibold text-indigo-600 hover:underline tabular-nums"
@@ -1156,14 +1156,14 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   )}
                   {ticket.customer.email && (
                     <div className="flex justify-between items-center gap-2">
-                      <span className="text-[11px] font-medium text-slate-400 shrink-0">Email</span>
-                      <span className="truncate max-w-[175px] text-slate-700">{ticket.customer.email}</span>
+                      <span className="text-xs font-medium text-slate-400 shrink-0">Email</span>
+                      <span className="truncate max-w-[200px] xl:max-w-[230px] text-slate-700">{ticket.customer.email}</span>
                     </div>
                   )}
                   {ticket.customer.address && (
                     <div className="flex justify-between items-center gap-2">
-                      <span className="text-[11px] font-medium text-slate-400 shrink-0">Address</span>
-                      <span className="truncate max-w-[175px] text-slate-700">{ticket.customer.address}</span>
+                      <span className="text-xs font-medium text-slate-400 shrink-0">Address</span>
+                      <span className="truncate max-w-[200px] xl:max-w-[230px] text-slate-700">{ticket.customer.address}</span>
                     </div>
                   )}
                 </div>
@@ -1171,10 +1171,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             </div>
 
             {/* TIMELINES Section Bar */}
-            <div className="bg-slate-100/90 border-y border-slate-200/80 px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="bg-slate-100/90 border-y border-slate-200/80 px-5 xl:px-6 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               Timelines
             </div>
-            <div className="p-4 space-y-2 text-xs">
+            <div className="p-5 xl:p-6 space-y-2.5 text-[13px] xl:text-sm">
               <div className="flex justify-between items-center gap-2">
                 <span className="text-slate-500">Intake Date</span>
                 <span className="font-mono tabular-nums font-semibold text-slate-900">
@@ -1190,7 +1190,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               <div className="flex justify-between items-center gap-2">
                 <span className="text-slate-500 shrink-0">Created By</span>
                 <span
-                  className="font-semibold text-slate-900 truncate max-w-[165px] text-right"
+                  className="font-semibold text-slate-900 truncate max-w-[180px] xl:max-w-[210px] text-right"
                   title={ticket.createdBy || 'Unknown'}
                 >
                   {ticket.createdBy || 'Unknown'}
@@ -1198,37 +1198,37 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               </div>
               <div className="flex justify-between items-center gap-2">
                 <span className="text-slate-500">Priority</span>
-                <span className="font-bold text-[10px] px-2 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700">
+                <span className="font-bold text-xs px-2.5 py-0.5 rounded bg-slate-100 border border-slate-200 text-slate-700">
                   {ticket.priority}
                 </span>
               </div>
             </div>
 
             {/* PRICING Section Bar */}
-            <div className="bg-slate-100/90 border-y border-slate-200/80 px-4 py-1.5 flex items-center justify-between">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500">Pricing</span>
+            <div className="bg-slate-100/90 border-y border-slate-200/80 px-5 xl:px-6 py-2 flex items-center justify-between">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Pricing</span>
               {canEditItems && quoteState.hasPrice && (
                 <button
                   onClick={() => setIsDiscountModalOpen(true)}
-                  className="text-[11px] text-indigo-600 hover:underline font-semibold cursor-pointer"
+                  className="text-xs text-indigo-600 hover:underline font-semibold cursor-pointer"
                 >
                   Adjust Discount
                 </button>
               )}
             </div>
-            <div className="p-4 space-y-2.5">
+            <div className="p-5 xl:p-6 space-y-3.5">
               {!quoteState.hasPrice ? (
-                <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-amber-900 space-y-1">
-                  <div className="font-bold text-xs">No Charges Added</div>
-                  <p className="text-[11px] text-amber-800 leading-relaxed">
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-900 space-y-1">
+                  <div className="font-bold text-[13px]">No Charges Added</div>
+                  <p className="text-xs text-amber-800 leading-relaxed">
                     Add repair items or services on the right to calculate the final total.
                   </p>
                 </div>
               ) : (
-                <div className="space-y-1.5 text-xs">
+                <div className="space-y-2 text-sm">
                   <div className="flex justify-between items-center text-slate-600">
                     <span>Subtotal</span>
-                    <span className="text-[13px] font-mono tabular-nums font-medium text-right text-slate-800">
+                    <span className="text-sm xl:text-[15px] font-mono tabular-nums font-medium text-right text-slate-800">
                       ${(totals.subtotalCents / 100).toFixed(2)}
                     </span>
                   </div>
@@ -1236,7 +1236,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   {totals.discountCents > 0 && (
                     <div className="flex justify-between items-center text-rose-600 font-semibold">
                       <span>Discounts</span>
-                      <span className="text-[13px] font-mono tabular-nums text-right">
+                      <span className="text-sm xl:text-[15px] font-mono tabular-nums text-right">
                         -${(totals.discountCents / 100).toFixed(2)}
                       </span>
                     </div>
@@ -1244,31 +1244,31 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
                   <div className="flex justify-between items-center text-slate-500">
                     <span>HST ({((totals.taxRateBps || 1300) / 100).toFixed(1)}%)</span>
-                    <span className="text-[13px] font-mono tabular-nums text-right">
+                    <span className="text-sm xl:text-[15px] font-mono tabular-nums text-right">
                       +${(totals.taxCents / 100).toFixed(2)}
                     </span>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-200 flex justify-between items-center">
-                    <span className="font-bold text-slate-900 text-[13px]">Total</span>
-                    <span className="font-mono tabular-nums font-bold text-sm text-right text-slate-900">
+                  <div className="pt-2.5 border-t border-slate-200 flex justify-between items-center">
+                    <span className="font-bold text-slate-900 text-[15px]">Total</span>
+                    <span className="font-mono tabular-nums font-bold text-base text-right text-slate-900">
                       ${(totals.totalCents / 100).toFixed(2)}
                     </span>
                   </div>
 
                   <div className="flex justify-between items-center text-slate-600">
                     <span>Paid</span>
-                    <span className="font-mono tabular-nums font-semibold text-[13px] text-right text-indigo-600">
+                    <span className="font-mono tabular-nums font-semibold text-sm xl:text-[15px] text-right text-indigo-600">
                       ${(totals.paidCents / 100).toFixed(2)}
                     </span>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-200 flex justify-between items-baseline gap-2">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
+                  <div className="pt-2.5 border-t border-slate-200 flex justify-between items-baseline gap-2">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
                       Balance Owing
                     </span>
                     <span
-                      className={`text-xl font-extrabold font-mono tabular-nums text-right tracking-tight ${
+                      className={`text-2xl xl:text-[26px] font-extrabold font-mono tabular-nums text-right tracking-tight ${
                         balanceOwing > 0 ? 'text-amber-600' : 'text-emerald-600'
                       }`}
                     >
@@ -1279,7 +1279,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               )}
 
               {balanceOwing > 0 && canEditItems ? (
-                <div className="space-y-1.5 pt-1">
+                <div className="space-y-2 pt-1">
                   <button
                     onClick={() => {
                       setPaymentAmount(balanceOwing.toFixed(2));
@@ -1287,7 +1287,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       setIsPaymentModalOpen(true);
                     }}
                     title="Collect remaining balance"
-                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[13px] font-bold cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-1.5 tabular-nums"
+                    className="w-full py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-sm font-bold cursor-pointer transition-colors shadow-xs flex items-center justify-center gap-2 tabular-nums"
                   >
                     <CreditCard className="w-4 h-4" />
                     <span>Checkout &amp; Pay (${balanceOwing.toFixed(2)})</span>
@@ -1295,19 +1295,19 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
                   <button
                     onClick={() => setIsDepositModalOpen(true)}
-                    className="w-full py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-lg text-xs font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1.5"
+                    className="w-full py-2.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 rounded-xl text-[13px] font-semibold cursor-pointer transition-colors flex items-center justify-center gap-1.5"
                   >
-                    <DollarSign className="w-3.5 h-3.5 text-slate-500" />
+                    <DollarSign className="w-4 h-4 text-slate-500" />
                     <span>+ Take Part Deposit</span>
                   </button>
                 </div>
               ) : isPaidInFull ? (
-                <div className="p-2 bg-emerald-50 border border-emerald-200 rounded-lg text-center text-xs font-bold text-emerald-800 flex items-center justify-center gap-1.5">
+                <div className="p-2.5 bg-emerald-50 border border-emerald-200 rounded-xl text-center text-sm font-bold text-emerald-800 flex items-center justify-center gap-1.5">
                   <CheckCircle2 className="w-4 h-4 text-emerald-600" />
                   <span>Invoice Paid in Full</span>
                 </div>
               ) : hasDepositCredit ? (
-                <div className="p-2 bg-indigo-50 border border-indigo-200 rounded-lg text-center text-xs font-bold text-indigo-800 flex items-center justify-center gap-1.5 tabular-nums">
+                <div className="p-2.5 bg-indigo-50 border border-indigo-200 rounded-xl text-center text-sm font-bold text-indigo-800 flex items-center justify-center gap-1.5 tabular-nums">
                   <CheckCircle2 className="w-4 h-4 text-indigo-600" />
                   <span>Deposit Credit: ${totalPaid.toFixed(2)}</span>
                 </div>
@@ -1315,10 +1315,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             </div>
 
             {/* ASSIGNMENT Section Bar */}
-            <div className="bg-slate-100/90 border-y border-slate-200/80 px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+            <div className="bg-slate-100/90 border-y border-slate-200/80 px-5 xl:px-6 py-2 text-[11px] font-bold uppercase tracking-wider text-slate-500">
               Assignment
             </div>
-            <div className="p-4 space-y-1.5 text-xs">
+            <div className="p-5 xl:p-6 space-y-2.5 text-[13px] xl:text-sm">
               <div className="flex justify-between items-center gap-2">
                 <span className="text-slate-500">Workstation</span>
                 <span className="font-semibold text-slate-900">{ticket.bench || 'Unassigned'}</span>
@@ -1335,25 +1335,25 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
             {/* ========================================================
                 BAND 1: TOP DEVICE, SECURITY & ISSUE STRIP
                ======================================================== */}
-            <div className="bg-white border-b border-slate-200 p-4">
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-3.5 items-stretch">
+            <div className="bg-white border-b border-slate-200 p-4 lg:p-5 xl:p-6">
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 xl:gap-5 items-stretch">
                 {/* Card 1: Consolidated Device & Security Card (with visible 3x3 Pattern Grid) */}
-                <div className="lg:col-span-7 bg-white border border-slate-200 rounded-lg p-3 flex items-center justify-between gap-3">
-                  <div className="min-w-0 flex-1 space-y-2">
+                <div className="lg:col-span-7 bg-white border border-slate-200 rounded-xl p-3 xl:p-5 flex items-center justify-between gap-2.5 xl:gap-4">
+                  <div className="min-w-0 flex-1 space-y-2.5">
                     <div>
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block">
                         Device
                       </span>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <span className="w-7 h-7 rounded-md bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
-                          <Smartphone className="w-4 h-4" />
+                      <div className="flex items-center gap-2.5 mt-1">
+                        <span className="w-8 h-8 xl:w-9 xl:h-9 rounded-lg bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+                          <Smartphone className="w-4 h-4 xl:w-5 xl:h-5" />
                         </span>
                         <div className="min-w-0">
-                          <h2 className="text-base font-bold text-slate-900 leading-tight truncate">
+                          <h2 className="text-base xl:text-xl font-bold text-slate-900 leading-tight truncate">
                             {ticket.device?.name || 'Device'}
                           </h2>
                           {ticket.device?.serialNumber && (
-                            <span className="text-[11px] font-mono text-slate-500 block">
+                            <span className="text-xs font-mono text-slate-500 block">
                               S/N: <strong className="font-semibold text-slate-700">{ticket.device.serialNumber}</strong>
                             </span>
                           )}
@@ -1361,29 +1361,29 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-1.5 pt-1">
+                    <div className="flex flex-wrap items-center gap-1.5 xl:gap-2 pt-1.5 xl:pt-2">
                       <Lock className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                      <span className="text-[11px] text-slate-500 font-medium whitespace-nowrap">PIN / Pass:</span>
+                      <span className="text-[11px] xl:text-xs text-slate-500 font-medium whitespace-nowrap">PIN / Pass:</span>
                       <input
                         type="text"
                         value={passcode}
                         onChange={(e) => setPasscode(e.target.value)}
                         onBlur={() => handleSaveSecurity(passcode, pattern)}
                         placeholder="None"
-                        className="w-24 px-2 py-1 bg-slate-50 border border-slate-200 rounded text-xs font-mono font-semibold text-slate-800 focus:bg-white focus:outline-none focus:border-indigo-500"
+                        className="w-20 sm:w-24 xl:w-44 px-2 xl:px-3 py-1 xl:py-1.5 bg-slate-50 border border-slate-200 rounded-md text-xs xl:text-sm font-mono font-semibold text-slate-800 focus:bg-white focus:outline-none focus:border-indigo-500"
                       />
                       <button
                         type="button"
                         onClick={() => handleSaveSecurity(passcode, pattern)}
                         disabled={isSavingSecurity}
-                        className={`px-2 py-1 rounded text-[11px] font-semibold border transition-colors cursor-pointer inline-flex items-center gap-1 ${
+                        className={`px-2.5 xl:px-3 py-1 xl:py-1.5 rounded-md text-xs font-semibold border transition-colors cursor-pointer inline-flex items-center gap-1 shrink-0 ${
                           securitySaved
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
                             : 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600'
                         }`}
                         title="Save PIN"
                       >
-                        <Check className="w-3 h-3" />
+                        <Check className="w-3.5 h-3.5" />
                         <span>Save</span>
                       </button>
                     </div>
@@ -1393,36 +1393,36 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                   <button
                     type="button"
                     onClick={() => setIsPatternModalOpen(true)}
-                    className={`shrink-0 p-2 rounded-lg border transition-colors cursor-pointer flex flex-col items-center gap-1 ${
+                    className={`shrink-0 p-2 xl:p-2.5 rounded-xl border transition-colors cursor-pointer flex flex-col items-center gap-1 xl:gap-1.5 ${
                       pattern
                         ? 'bg-purple-50/70 hover:bg-purple-100/70 border-purple-200'
                         : 'bg-slate-50 hover:bg-slate-100 border-slate-200'
                     }`}
                     title={pattern ? `Pattern: ${pattern} (click to edit)` : 'Record 3x3 unlock pattern'}
                   >
-                    <PatternLockPreview pattern={pattern} size={46} />
-                    <span className="text-[10px] font-bold font-mono text-slate-600">
+                    <PatternLockPreview pattern={pattern} size={50} />
+                    <span className="text-[11px] font-bold font-mono text-slate-600">
                       {pattern ? pattern : '+ Pattern'}
                     </span>
                   </button>
                 </div>
 
                 {/* Card 2: Issue & Cosmetic Condition */}
-                <div className="lg:col-span-5 bg-white border border-slate-200 rounded-lg p-3 flex flex-col justify-between gap-2.5">
+                <div className="lg:col-span-5 bg-white border border-slate-200 rounded-xl p-3 xl:p-5 flex flex-col justify-between gap-2.5 xl:gap-3">
                   <div>
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-1">
                       Reported Issue / Fault
                     </span>
-                    <p className="text-sm font-semibold text-slate-900 leading-snug">
+                    <p className="text-sm xl:text-base font-semibold text-slate-900 leading-snug">
                       {ticket.faultDescription}
                     </p>
                   </div>
 
-                  <div className="pt-2 border-t border-slate-100">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
+                  <div className="pt-2 xl:pt-2.5 border-t border-slate-100">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 block mb-0.5">
                       Cosmetic Condition
                     </span>
-                    <p className="text-xs text-slate-600 leading-snug">
+                    <p className="text-xs xl:text-sm text-slate-600 leading-snug">
                       {ticket.device?.condition || 'No cosmetic defects logged at intake'}
                     </p>
                   </div>
@@ -1434,7 +1434,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 BAND 2: DARK-NAVY WORKBENCH TAB BAR & CONTENT PANEL
                ======================================================== */}
             <div className="bg-white border-b border-slate-200">
-              <div className="bg-[#0f2942] px-2.5 xl:px-4 pt-1 flex flex-nowrap overflow-x-auto items-center gap-0.5">
+              <div className="bg-[#0f2942] px-2 lg:px-2.5 xl:px-6 pt-1.5 flex flex-nowrap overflow-x-auto items-center gap-0.5 xl:gap-1">
                 {[
                   { id: 'customer_notes', label: `Customer Notes (${customerNotesCount})` },
                   { id: 'internal_notes', label: `Internal Notes (${internalNotesCount})` },
@@ -1449,7 +1449,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       key={tab.id}
                       type="button"
                       onClick={() => setActiveTab(tab.id as typeof activeTab)}
-                      className={`px-2 xl:px-3 py-2 text-[10px] xl:text-[11px] font-bold uppercase tracking-normal xl:tracking-wide whitespace-nowrap shrink-0 transition-colors cursor-pointer rounded-t-md tabular-nums ${
+                      className={`px-2 xl:px-4 py-2 xl:py-2.5 text-[10px] xl:text-xs font-bold uppercase tracking-normal xl:tracking-wide whitespace-nowrap shrink-0 transition-colors cursor-pointer rounded-t-md tabular-nums ${
                         isActive
                           ? 'bg-white text-slate-900 shadow-2xs'
                           : 'text-slate-300 hover:text-white hover:bg-white/10'
@@ -1461,29 +1461,29 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 })}
               </div>
 
-              <div className="p-4">
+              <div className="p-4 lg:p-5 xl:p-6">
                 {/* 1 & 2. UNIFIED CUSTOMER NOTES / INTERNAL NOTES PANEL */}
                 {(activeTab === 'customer_notes' || activeTab === 'internal_notes') && (
-                  <div className="space-y-3">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-2.5">
+                  <div className="space-y-3.5">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="font-bold text-sm text-slate-900">
+                        <span className="font-bold text-base text-slate-900">
                           {activeNoteKind === 'CUSTOMER_NOTE' ? 'Customer Notes' : 'Internal Bench Notes'}
                         </span>
                         {activeNoteKind === 'CUSTOMER_NOTE' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                            <Printer className="w-3 h-3" /> Visible on printed receipt
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200">
+                            <Printer className="w-3.5 h-3.5" /> Visible on printed receipt
                           </span>
                         ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px] font-semibold bg-amber-50 text-amber-800 border border-amber-200">
-                            <Lock className="w-3 h-3" /> Confidential &bull; Tech only (never prints)
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded text-xs font-semibold bg-amber-50 text-amber-800 border border-amber-200">
+                            <Lock className="w-3.5 h-3.5" /> Confidential &bull; Tech only (never prints)
                           </span>
                         )}
                       </div>
 
                       <form
                         onSubmit={(e) => handleAddNote(e, activeNoteKind)}
-                        className="flex flex-1 md:max-w-lg gap-2"
+                        className="flex flex-1 md:max-w-xl xl:max-w-2xl gap-2.5"
                       >
                         <input
                           type="text"
@@ -1494,14 +1494,14 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                               ? 'Add note visible on customer receipt...'
                               : 'Add confidential bench tech note...'
                           }
-                          className="flex-1 px-3 py-1.5 bg-slate-50 border border-slate-200 rounded-md text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                          className="flex-1 px-3.5 py-2 bg-slate-50 border border-slate-200 rounded-md text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                         />
                         <button
                           type="submit"
                           disabled={isSubmittingNote || !newNote.trim()}
-                          className="px-3.5 py-1.5 bg-teal-600 hover:bg-teal-700 text-white rounded-md font-bold text-xs transition-colors cursor-pointer disabled:opacity-45 inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+                          className="px-4 py-2 bg-teal-600 hover:bg-teal-700 text-white rounded-md font-bold text-sm transition-colors cursor-pointer disabled:opacity-45 inline-flex items-center gap-1.5 whitespace-nowrap shrink-0"
                         >
-                          <Plus className="w-3.5 h-3.5" />
+                          <Plus className="w-4 h-4" />
                           <span>{isSubmittingNote ? 'Saving...' : 'Create'}</span>
                         </button>
                       </form>
@@ -1510,11 +1510,11 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     <div className="overflow-x-auto border border-slate-200 rounded-lg">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="bg-slate-100/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                            <th className="py-2 px-3">Technician</th>
-                            <th className="py-2 px-3">Date / Time</th>
-                            <th className="py-2 px-3">Note</th>
-                            <th className="py-2 px-3 text-right">Actions</th>
+                          <tr className="bg-slate-100/90 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            <th className="py-2.5 px-4">Technician</th>
+                            <th className="py-2.5 px-4">Date / Time</th>
+                            <th className="py-2.5 px-4">Note</th>
+                            <th className="py-2.5 px-4 text-right">Actions</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
@@ -1522,13 +1522,13 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             const isEditing = editingNoteId === ev.id;
                             return (
                               <tr key={ev.id} className="hover:bg-slate-50/80 transition-colors">
-                                <td className="py-2.5 px-3 font-semibold text-slate-700 whitespace-nowrap text-xs align-top">
+                                <td className="py-3 px-4 font-semibold text-slate-700 whitespace-nowrap text-[13px] align-top">
                                   {ev.author || 'Technician'}
                                 </td>
-                                <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap text-xs align-top">
+                                <td className="py-3 px-4 font-mono tabular-nums text-slate-500 whitespace-nowrap text-[13px] align-top">
                                   {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                                 </td>
-                                <td className="py-2.5 px-3 text-slate-800 text-sm leading-relaxed">
+                                <td className="py-3 px-4 text-slate-800 text-sm leading-relaxed">
                                   {isEditing ? (
                                     <div className="flex items-center gap-2">
                                       <input
@@ -1562,25 +1562,25 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                                     <span>{ev.message}</span>
                                   )}
                                 </td>
-                                <td className="py-2.5 px-3 text-right whitespace-nowrap align-top">
+                                <td className="py-3 px-4 text-right whitespace-nowrap align-top">
                                   {!isEditing && (
-                                    <div className="flex items-center justify-end gap-1">
+                                    <div className="flex items-center justify-end gap-1.5">
                                       <button
                                         type="button"
                                         onClick={() => handleStartEditNote(ev.id, ev.message)}
-                                        className="p-1 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-100 cursor-pointer"
+                                        className="p-1.5 text-slate-400 hover:text-indigo-600 rounded hover:bg-slate-100 cursor-pointer"
                                         title="Edit note"
                                       >
-                                        <Pencil className="w-3.5 h-3.5" />
+                                        <Pencil className="w-4 h-4" />
                                       </button>
                                       <button
                                         type="button"
                                         onClick={() => handleDeleteNote(ev.id, ev.message)}
                                         disabled={isDeletingNoteId === ev.id}
-                                        className="p-1 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 cursor-pointer"
+                                        className="p-1.5 text-slate-400 hover:text-rose-600 rounded hover:bg-slate-100 cursor-pointer"
                                         title="Delete note"
                                       >
-                                        <Trash2 className="w-3.5 h-3.5" />
+                                        <Trash2 className="w-4 h-4" />
                                       </button>
                                     </div>
                                   )}
@@ -1590,7 +1590,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                           })}
                           {activeNoteRows.length === 0 && (
                             <tr>
-                              <td colSpan={4} className="py-6 text-center text-slate-400 italic text-xs">
+                              <td colSpan={4} className="py-7 text-center text-slate-400 italic text-sm">
                                 {activeNoteKind === 'CUSTOMER_NOTE'
                                   ? 'No customer receipt notes recorded yet.'
                                   : 'No internal bench notes recorded yet.'}
@@ -1605,35 +1605,35 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
                 {/* 3. AUDIT HISTORY */}
                 {activeTab === 'history' && (
-                  <div className="space-y-2.5">
-                    <span className="font-bold text-sm text-slate-900 block">
+                  <div className="space-y-3">
+                    <span className="font-bold text-base text-slate-900 block">
                       Chronological Action History
                     </span>
                     <div className="overflow-x-auto border border-slate-200 rounded-lg">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="bg-slate-100/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                            <th className="py-2 px-3">Timestamp</th>
-                            <th className="py-2 px-3">Type</th>
-                            <th className="py-2 px-3">Author</th>
-                            <th className="py-2 px-3">Details</th>
+                          <tr className="bg-slate-100/90 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            <th className="py-2.5 px-4">Timestamp</th>
+                            <th className="py-2.5 px-4">Type</th>
+                            <th className="py-2.5 px-4">Author</th>
+                            <th className="py-2.5 px-4">Details</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {ticket.events?.map((ev) => (
                             <tr key={ev.id} className="hover:bg-slate-50/80 transition-colors">
-                              <td className="py-2.5 px-3 font-mono tabular-nums text-slate-500 whitespace-nowrap text-xs">
+                              <td className="py-3 px-4 font-mono tabular-nums text-slate-500 whitespace-nowrap text-[13px]">
                                 {new Date(ev.createdAt).toLocaleDateString()} {new Date(ev.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                               </td>
-                              <td className="py-2.5 px-3 whitespace-nowrap">
-                                <span className="px-2 py-0.5 rounded font-mono text-[10px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                              <td className="py-3 px-4 whitespace-nowrap">
+                                <span className="px-2 py-0.5 rounded font-mono text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
                                   {ev.kind}
                                 </span>
                               </td>
-                              <td className="py-2.5 px-3 text-xs font-medium text-slate-600 whitespace-nowrap">
+                              <td className="py-3 px-4 text-[13px] font-medium text-slate-600 whitespace-nowrap">
                                 {ev.author || 'System'}
                               </td>
-                              <td className="py-2.5 px-3 text-slate-800 text-sm leading-relaxed">
+                              <td className="py-3 px-4 text-slate-800 text-sm leading-relaxed">
                                 {ev.kind === 'PHOTO'
                                   ? (() => {
                                       try {
@@ -1655,9 +1655,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
                 {/* 4. PAYMENTS & RECEIPTS */}
                 {activeTab === 'payments' && (
-                  <div className="space-y-3">
+                  <div className="space-y-3.5">
                     <div className="flex flex-wrap items-center justify-between gap-2">
-                      <span className="font-bold text-sm text-slate-900">
+                      <span className="font-bold text-base text-slate-900">
                         Payment &amp; Transaction Ledger
                       </span>
                       <div className="flex flex-wrap items-center gap-2">
@@ -1666,7 +1666,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             type="button"
                             disabled={isRefunding}
                             onClick={handleIssueRefund}
-                            className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                            className="px-3.5 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
                             <span>{isRefunding ? 'Refunding...' : 'Issue Refund'}</span>
@@ -1680,7 +1680,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                               setPaymentIdempotencyKey(newPaymentKey());
                               setIsPaymentModalOpen(true);
                             }}
-                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                            className="px-3.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-xs font-bold shadow-2xs flex items-center gap-1.5 transition-colors cursor-pointer"
                           >
                             <CreditCard className="w-3.5 h-3.5" />
                             <span>Record Payment</span>
@@ -1692,35 +1692,35 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     <div className="overflow-x-auto border border-slate-200 rounded-lg">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="bg-slate-100/90 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                            <th className="py-2 px-3">Date</th>
-                            <th className="py-2 px-3">Method</th>
-                            <th className="py-2 px-3 text-right">Amount</th>
-                            <th className="py-2 px-3">Note</th>
-                            <th className="py-2 px-3 text-right">Action</th>
+                          <tr className="bg-slate-100/90 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                            <th className="py-2.5 px-4">Date</th>
+                            <th className="py-2.5 px-4">Method</th>
+                            <th className="py-2.5 px-4 text-right">Amount</th>
+                            <th className="py-2.5 px-4">Note</th>
+                            <th className="py-2.5 px-4 text-right">Action</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                           {ticket.payments?.map((pmt) => (
                             <tr key={pmt.id} className="hover:bg-slate-50/80 transition-colors">
-                              <td className="py-2.5 px-3 font-mono tabular-nums text-xs text-slate-500 whitespace-nowrap">
+                              <td className="py-3 px-4 font-mono tabular-nums text-[13px] text-slate-500 whitespace-nowrap">
                                 {new Date(pmt.createdAt).toLocaleDateString()}
                               </td>
-                              <td className="py-2.5 px-3 text-sm font-semibold text-slate-900">{pmt.method}</td>
-                              <td className={`py-2.5 px-3 text-sm font-mono tabular-nums font-bold text-right whitespace-nowrap ${pmt.amountCents < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
+                              <td className="py-3 px-4 text-sm font-semibold text-slate-900">{pmt.method}</td>
+                              <td className={`py-3 px-4 text-sm font-mono tabular-nums font-bold text-right whitespace-nowrap ${pmt.amountCents < 0 ? 'text-rose-600' : 'text-emerald-700'}`}>
                                 {pmt.amountCents < 0 ? `-$${(Math.abs(pmt.amountCents) / 100).toFixed(2)}` : `+$${(pmt.amountCents / 100).toFixed(2)}`}
                               </td>
-                              <td className="py-2.5 px-3 text-sm text-slate-600">{pmt.note || 'N/A'}</td>
-                              <td className="py-2.5 px-3 text-right whitespace-nowrap">
+                              <td className="py-3 px-4 text-sm text-slate-600">{pmt.note || 'N/A'}</td>
+                              <td className="py-3 px-4 text-right whitespace-nowrap">
                                 {currentUser?.role === 'ADMIN' && (
                                   <button
                                     type="button"
                                     disabled={isVoidingPaymentId === pmt.id}
                                     onClick={() => handleVoidPayment(pmt.id, pmt.amountCents)}
-                                    className="inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded cursor-pointer disabled:opacity-40"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-50 rounded cursor-pointer disabled:opacity-40"
                                     title="Void Payment (Admin Only)"
                                   >
-                                    <Trash2 className="w-3 h-3" />
+                                    <Trash2 className="w-3.5 h-3.5" />
                                     <span>{isVoidingPaymentId === pmt.id ? 'Voiding...' : 'Void'}</span>
                                   </button>
                                 )}
@@ -1729,7 +1729,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                           ))}
                           {(!ticket.payments || ticket.payments.length === 0) && (
                             <tr>
-                              <td colSpan={5} className="py-6 text-center text-slate-400 italic text-xs">
+                              <td colSpan={5} className="py-7 text-center text-slate-400 italic text-sm">
                                 No payments recorded yet.
                               </td>
                             </tr>
@@ -1742,9 +1742,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
                 {/* 5. DIRECT SMS GATEWAY */}
                 {activeTab === 'sms' && (
-                  <div className="p-3.5 bg-slate-50 rounded-lg border border-slate-200 space-y-2.5">
+                  <div className="p-4 bg-slate-50 rounded-lg border border-slate-200 space-y-3">
                     <div className="flex items-center justify-between gap-2">
-                      <span className="font-bold text-sm text-slate-900 flex items-center gap-2">
+                      <span className="font-bold text-base text-slate-900 flex items-center gap-2">
                         <MessageSquare className="w-4 h-4 text-indigo-600" />
                         Send SMS to Customer ({ticket.customer.phone})
                       </span>
@@ -1755,20 +1755,20 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       )}
                     </div>
 
-                    <form onSubmit={handleSendSms} className="space-y-2.5">
+                    <form onSubmit={handleSendSms} className="space-y-3">
                       <textarea
                         rows={2}
                         value={smsText}
                         onChange={(e) => setSmsText(e.target.value)}
-                        className="w-full p-2.5 bg-white border border-slate-200 rounded-md text-sm font-sans text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                        className="w-full p-3 bg-white border border-slate-200 rounded-md text-sm font-sans text-slate-800 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                       />
                       <div className="flex justify-end">
                         <button
                           type="submit"
                           disabled={isSendingSms || !smsText.trim()}
-                          className="flex items-center gap-1.5 px-4 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-xs font-bold shadow-2xs cursor-pointer disabled:opacity-50"
+                          className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md text-sm font-bold shadow-2xs cursor-pointer disabled:opacity-50"
                         >
-                          <Send className="w-3.5 h-3.5" />
+                          <Send className="w-4 h-4" />
                           <span>{isSendingSms ? 'Transmitting...' : 'Send SMS'}</span>
                         </button>
                       </div>
@@ -1778,10 +1778,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
                 {/* 6. CUSTOMER SIGNATURE WAIVER */}
                 {activeTab === 'signature' && (
-                  <div className="space-y-3 max-w-xl">
+                  <div className="space-y-3 max-w-2xl">
                     <div className="flex items-center justify-between gap-2">
                       <div>
-                        <h4 className="font-bold text-sm text-slate-900">Customer Legal Authorization</h4>
+                        <h4 className="font-bold text-base text-slate-900">Customer Legal Authorization</h4>
                         <p className="text-xs text-slate-500">
                           Intake diagnostic authorization &amp; release acknowledgment
                         </p>
@@ -1797,7 +1797,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       initialSignature={ticket.signature}
                       onSave={handleSaveSignature}
                       onClear={() => handleSaveSignature('')}
-                      height={130}
+                      height={145}
                     />
                   </div>
                 )}
@@ -1808,10 +1808,10 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 BAND 3: ITEMS WORKBENCH (Search, Quick Service Tiles, Table)
                ======================================================== */}
             <div className="bg-white flex-1">
-              <div className="bg-slate-100/90 border-b border-slate-200 px-4 py-2 flex flex-wrap items-center justify-between gap-2">
+              <div className="bg-slate-100/90 border-b border-slate-200 px-4 lg:px-5 xl:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex items-center gap-2">
-                  <Layers className="w-3.5 h-3.5 text-slate-600" />
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-slate-600">
+                  <Layers className="w-4 h-4 text-slate-600" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-600">
                     Items ({(ticket.items?.length || 0) + (ticket.laborCents > 0 ? 1 : 0)})
                   </span>
                 </div>
@@ -1820,32 +1820,32 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                     type="button"
                     disabled={!canEditItems}
                     onClick={() => setIsAddItemModalOpen(true)}
-                    className="flex items-center gap-1 px-3 py-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-md text-xs font-bold shadow-2xs cursor-pointer transition-colors"
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-45 disabled:cursor-not-allowed text-white rounded-md text-sm font-bold shadow-2xs cursor-pointer transition-colors"
                   >
-                    <Plus className="w-3.5 h-3.5" />
+                    <Plus className="w-4 h-4" />
                     <span>Attach Part / Labor</span>
                   </button>
                 </div>
               </div>
 
               {/* Inline Search + Quick Repair Service Tiles */}
-              <div className="p-4 border-b border-slate-200 space-y-3 bg-white">
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="relative flex-1 min-w-[220px]">
-                    <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <div className="p-4 lg:p-5 xl:p-6 border-b border-slate-200 space-y-4 bg-white">
+                <div className="flex flex-wrap items-center gap-2.5">
+                  <div className="relative flex-1 min-w-[240px]">
+                    <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                     <input
                       type="text"
                       value={itemSearchQuery}
                       onChange={(e) => setItemSearchQuery(e.target.value)}
                       placeholder="Select Workorder Item — search inventory parts or standard services..."
-                      className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-md text-xs text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm text-slate-900 focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
                     />
                   </div>
                   {itemSearchQuery.trim() && (
                     <button
                       type="button"
                       onClick={() => setItemSearchQuery('')}
-                      className="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-md text-xs font-bold cursor-pointer transition-colors"
+                      className="px-3.5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-sm font-bold cursor-pointer transition-colors"
                     >
                       Clear Search
                     </button>
@@ -1865,7 +1865,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             unitPriceCents: srv.priceCents,
                           })
                         }
-                        className="w-full px-3 py-2 text-left hover:bg-indigo-50 flex items-center justify-between gap-2 text-xs cursor-pointer disabled:opacity-45"
+                        className="w-full px-3.5 py-2.5 text-left hover:bg-indigo-50 flex items-center justify-between gap-2 text-sm cursor-pointer disabled:opacity-45"
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 font-mono text-[10px] font-bold">
@@ -1890,14 +1890,14 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             unitPriceCents: part.priceCents,
                           })
                         }
-                        className="w-full px-3 py-2 text-left hover:bg-indigo-50 flex items-center justify-between gap-2 text-xs cursor-pointer disabled:opacity-45"
+                        className="w-full px-3.5 py-2.5 text-left hover:bg-indigo-50 flex items-center justify-between gap-2 text-sm cursor-pointer disabled:opacity-45"
                       >
                         <div className="flex items-center gap-2 min-w-0">
                           <span className="px-1.5 py-0.5 rounded bg-slate-200 text-slate-700 font-mono text-[10px] font-bold">
                             {part.sku}
                           </span>
                           <span className="font-semibold text-slate-900 truncate">{part.name}</span>
-                          <span className="text-[11px] text-slate-500">({part.stock} in stock)</span>
+                          <span className="text-xs text-slate-500">({part.stock} in stock)</span>
                         </div>
                         <span className="font-mono tabular-nums font-bold text-emerald-700 shrink-0">
                           ${(part.priceCents / 100).toFixed(2)} + Add
@@ -1905,7 +1905,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                       </button>
                     ))}
                     {matchingServices.length === 0 && matchingParts.length === 0 && (
-                      <div className="px-3 py-3 text-xs text-slate-500 flex items-center justify-between gap-2">
+                      <div className="px-3.5 py-3 text-sm text-slate-500 flex items-center justify-between gap-2">
                         <span>No matching catalog parts or services found for &ldquo;{itemSearchQuery}&rdquo;.</span>
                         {canEditItems && (
                           <button
@@ -1925,7 +1925,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                 )}
 
                 {/* Quick Repair Service Tiles (100% Real Standard Catalog) */}
-                <div className="flex flex-wrap gap-2">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3">
                   {STANDARD_REPAIR_SERVICES.map((preset) => (
                     <button
                       key={preset.id}
@@ -1937,16 +1937,16 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                           unitPriceCents: preset.priceCents,
                         })
                       }
-                      className="min-w-[132px] p-2.5 rounded-lg border border-slate-200 bg-slate-50/70 hover:bg-indigo-50 hover:border-indigo-300 text-left transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed flex items-center gap-2.5"
+                      className="p-3 xl:p-3.5 rounded-xl border border-slate-200 bg-slate-50/70 hover:bg-indigo-50 hover:border-indigo-300 text-left transition-colors cursor-pointer disabled:opacity-45 disabled:cursor-not-allowed flex items-center gap-3"
                     >
-                      <span className="w-8 h-8 rounded-md bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-2xs">
+                      <span className="w-9 h-9 rounded-lg bg-white border border-slate-200 flex items-center justify-center shrink-0 shadow-2xs">
                         {renderServiceIcon(preset.id)}
                       </span>
                       <div className="min-w-0">
-                        <div className="text-[11px] font-bold text-slate-800 leading-tight truncate max-w-[130px]">
+                        <div className="text-[13px] font-bold text-slate-800 leading-snug">
                           {preset.name}
                         </div>
-                        <div className="text-xs font-mono tabular-nums font-bold text-emerald-700 mt-0.5">
+                        <div className="text-sm font-mono tabular-nums font-bold text-emerald-700 mt-0.5">
                           +${(preset.priceCents / 100).toFixed(0)}
                         </div>
                       </div>
@@ -1959,40 +1959,40 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
-                    <tr className="bg-slate-100/80 border-b border-slate-200 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-                      <th className="py-2.5 px-4">System ID</th>
-                      <th className="py-2.5 px-4">Description</th>
-                      <th className="py-2.5 px-4">Status</th>
-                      <th className="py-2.5 px-4 text-right">Qty</th>
-                      <th className="py-2.5 px-4 text-right">Unit Price</th>
-                      <th className="py-2.5 px-4 text-right">Subtotal</th>
-                      <th className="py-2.5 px-4 text-right">Action</th>
+                    <tr className="bg-slate-100/80 border-b border-slate-200 text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      <th className="py-2.5 px-3 xl:py-3 xl:px-5">System ID</th>
+                      <th className="py-2.5 px-3 xl:py-3 xl:px-5">Description</th>
+                      <th className="py-2.5 px-3 xl:py-3 xl:px-5">Status</th>
+                      <th className="py-2.5 px-3 xl:py-3 xl:px-5 text-right">Qty</th>
+                      <th className="py-2.5 px-3 xl:py-3 xl:px-5 text-right">Unit Price</th>
+                      <th className="py-2.5 px-3 xl:py-3 xl:px-5 text-right">Subtotal</th>
+                      <th className="py-2.5 px-3 xl:py-3 xl:px-5 text-right">Action</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
                     {ticket.laborCents > 0 && (
                       <tr className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          <span className="px-2 py-0.5 rounded bg-sky-600 text-white font-mono text-[11px] font-bold">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 whitespace-nowrap">
+                          <span className="px-2 xl:px-2.5 py-1 rounded bg-sky-600 text-white font-mono text-xs font-bold">
                             WO-{String(ticket.ticketNumber).padStart(4, '0')}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-sm font-semibold text-slate-900">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 text-sm xl:text-[15px] font-semibold text-slate-900">
                           {ticket.device?.name || 'Device'} Diagnostic &amp; Service Labor
                         </td>
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          <span className="px-2.5 py-0.5 rounded text-[11px] font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 whitespace-nowrap">
+                          <span className="px-2 xl:px-2.5 py-1 rounded text-xs font-semibold bg-emerald-50 text-emerald-800 border border-emerald-200">
                             Base Labor
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-sm font-mono tabular-nums text-right text-slate-700">1</td>
-                        <td className="py-3 px-4 text-sm font-mono tabular-nums text-right font-semibold text-emerald-700 whitespace-nowrap">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 text-sm xl:text-[15px] font-mono tabular-nums text-right text-slate-700">1</td>
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 text-sm xl:text-[15px] font-mono tabular-nums text-right font-semibold text-emerald-700 whitespace-nowrap">
                           ${(ticket.laborCents / 100).toFixed(2)}
                         </td>
-                        <td className="py-3 px-4 text-sm font-mono tabular-nums font-bold text-right text-slate-900 whitespace-nowrap">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 text-sm xl:text-[15px] font-mono tabular-nums font-bold text-right text-slate-900 whitespace-nowrap">
                           ${(ticket.laborCents / 100).toFixed(2)}
                         </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 text-right whitespace-nowrap">
                           <button
                             type="button"
                             disabled={!canEditItems}
@@ -2000,7 +2000,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                               setBaseLaborInput((ticket.laborCents / 100).toFixed(2));
                               setIsBaseLaborModalOpen(true);
                             }}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-35 disabled:cursor-not-allowed rounded-md cursor-pointer transition-colors"
+                            className="inline-flex items-center gap-1.5 px-2.5 xl:px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-35 disabled:cursor-not-allowed rounded-md cursor-pointer transition-colors"
                           >
                             <Pencil className="w-3.5 h-3.5" />
                             <span>Edit</span>
@@ -2011,9 +2011,9 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
                     {ticket.items?.map((item) => (
                       <tr key={item.id} className="hover:bg-slate-50/80 transition-colors">
-                        <td className="py-3 px-4 whitespace-nowrap">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 whitespace-nowrap">
                           <span
-                            className={`px-2 py-0.5 rounded font-mono text-[11px] font-bold ${
+                            className={`px-2 xl:px-2.5 py-1 rounded font-mono text-xs font-bold ${
                               item.partId
                                 ? 'bg-sky-600 text-white'
                                 : 'bg-indigo-600 text-white'
@@ -2022,30 +2022,30 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                             {item.partId ? 'INVENTORY' : 'SERVICE'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-sm font-semibold text-slate-900">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 text-sm xl:text-[15px] font-semibold text-slate-900">
                           {item.description}
                         </td>
-                        <td className="py-3 px-4 whitespace-nowrap">
-                          <span className="px-2.5 py-0.5 rounded text-[11px] font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 whitespace-nowrap">
+                          <span className="px-2 xl:px-2.5 py-1 rounded text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
                             {item.partId ? 'Part Installed' : 'Service'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-sm font-mono tabular-nums text-right text-slate-700">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 text-sm xl:text-[15px] font-mono tabular-nums text-right text-slate-700">
                           {item.quantity}
                         </td>
-                        <td className="py-3 px-4 text-sm font-mono tabular-nums text-right font-semibold text-emerald-700 whitespace-nowrap">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 text-sm xl:text-[15px] font-mono tabular-nums text-right font-semibold text-emerald-700 whitespace-nowrap">
                           ${(item.unitPriceCents / 100).toFixed(2)}
                         </td>
-                        <td className="py-3 px-4 text-sm font-mono tabular-nums font-bold text-right text-slate-900 whitespace-nowrap">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 text-sm xl:text-[15px] font-mono tabular-nums font-bold text-right text-slate-900 whitespace-nowrap">
                           ${((item.unitPriceCents * item.quantity) / 100).toFixed(2)}
                         </td>
-                        <td className="py-3 px-4 text-right whitespace-nowrap">
-                          <div className="inline-flex items-center justify-end gap-1.5">
+                        <td className="py-3 px-3 xl:py-3.5 xl:px-5 text-right whitespace-nowrap">
+                          <div className="inline-flex items-center justify-end gap-1.5 xl:gap-2">
                             <button
                               type="button"
                               disabled={!canEditItems}
                               onClick={() => openEditItemModal(item)}
-                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-35 disabled:cursor-not-allowed rounded-md cursor-pointer transition-colors"
+                              className="inline-flex items-center gap-1.5 px-2.5 xl:px-3 py-1.5 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 disabled:opacity-35 disabled:cursor-not-allowed rounded-md cursor-pointer transition-colors"
                               title="Edit Line Item"
                             >
                               <Pencil className="w-3.5 h-3.5" />
@@ -2055,7 +2055,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
                               type="button"
                               disabled={!canEditItems}
                               onClick={() => handleRemoveItem(item.id, item.description)}
-                              className="p-1.5 text-rose-500 hover:text-rose-700 hover:bg-rose-50 disabled:opacity-35 disabled:cursor-not-allowed rounded-md cursor-pointer transition-colors"
+                              className="p-1.5 xl:p-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50 disabled:opacity-35 disabled:cursor-not-allowed rounded-md cursor-pointer transition-colors"
                               title="Remove Line Item"
                             >
                               <Trash2 className="w-4 h-4" />
@@ -2067,7 +2067,7 @@ export const WorkOrderScreen: React.FC<WorkOrderScreenProps> = ({
 
                     {ticket.laborCents === 0 && (!ticket.items || ticket.items.length === 0) && (
                       <tr>
-                        <td colSpan={7} className="py-8 px-4 text-center text-xs text-slate-400 italic">
+                        <td colSpan={7} className="py-10 px-5 text-center text-sm text-slate-400 italic">
                           No repair items or services added yet. Search or click a service above, or click + Attach Part / Labor.
                         </td>
                       </tr>
