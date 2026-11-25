@@ -14,6 +14,8 @@ import {
   ArrowLeft,
   UtensilsCrossed,
   Clock,
+  Download,
+  Printer,
 } from 'lucide-react';
 import { fetchWithAuth } from '../utils/auth';
 import { PaystubModal } from './PaystubModal';
@@ -462,6 +464,52 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
   const hoursThisPeriod = Number(clockStatus?.weeklyHours ?? clockStatus?.weekHours ?? 0).toFixed(2);
   const firstName = currentUser?.name ? currentUser.name.split(' ')[0] : 'Staff';
 
+  const handleExportTimesheetCsv = () => {
+    if (!shifts || shifts.length === 0) {
+      alert('No recorded shifts to export');
+      return;
+    }
+    const lines: string[] = [];
+    lines.push('FASO FIX POS - EMPLOYEE ATTENDANCE & SHIFT TIMESHEET EXPORT');
+    lines.push(`Staff Member: ${currentUser?.name || currentUser?.username || 'Staff'}`);
+    lines.push(`Exported At: ${new Date().toLocaleString()}`);
+    lines.push('');
+    lines.push('Date,Clock In,Clock Out,Break (Mins),Exact Duration,Net Hours,Status');
+    shifts.forEach((s) => {
+      const clockInDate = new Date(s.clockIn);
+      const clockOutDate = s.clockOut ? new Date(s.clockOut) : null;
+      const durSec = clockOutDate
+        ? Math.max(0, Math.floor((clockOutDate.getTime() - clockInDate.getTime()) / 1000) - (s.breakMinutes || 0) * 60)
+        : Math.max(0, Math.floor((currentTime.getTime() - clockInDate.getTime()) / 1000) - (s.breakMinutes || 0) * 60);
+
+      const hrs = Math.floor(durSec / 3600);
+      const mins = Math.floor((durSec % 3600) / 60);
+      const secs = durSec % 60;
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const exactDurationStr = `${pad(hrs)}:${pad(mins)}:${pad(secs)}`;
+      const hoursDecimal = (durSec / 3600).toFixed(2);
+      const dateStr = clockInDate.toLocaleDateString('en-CA');
+      const inStr = clockInDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      const outStr = clockOutDate
+        ? clockOutDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        : 'Active';
+
+      lines.push(`${dateStr},"${inStr}","${outStr}",${s.breakMinutes || 0},"${exactDurationStr}",${hoursDecimal},${s.status || 'COMPLETED'}`);
+    });
+
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `FasoFix-Timesheet-${(currentUser?.username || 'staff').toLowerCase()}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handlePrintTimesheet = () => {
+    window.print();
+  };
+
   return (
     <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center p-2 sm:p-4 bg-slate-900/40 backdrop-blur-xs overflow-y-auto ui-backdrop">
       {/* Light Clean Frame with TimeTrakGO Tablet Styling */}
@@ -761,6 +809,16 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
 
                 <button
                   type="button"
+                  onClick={handleExportTimesheetCsv}
+                  className="flex items-center space-x-1.5 px-3.5 py-2 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold transition cursor-pointer shadow-2xs"
+                  title="Export shift timesheet to CSV"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Export CSV</span>
+                </button>
+
+                <button
+                  type="button"
                   onClick={() => setActiveTab('schedule')}
                   className="flex items-center space-x-1.5 px-3.5 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold transition cursor-pointer"
                 >
@@ -791,7 +849,7 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
            ======================================================== */}
         {activeTab === 'history' && (
           <div className="p-6 space-y-4 bg-white">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+            <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-slate-100">
               <button
                 onClick={() => setActiveTab('clock')}
                 className="flex items-center space-x-1.5 text-xs font-bold text-[#0284c7] hover:underline cursor-pointer"
@@ -800,7 +858,25 @@ export const TimeClockModal: React.FC<TimeClockModalProps> = ({
                 <span>Back to Time Clock</span>
               </button>
               <div className="flex items-center space-x-2">
-                <span className="text-xs text-slate-500 font-medium">Recorded Shifts ({shifts.length})</span>
+                <button
+                  type="button"
+                  onClick={handleExportTimesheetCsv}
+                  className="flex items-center space-x-1 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold ui-press cursor-pointer shadow-2xs"
+                  title="Export shifts to CSV"
+                >
+                  <Download className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Export CSV</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={handlePrintTimesheet}
+                  className="flex items-center space-x-1 px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold ui-press cursor-pointer"
+                  title="Print timesheet"
+                >
+                  <Printer className="w-3.5 h-3.5 text-slate-500" />
+                  <span>Print</span>
+                </button>
+                <span className="text-xs text-slate-500 font-medium pl-1">Shifts ({shifts.length})</span>
               </div>
             </div>
 

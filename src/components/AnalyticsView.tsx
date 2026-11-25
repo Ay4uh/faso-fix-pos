@@ -15,6 +15,8 @@ import {
   RefreshCw,
   Table as TableIcon,
   BarChart2,
+  Printer,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { AnimatedNumber } from './AnimatedNumber';
 
@@ -194,6 +196,79 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
     }
   };
 
+  const handleExportMasterReportCsv = () => {
+    if (!report) {
+      alert('No analytics data available to export');
+      return;
+    }
+    const lines: string[] = [];
+    lines.push('FASO FIX POS - MASTER FINANCIAL & OPERATIONAL REPORT');
+    lines.push(`Reporting Period: ${fromDate} to ${toDate}`);
+    lines.push(`Generated: ${new Date().toLocaleString()}`);
+    lines.push('');
+    lines.push('--- EXECUTIVE FINANCIAL SUMMARY ---');
+    lines.push('Metric,Value');
+    lines.push(`Collected Revenue,$${((report.revenueCents ?? 0) / 100).toFixed(2)}`);
+    lines.push(`Prior Period Revenue,$${((report.prevRevenueCents ?? 0) / 100).toFixed(2)}`);
+    lines.push(
+      `Period Growth vs Prior,${
+        revenueDelta !== null && revenueDelta !== undefined
+          ? `${revenueDelta >= 0 ? '+' : ''}${revenueDelta.toFixed(1)}%`
+          : 'N/A'
+      }`
+    );
+    lines.push(`Closed / Paid Tickets,${report.closedTicketsCount ?? 0}`);
+    const atvCents =
+      report.closedTicketsCount && report.closedTicketsCount > 0
+        ? Math.round(report.revenueCents / report.closedTicketsCount)
+        : 0;
+    lines.push(`Average Ticket Value (ATV),$${(atvCents / 100).toFixed(2)}`);
+    lines.push(`New Customers Added,${report.newCustomersCount ?? 0}`);
+    lines.push(`Returning Repeat Customers,${report.returningCustomersCount ?? 0}`);
+    lines.push(`Estimated Parts Cost (COGS),$${((report.partsCostCents ?? 0) / 100).toFixed(2)}`);
+    lines.push(`Gross Profit,$${((report.grossProfitCents ?? 0) / 100).toFixed(2)}`);
+    lines.push(
+      `Gross Profit Margin %,${
+        report.grossMarginPct !== null && report.grossMarginPct !== undefined
+          ? `${report.grossMarginPct.toFixed(1)}%`
+          : 'N/A'
+      }`
+    );
+    lines.push('');
+    lines.push('--- PAYMENT TENDER MIX ---');
+    lines.push('Payment Method,Collected Amount ($),Share of Total (%)');
+    tenderEntries.forEach(([method, cents]) => {
+      const pct = tenderPositiveTotalCents > 0 ? ((cents / tenderPositiveTotalCents) * 100).toFixed(1) : '0.0';
+      lines.push(`"${METHOD_META[method]?.label || method}",$${(cents / 100).toFixed(2)},${pct}%`);
+    });
+    lines.push('');
+    lines.push('--- DAILY BREAKDOWN ---');
+    lines.push('Date,Revenue ($),Tickets Closed,New Customers,Day Avg Ticket ($)');
+    (report.daily || []).forEach((d) => {
+      const dayAtv = d.closedTickets && d.closedTickets > 0 ? (d.revenueCents / d.closedTickets / 100).toFixed(2) : '0.00';
+      lines.push(`${d.date},$${(d.revenueCents / 100).toFixed(2)},${d.closedTickets ?? 0},${d.newCustomers ?? 0},$${dayAtv}`);
+    });
+    lines.push('');
+    lines.push('--- PERFORMANCE BREAKDOWN ---');
+    lines.push('Staff / Category,Revenue ($),Closed Tickets,Avg Ticket ($)');
+    perfRows.forEach((r) => {
+      const avg = r.closedTickets > 0 ? (r.revenueCents / r.closedTickets / 100).toFixed(2) : '0.00';
+      lines.push(`"${r.name}",$${(r.revenueCents / 100).toFixed(2)},${r.closedTickets},$${avg}`);
+    });
+
+    const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `FasoFix-MasterReport-${fromDate}-to-${toDate}.csv`;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handlePrintReport = () => {
+    window.print();
+  };
+
   // Daily Bar Chart series & scaling
   const dailySeries = report?.daily || [];
   const barValues = dailySeries.map((d) =>
@@ -310,11 +385,32 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
 
               <button
                 type="button"
+                onClick={handleExportMasterReportCsv}
+                className="px-3.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 ui-press cursor-pointer shadow-2xs"
+                title="Download full financial master report CSV"
+              >
+                <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Master CSV</span>
+              </button>
+
+              <button
+                type="button"
                 onClick={handleExportTicketsCsv}
                 className="px-3.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 ui-press cursor-pointer"
+                title="Download work orders list CSV"
               >
                 <Download className="w-3.5 h-3.5 text-slate-500" />
-                <span>Export CSV</span>
+                <span>Tickets CSV</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handlePrintReport}
+                className="px-3.5 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 ui-press cursor-pointer"
+                title="Print executive master summary report"
+              >
+                <Printer className="w-3.5 h-3.5 text-slate-500" />
+                <span>Print</span>
               </button>
             </div>
           </div>
@@ -364,9 +460,16 @@ export const AnalyticsView: React.FC<AnalyticsViewProps> = ({
           <div className="w-10 h-10 rounded-2xl bg-indigo-50 border border-indigo-100 text-indigo-600 flex items-center justify-center shrink-0 ui-icon-spring">
             <CheckCircle2 className="w-5 h-5" />
           </div>
-          <div className="min-w-0">
-            <div className="text-2xl font-extrabold font-mono tabular-nums text-slate-900 leading-none">
-              <AnimatedNumber value={report?.closedTicketsCount ?? 0} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline justify-between gap-1">
+              <div className="text-2xl font-extrabold font-mono tabular-nums text-slate-900 leading-none">
+                <AnimatedNumber value={report?.closedTicketsCount ?? 0} />
+              </div>
+              {report?.closedTicketsCount && report.closedTicketsCount > 0 ? (
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200/80 tabular-nums">
+                  ATV: {formatMoneyCents(Math.round(report.revenueCents / report.closedTicketsCount))}
+                </span>
+              ) : null}
             </div>
             <div className="text-xs font-semibold text-slate-500 mt-1.5">Closed / Paid Tickets</div>
             <div
