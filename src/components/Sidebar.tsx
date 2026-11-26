@@ -1,7 +1,6 @@
 import React from 'react';
 import {
   LayoutDashboard,
-  PlusCircle,
   Users,
   BarChart3,
   Settings,
@@ -9,7 +8,6 @@ import {
   ShieldAlert,
   LogOut,
   Lock,
-  Clock,
 } from 'lucide-react';
 import { DashboardStats, User as UserType } from '../types';
 
@@ -20,7 +18,7 @@ interface SidebarProps {
   currentUser: UserType | null;
   onOpenAdminLogin: () => void;
   onLogout: () => void;
-  openCreateModal: () => void;
+  openCreateModal?: () => void;
   onOpenTimeClock?: () => void;
 }
 
@@ -31,8 +29,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
   currentUser,
   onOpenAdminLogin,
   onLogout,
-  openCreateModal,
-  onOpenTimeClock,
 }) => {
   const isAdmin = currentUser?.role === 'ADMIN';
 
@@ -67,19 +63,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
 
           <button
-            onClick={openCreateModal}
-            className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold ui-press group text-slate-600 hover:bg-slate-100 hover:text-slate-900 cursor-pointer"
-          >
-            <div className="flex items-center space-x-3">
-              <PlusCircle className="w-4 h-4 text-indigo-600 transition-transform duration-150 group-hover:scale-105" />
-              <span>New Ticket</span>
-            </div>
-            <span className="inline-flex items-center text-[10px] px-2 py-0.5 rounded-full bg-indigo-600 text-white font-bold shadow-2xs">
-              + New
-            </span>
-          </button>
-
-          <button
             onClick={() => setCurrentTab('customers')}
             className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
               currentTab === 'customers'
@@ -109,21 +92,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <span>Analytics</span>
             </div>
           </button>
-
-          {onOpenTimeClock && (
-            <button
-              onClick={onOpenTimeClock}
-              className="w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-            >
-              <div className="flex items-center space-x-3">
-                <Clock className="w-4 h-4 text-emerald-600 transition-transform duration-150 group-hover:scale-105" />
-                <span>Time Clock</span>
-              </div>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
-                Shifts
-              </span>
-            </button>
-          )}
 
           <button
             onClick={() => setCurrentTab('settings')}
@@ -193,22 +161,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
                 <span className="w-2 h-2 rounded-full bg-emerald-500 ui-pulse-ring shrink-0 ml-1" title="Session Active" />
               </div>
-
-              {isAdmin && (
-                <div className="pt-2 mt-2 border-t border-purple-200/60">
-                  <button
-                    type="button"
-                    onClick={() => setCurrentTab('admin')}
-                    className={`w-full py-1.5 rounded-xl text-[11px] font-bold text-center ui-press ui-btn-glow group cursor-pointer ${
-                      currentTab === 'admin'
-                        ? 'bg-purple-700 text-white'
-                        : 'bg-purple-600 hover:bg-purple-700 text-white shadow-xs'
-                    }`}
-                  >
-                    Open Admin Console <span className="inline-block transition-transform duration-150 group-hover:translate-x-1">&rarr;</span>
-                  </button>
-                </div>
-              )}
             </div>
 
             {/* Dedicated High-Contrast Logout Button */}

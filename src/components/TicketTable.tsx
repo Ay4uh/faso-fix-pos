@@ -6,11 +6,9 @@ import {
   CheckCircle2,
   Check,
   Inbox,
-  ExternalLink,
   MessageSquare,
   MoreVertical,
   Printer,
-  Pencil,
   Trash2,
   ChevronLeft,
   ChevronRight,
@@ -25,7 +23,6 @@ import {
   Lock,
   Sparkles,
   Layers,
-  Search,
   ArrowUpDown,
 } from 'lucide-react';
 import { deriveTicketQuoteState, isTicketPaidInFull } from '../utils/repairPricing';
@@ -339,28 +336,12 @@ export const TicketTable: React.FC<TicketTableProps> = ({
     return tStatus === filterId;
   };
 
-  const [tableSearch, setTableSearch] = useState('');
   const [sortKey, setSortKey] = useState<'urgency' | 'due' | 'total' | 'number'>('urgency');
 
   const statusFiltered = tickets.filter((t) => statusMatches(t.status, activeFilter));
-  const q = tableSearch.trim().toLowerCase();
-  const searched = q
-    ? statusFiltered.filter((t) =>
-        [
-          String(t.ticketNumber),
-          t.customer?.fullName,
-          t.customer?.phone,
-          t.device?.name,
-          t.device?.serialNumber,
-          t.faultDescription,
-        ]
-          .filter(Boolean)
-          .some((v) => String(v).toLowerCase().includes(q))
-      )
-    : statusFiltered;
 
   const dueMs = (t: Ticket) => (t.dueDate ? new Date(t.dueDate).getTime() : Number.MAX_SAFE_INTEGER);
-  const filteredTickets = [...searched].sort((a, b) => {
+  const filteredTickets = [...statusFiltered].sort((a, b) => {
     if (sortKey === 'number') return b.ticketNumber - a.ticketNumber;
     if (sortKey === 'total') return (b.totals?.totalCents ?? b.laborCents) - (a.totals?.totalCents ?? a.laborCents);
     if (sortKey === 'due') return dueMs(a) - dueMs(b);
@@ -427,16 +408,6 @@ export const TicketTable: React.FC<TicketTableProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 font-medium shrink-0">
-          <div className="relative">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-            <input
-              type="text"
-              value={tableSearch}
-              onChange={(e) => setTableSearch(e.target.value)}
-              placeholder="Filter name, phone, device…"
-              className="pl-8 pr-3 py-1.5 w-48 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:bg-white transition-[background-color,box-shadow] duration-150"
-            />
-          </div>
           <div className="relative">
             <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <select
@@ -706,28 +677,10 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                         <div className="relative inline-block">{getStatusBadge(ticket.status)}</div>
                       </td>
 
-                      {/* Actions: Quick Icon Buttons + 3-Dot (Kebab) Menu */}
+                      {/* Actions: Distinct Quick Actions (SMS, Print) + Status Menu */}
                       <td className="py-3 px-3 xl:px-4 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
                         <div className="flex items-center justify-end space-x-1">
-                          {/* 1. Quick Complete Checkmark */}
-                          {ticket.status !== 'COMPLETED' ? (
-                            <button
-                              onClick={() => onQuickComplete(ticket.id)}
-                              className="h-8 w-8 inline-flex items-center justify-center text-slate-500 hover:text-emerald-700 rounded-xl bg-slate-50/70 group-hover:bg-white hover:bg-emerald-50 border border-transparent group-hover:border-slate-200/80 hover:border-emerald-200 shadow-none group-hover:shadow-2xs ui-press cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-150"
-                              title="Quick mark Complete"
-                            >
-                              <Check className="w-3.5 h-3.5" />
-                            </button>
-                          ) : (
-                            <span
-                              className="h-8 w-8 inline-flex items-center justify-center text-emerald-600 rounded-xl bg-emerald-50/80 border border-emerald-200/60"
-                              title="Completed"
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                            </span>
-                          )}
-
-                          {/* 2. Message Customer Quick Action */}
+                          {/* 1. Message Customer Quick Action */}
                           <button
                             onClick={() => onOpenSmsModal(ticket)}
                             className="h-8 w-8 inline-flex items-center justify-center text-slate-500 hover:text-blue-700 rounded-xl bg-slate-50/70 group-hover:bg-white hover:bg-blue-50 border border-transparent group-hover:border-slate-200/80 hover:border-blue-200 shadow-none group-hover:shadow-2xs ui-press cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-150"
@@ -736,16 +689,16 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                             <MessageSquare className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* 3. Edit / Open Details Quick Action */}
+                          {/* 2. Print Work Order Quick Action */}
                           <button
-                            onClick={() => onSelectTicket(ticket)}
+                            onClick={() => onPrintTicket(ticket)}
                             className="h-8 w-8 inline-flex items-center justify-center text-slate-500 hover:text-indigo-700 rounded-xl bg-slate-50/70 group-hover:bg-white hover:bg-indigo-50 border border-transparent group-hover:border-slate-200/80 hover:border-indigo-200 shadow-none group-hover:shadow-2xs ui-press cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-150"
-                            title="Edit / Open Work Order"
+                            title="Print Work Order"
                           >
-                            <Pencil className="w-3.5 h-3.5" />
+                            <Printer className="w-3.5 h-3.5" />
                           </button>
 
-                          {/* 4. 3-Dot (Kebab) Menu for Secondary Tasks */}
+                          {/* 3. Status & Admin Menu */}
                           <div className="relative inline-block text-left">
                             <button
                               onClick={(e) => {
@@ -753,7 +706,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                 setOpenMenuTicketId(openMenuTicketId === ticket.id ? null : ticket.id);
                               }}
                               className="h-8 w-8 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-xl bg-slate-50/70 group-hover:bg-white hover:bg-slate-100 border border-transparent group-hover:border-slate-200/80 shadow-none group-hover:shadow-2xs ui-press cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-150"
-                              title="More options"
+                              title="Change status or delete"
                             >
                               <MoreVertical className="w-3.5 h-3.5" />
                             </button>
@@ -822,29 +775,6 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                 >
                                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                                   6. Completed / Paid
-                                </button>
-
-                                <div className="border-t border-slate-100 my-1"></div>
-
-                                <button
-                                  onClick={() => {
-                                    onPrintTicket(ticket);
-                                    setOpenMenuTicketId(null);
-                                  }}
-                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
-                                >
-                                  <Printer className="w-3.5 h-3.5 text-slate-400" />
-                                  Print Work Order
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    onSelectTicket(ticket);
-                                    setOpenMenuTicketId(null);
-                                  }}
-                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
-                                >
-                                  <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
-                                  Open Full Ticket
                                 </button>
 
                                 {/* Admin-only ticket deletion */}

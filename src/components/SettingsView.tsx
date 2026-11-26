@@ -590,7 +590,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
           {[
             { id: 'system', label: 'System Configuration', icon: Building2, adminOnly: true },
-            { id: 'users', label: 'Staff & User Management', icon: Users, adminOnly: true },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;

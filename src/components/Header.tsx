@@ -1,5 +1,5 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Search, Plus, Wrench, ArrowRight, LogOut, Menu, Clock, Square, Coffee, Zap, Bell, Check, Lock } from 'lucide-react';
+import { Search, Plus, Wrench, ArrowRight, Menu, Clock, Square, Coffee, Zap, Bell, Check, Lock } from 'lucide-react';
 import { Ticket, User } from '../types';
 import { flushOfflineQueue } from '../utils/offlineSync';
 import { fetchWithAuth } from '../utils/auth';
@@ -45,7 +45,7 @@ export const Header: React.FC<HeaderProps> = ({
   tickets = [],
   onSelectTicket,
   currentUser,
-  onLogout,
+  onLogout: _onLogout,
   onLockTerminal,
   onOpenMobileMenu,
   onOpenTimeClock,
@@ -652,40 +652,18 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           )}
 
-          {/* User Profile & Direct Logout Button */}
-          {currentUser && onLogout && (
-            <div className="flex items-center gap-1.5 sm:gap-2 pl-1.5 sm:pl-2 border-l border-slate-200 shrink-0">
-              <div className="hidden xl:flex items-center space-x-2 px-2.5 py-1 bg-slate-100 rounded-xl border border-slate-200/80">
-                <div className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-[10px] font-bold">
-                  {currentUser.name.charAt(0)}
-                </div>
-                <span className="text-xs font-semibold text-slate-800 max-w-[100px] truncate">
-                  {currentUser.name}
-                </span>
-              </div>
-              {onLockTerminal && (
-                <button
-                  type="button"
-                  onClick={onLockTerminal}
-                  aria-label="Lock Terminal"
-                  title="Quick-lock counter screen"
-                  className="h-9 inline-flex items-center justify-center gap-1.5 px-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold ui-press cursor-pointer shrink-0 shadow-2xs"
-                >
-                  <Lock className="w-3.5 h-3.5 text-slate-600" />
-                  <span className="hidden xl:inline">Lock</span>
-                </button>
-              )}
-              <button
-                type="button"
-                onClick={onLogout}
-                aria-label="Log Out"
-                title={`Sign out of ${currentUser.name}`}
-                className="h-9 inline-flex items-center justify-center gap-1.5 px-2.5 lg:px-3 bg-red-50 hover:bg-red-100 active:bg-red-200 text-red-700 hover:text-red-800 border border-red-200 rounded-xl text-xs font-bold ui-press cursor-pointer shrink-0 shadow-2xs group"
-              >
-                <LogOut className="w-3.5 h-3.5 text-red-600 group-hover:scale-110 transition-transform" />
-                <span className="hidden lg:inline">Log Out</span>
-              </button>
-            </div>
+          {/* Quick Terminal Lock Button (Profile & Logout live in Sidebar / Mobile Drawer) */}
+          {currentUser && onLockTerminal && (
+            <button
+              type="button"
+              onClick={onLockTerminal}
+              aria-label="Lock Terminal"
+              title="Quick-lock counter screen"
+              className="h-9 inline-flex items-center justify-center gap-1.5 px-2.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold ui-press cursor-pointer shrink-0 shadow-2xs"
+            >
+              <Lock className="w-3.5 h-3.5 text-slate-600" />
+              <span className="hidden xl:inline">Lock</span>
+            </button>
           )}
         </div>
       </div>

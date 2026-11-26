@@ -1,11 +1,9 @@
 import React, { useState } from 'react';
 import {
-  ShieldAlert,
   Lock,
   User,
   Eye,
   EyeOff,
-  Wrench,
   AlertCircle,
   ArrowRight,
   Cpu,
@@ -20,7 +18,7 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExpiredNotice }) => {
-  const [isAdminMode, setIsAdminMode] = useState(false);
+  const isAdminMode = false;
   const [usernameOrEmail, setUsernameOrEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -198,74 +196,6 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
 
         {/* Card Container */}
         <div className="bg-white/90 backdrop-blur rounded-3xl border border-slate-200/80 shadow-[0_1px_3px_rgba(15,23,42,0.05),0_24px_48px_-16px_rgba(79,70,229,0.18)] overflow-hidden ui-modal">
-          {/* Mode Switcher Tabs (Segmented Control) */}
-          <div className="grid grid-cols-2 p-1.5 bg-slate-100/80 border-b border-slate-200/80 gap-1.5">
-            {/* Standard Login Tab */}
-            <button
-              type="button"
-              onClick={() => {
-                setIsAdminMode(false);
-                setErrorMessage(null);
-              }}
-              className={`py-2.5 px-3 rounded-2xl text-xs font-bold ui-press flex items-center justify-center gap-2 cursor-pointer ${
-                !isAdminMode
-                  ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/80'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-              }`}
-            >
-              <Wrench className="w-4 h-4 text-indigo-600" />
-              <span>Staff Login</span>
-            </button>
-
-            {/* Admin Mode Tab */}
-            <button
-              type="button"
-              onClick={() => {
-                setIsAdminMode(true);
-                setErrorMessage(null);
-              }}
-              className={`py-2.5 px-3 rounded-2xl text-xs font-bold ui-press flex items-center justify-center gap-2 cursor-pointer ${
-                isAdminMode
-                  ? 'bg-purple-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-purple-700 hover:bg-slate-200/50'
-              }`}
-            >
-              <ShieldAlert className={`w-4 h-4 ${isAdminMode ? 'text-white' : 'text-purple-600'}`} />
-              <span>Admin Mode</span>
-            </button>
-          </div>
-
-          {/* Mode Context Banner */}
-          <div className={`px-6 py-3.5 border-b transition-colors ${
-            isAdminMode 
-              ? 'bg-purple-50/70 border-purple-100 text-purple-900' 
-              : 'bg-indigo-50/70 border-indigo-100 text-indigo-900'
-          }`}>
-            <div key={isAdminMode ? 'admin-ctx' : 'staff-ctx'} className="flex items-center gap-2.5 ui-view-enter">
-              {isAdminMode ? (
-                <>
-                  <div className="w-7 h-7 rounded-xl bg-purple-100 text-purple-700 flex items-center justify-center shrink-0">
-                    <Lock className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <h2 className="text-xs font-bold text-slate-900">Administrator Portal</h2>
-                    <p className="text-[11px] text-purple-700/80">User provisioning, password resets, and audit telemetry</p>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <div className="w-7 h-7 rounded-xl bg-indigo-100 text-indigo-700 flex items-center justify-center shrink-0">
-                    <User className="w-3.5 h-3.5" />
-                  </div>
-                  <div>
-                    <h2 className="text-xs font-bold text-slate-900">Staff Sign In</h2>
-                    <p className="text-[11px] text-indigo-700/80">Access work orders, customers &amp; billing</p>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
           {/* Form */}
           <form onSubmit={handleSubmit} className="p-6 space-y-4">
             {sessionExpiredNotice && (
