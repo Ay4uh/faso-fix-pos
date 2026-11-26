@@ -131,27 +131,73 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
   };
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-gradient-to-b from-slate-50 via-white to-slate-100/80 flex flex-col justify-center items-center p-4 sm:p-6 text-slate-800 select-none">
-      {/* Soft Ambient Glows */}
-      <div className="absolute top-12 left-1/2 -translate-x-1/2 w-96 h-96 bg-blue-100/60 rounded-full blur-3xl pointer-events-none ui-float-ambient" />
-      <div className="absolute bottom-10 right-10 w-80 h-80 bg-indigo-50/70 rounded-full blur-3xl pointer-events-none ui-float-ambient-slow" />
+    <div className="relative min-h-screen overflow-hidden bg-slate-50 lg:grid lg:grid-cols-[1.05fr_1fr] text-slate-800 select-none">
+      {/* Left Brand Showcase (desktop) */}
+      <div className="hidden lg:flex relative flex-col justify-between overflow-hidden bg-gradient-to-br from-indigo-700 via-indigo-600 to-violet-700 p-12 text-white">
+        <div className="absolute -top-24 -left-24 w-[28rem] h-[28rem] bg-white/10 rounded-full blur-3xl pointer-events-none ui-float-ambient" />
+        <div className="absolute bottom-0 right-0 w-[26rem] h-[26rem] bg-violet-400/30 rounded-full blur-3xl pointer-events-none ui-float-ambient-slow" />
+        <div
+          className="absolute inset-0 opacity-[0.07] pointer-events-none"
+          style={{
+            backgroundImage:
+              'linear-gradient(rgba(255,255,255,0.9) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.9) 1px, transparent 1px)',
+            backgroundSize: '44px 44px',
+          }}
+        />
+
+        <div className="relative flex items-center gap-3 ui-view-enter">
+          <div className="w-11 h-11 rounded-2xl bg-white/15 backdrop-blur border border-white/25 flex items-center justify-center shadow-lg">
+            <Cpu className="w-5 h-5" />
+          </div>
+          <span className="text-xl font-black tracking-tight">Faso Fix POS</span>
+        </div>
+
+        <div className="relative space-y-6 max-w-md ui-view-enter">
+          <h2 className="text-4xl xl:text-5xl font-black leading-[1.05] tracking-tight text-balance">
+            Every repair,
+            <br />
+            <span className="text-indigo-200">on time.</span>
+          </h2>
+          <div className="space-y-3">
+            {[
+              'Track every device from check-in to pickup',
+              'Instant alerts when a promise date is missed',
+              'Quotes, payments & receipts in one place',
+            ].map((line) => (
+              <div key={line} className="flex items-center gap-3 text-sm text-indigo-50/95 font-medium">
+                <span className="w-6 h-6 rounded-lg bg-white/15 border border-white/20 flex items-center justify-center shrink-0">
+                  <ArrowRight className="w-3.5 h-3.5" />
+                </span>
+                {line}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <p className="relative text-xs text-indigo-200/80 font-medium">© {new Date().getFullYear()} Faso Fix</p>
+      </div>
+
+      {/* Right Form Column */}
+      <div className="relative min-h-screen flex flex-col justify-center items-center p-4 sm:p-8">
+      <div className="absolute top-10 left-1/2 -translate-x-1/2 w-96 h-96 bg-indigo-100/70 rounded-full blur-3xl pointer-events-none ui-float-ambient lg:hidden" />
 
       <div className="w-full max-w-md relative z-10 space-y-6">
         {/* Brand Header */}
-        <div className="text-center space-y-2.5 ui-view-enter">
-          <div className="flex items-center justify-center gap-3 group">
-            <div className="w-12 h-12 rounded-2xl bg-indigo-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/25 ring-4 ring-indigo-50 ui-icon-spring">
+        <div className="space-y-2 ui-view-enter">
+          <div className="flex items-center justify-center lg:justify-start gap-3 lg:hidden">
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-600 to-violet-600 text-white flex items-center justify-center shadow-md shadow-indigo-600/25 ring-4 ring-indigo-50 ui-icon-spring">
               <Cpu className="w-6 h-6" />
             </div>
-            <div className="text-left">
-              <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none">Faso Fix POS</h1>
-              <p className="text-xs text-slate-500 font-medium mt-1">Repair &amp; Retail Operations CRM</p>
-            </div>
+            <h1 className="text-2xl font-black text-slate-900 tracking-tight leading-none">Faso Fix POS</h1>
+          </div>
+          <div className="text-center lg:text-left">
+            <h2 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight">Welcome back</h2>
+            <p className="text-sm text-slate-500 font-medium mt-1">Sign in to continue to your workspace.</p>
           </div>
         </div>
 
         {/* Card Container */}
-        <div className="bg-white rounded-3xl border border-slate-200/90 shadow-xl shadow-slate-200/60 overflow-hidden ui-modal">
+        <div className="bg-white/90 backdrop-blur rounded-3xl border border-slate-200/80 shadow-[0_1px_3px_rgba(15,23,42,0.05),0_24px_48px_-16px_rgba(79,70,229,0.18)] overflow-hidden ui-modal">
           {/* Mode Switcher Tabs (Segmented Control) */}
           <div className="grid grid-cols-2 p-1.5 bg-slate-100/80 border-b border-slate-200/80 gap-1.5">
             {/* Standard Login Tab */}
@@ -336,7 +382,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
               className={`w-full py-3 px-4 rounded-xl text-xs font-bold text-white ui-press ui-btn-glow group shadow-md flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 mt-2 ${
                 isAdminMode
                   ? 'bg-purple-600 hover:bg-purple-700 active:bg-purple-800 shadow-purple-600/25'
-                  : 'bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 shadow-indigo-600/25'
+                  : 'bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 shadow-indigo-600/30'
               }`}
             >
               {isLoading ? (
@@ -359,6 +405,7 @@ export const LoginPage: React.FC<LoginPageProps> = ({ onLoginSuccess, sessionExp
             </button>
           </form>
         </div>
+      </div>
       </div>
     </div>
   );
