@@ -174,7 +174,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      <aside className="group/sidebar fixed top-16 left-0 h-[calc(100vh-64px)] w-[68px] hover:w-64 bg-slate-50/95 backdrop-blur-md border-r border-slate-200/90 flex flex-col justify-between select-none z-30 shadow-[1px_0_3px_rgba(0,0,0,0.02)] hover:shadow-2xl hover:shadow-slate-900/10 overflow-hidden transition-[width,box-shadow] duration-[520ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]">
+      <aside className="group/sidebar sticky top-16 h-[calc(100vh-64px)] w-[68px] hover:w-64 shrink-0 bg-slate-50/95 backdrop-blur-md border-r border-slate-200/90 flex flex-col justify-between select-none z-20 shadow-[1px_0_3px_rgba(0,0,0,0.02)] overflow-hidden transition-[width] duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]">
         {/* Top Navigation */}
         <div className="overflow-y-auto overflow-x-hidden flex-1">
           <nav className="p-3 space-y-1.5 w-64">

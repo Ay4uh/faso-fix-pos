@@ -1125,8 +1125,8 @@ export function App() {
 
       {/* Main Layout Area */}
       <div className="flex flex-1">
-        {/* Left Sidebar (reserves 68px rail; expands smoothly as overlay without reflowing main content) */}
-        <div className="hidden md:block w-[68px] shrink-0 relative z-30">
+        {/* Left Sidebar */}
+        <div className="hidden md:block shrink-0">
           <Sidebar
             currentTab={currentTab}
             setCurrentTab={setCurrentTab}
