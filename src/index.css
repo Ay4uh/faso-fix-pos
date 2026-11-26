@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
-  --ease-bounce: cubic-bezier(0.34, 1.45, 0.64, 1);
+  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-bounce: cubic-bezier(0.25, 1.25, 0.5, 1);
 }
 
 html {
@@ -167,28 +167,28 @@ a {
 
 /* Fill-mode backwards clears final transform so z-50 popovers/menus never clip */
 .ui-backdrop {
-  animation: ui-backdrop-in 180ms ease-out backwards;
+  animation: ui-backdrop-in 280ms var(--ease-spring) backwards;
 }
 
 .ui-modal {
-  animation: ui-modal-in 280ms var(--ease-spring) backwards;
+  animation: ui-modal-in 380ms var(--ease-spring) backwards;
 }
 
 .ui-view-enter {
-  animation: ui-panel-in 260ms var(--ease-spring) backwards;
+  animation: ui-panel-in 360ms var(--ease-spring) backwards;
 }
 
 .ui-pop {
   transform-origin: top right;
-  animation: ui-pop-in 200ms var(--ease-spring) backwards;
+  animation: ui-pop-in 280ms var(--ease-spring) backwards;
 }
 
 .ui-drawer-left {
-  animation: ui-drawer-in-left 260ms var(--ease-spring) backwards;
+  animation: ui-drawer-in-left 360ms var(--ease-spring) backwards;
 }
 
 .ui-toast {
-  animation: ui-toast-in 320ms var(--ease-bounce) backwards;
+  animation: ui-toast-in 420ms var(--ease-spring) backwards;
 }
 
 .ui-toast-bar {
@@ -197,42 +197,42 @@ a {
 }
 
 .ui-progress-indeterminate {
-  animation: ui-indeterminate 1.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: ui-indeterminate 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .ui-card-lift {
   transition-property: transform, box-shadow, border-color;
-  transition-duration: 220ms;
+  transition-duration: 320ms;
   transition-timing-function: var(--ease-spring);
 }
 
 .ui-card-lift:hover {
-  transform: translateY(-3px);
+  transform: translateY(-2px);
 }
 
 .ui-press {
   transition-property: transform, background-color, border-color, color, box-shadow;
-  transition-duration: 140ms;
+  transition-duration: 220ms;
   transition-timing-function: var(--ease-spring);
 }
 
 .ui-press:active:not(:disabled) {
-  transform: scale(0.965);
+  transform: scale(0.975);
 }
 
 .ui-icon-spring {
   transition-property: transform;
-  transition-duration: 240ms;
-  transition-timing-function: var(--ease-bounce);
+  transition-duration: 340ms;
+  transition-timing-function: var(--ease-spring);
 }
 
 .group:hover .ui-icon-spring {
-  transform: scale(1.12) rotate(-4deg);
+  transform: scale(1.08) rotate(-3deg);
 }
 
 .ui-btn-glow {
   transition-property: transform, box-shadow, background-color;
-  transition-duration: 160ms;
+  transition-duration: 260ms;
   transition-timing-function: var(--ease-spring);
 }
 
@@ -241,33 +241,33 @@ a {
 }
 
 .ui-btn-glow:active:not(:disabled) {
-  transform: translateY(0) scale(0.965);
+  transform: translateY(0) scale(0.975);
 }
 
 .ui-stagger > * {
-  animation: ui-panel-in 260ms var(--ease-spring) backwards;
+  animation: ui-panel-in 380ms var(--ease-spring) backwards;
 }
 .ui-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.ui-stagger > *:nth-child(2) { animation-delay: 40ms; }
-.ui-stagger > *:nth-child(3) { animation-delay: 80ms; }
-.ui-stagger > *:nth-child(4) { animation-delay: 120ms; }
-.ui-stagger > *:nth-child(5) { animation-delay: 160ms; }
-.ui-stagger > *:nth-child(6) { animation-delay: 200ms; }
+.ui-stagger > *:nth-child(2) { animation-delay: 45ms; }
+.ui-stagger > *:nth-child(3) { animation-delay: 90ms; }
+.ui-stagger > *:nth-child(4) { animation-delay: 135ms; }
+.ui-stagger > *:nth-child(5) { animation-delay: 180ms; }
+.ui-stagger > *:nth-child(6) { animation-delay: 225ms; }
 
 .ui-row-stagger > * {
-  animation: ui-row-in 240ms var(--ease-spring) backwards;
+  animation: ui-row-in 340ms var(--ease-spring) backwards;
 }
 .ui-row-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.ui-row-stagger > *:nth-child(2) { animation-delay: 22ms; }
-.ui-row-stagger > *:nth-child(3) { animation-delay: 44ms; }
-.ui-row-stagger > *:nth-child(4) { animation-delay: 66ms; }
-.ui-row-stagger > *:nth-child(5) { animation-delay: 88ms; }
-.ui-row-stagger > *:nth-child(6) { animation-delay: 110ms; }
-.ui-row-stagger > *:nth-child(7) { animation-delay: 132ms; }
-.ui-row-stagger > *:nth-child(8) { animation-delay: 154ms; }
-.ui-row-stagger > *:nth-child(9) { animation-delay: 176ms; }
-.ui-row-stagger > *:nth-child(10) { animation-delay: 198ms; }
-.ui-row-stagger > *:nth-child(n+11) { animation-delay: 220ms; }
+.ui-row-stagger > *:nth-child(2) { animation-delay: 28ms; }
+.ui-row-stagger > *:nth-child(3) { animation-delay: 56ms; }
+.ui-row-stagger > *:nth-child(4) { animation-delay: 84ms; }
+.ui-row-stagger > *:nth-child(5) { animation-delay: 112ms; }
+.ui-row-stagger > *:nth-child(6) { animation-delay: 140ms; }
+.ui-row-stagger > *:nth-child(7) { animation-delay: 168ms; }
+.ui-row-stagger > *:nth-child(8) { animation-delay: 196ms; }
+.ui-row-stagger > *:nth-child(9) { animation-delay: 224ms; }
+.ui-row-stagger > *:nth-child(10) { animation-delay: 252ms; }
+.ui-row-stagger > *:nth-child(n+11) { animation-delay: 280ms; }
 
 .ui-pulse-ring {
   position: relative;
