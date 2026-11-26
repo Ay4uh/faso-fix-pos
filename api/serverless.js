@@ -1943,6 +1943,8 @@ async function getDashboard() {
 			const open = tickets.filter((t) => OPEN_STATUSES.includes(t.status));
 			const count = (s) => tickets.filter((t) => t.status === s).length;
 			const awaitingPickupTickets = tickets.filter((t) => t.status === "READY_FOR_PICKUP" || t.status === "COMPLETED" && computeTotals(t).balanceCents > 0);
+			const unpaidTickets = tickets.filter((t) => t.status !== "CANCELLED" && t.status !== "DECLINED" && computeTotals(t).balanceCents > 0);
+			const unpaidBalanceCents = unpaidTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0);
 			const checkedIn = count("PENDING") + count("CHECKED_IN");
 			const diagnosing = count("IN_PROGRESS") + count("DIAGNOSING");
 			const waitingOnApproval = count("WAITING_ON_APPROVAL");
@@ -1971,6 +1973,8 @@ async function getDashboard() {
 				avgTicketValueCents,
 				awaitingPickupCount: awaitingPickupTickets.length,
 				awaitingPickupCents: awaitingPickupTickets.reduce((s, t) => s + Math.max(0, computeTotals(t).balanceCents), 0),
+				unpaidBalanceCents,
+				unpaidTicketsCount: unpaidTickets.length,
 				collectedTodayCents: payments.filter((p) => p.createdAt >= today).reduce((s, p) => s + p.amountCents, 0),
 				collectedMonthCents: payments.reduce((s, p) => s + p.amountCents, 0),
 				customerCount,

@@ -329,16 +329,32 @@ export const TicketTable: React.FC<TicketTableProps> = ({
     }
   };
 
-  const statusMatches = (tStatus: string, filterId: string) => {
+  const endOfTodayMs = (() => {
+    const d = new Date();
+    d.setHours(23, 59, 59, 999);
+    return d.getTime();
+  })();
+
+  const ticketMatchesFilter = (t: Ticket, filterId: string) => {
     if (filterId === 'ALL') return true;
-    if (filterId === 'CHECKED_IN') return tStatus === 'CHECKED_IN' || tStatus === 'PENDING';
-    if (filterId === 'DIAGNOSING') return tStatus === 'DIAGNOSING' || tStatus === 'IN_PROGRESS';
-    return tStatus === filterId;
+    if (filterId === 'ACTIVE_ONLY') return !TERMINAL_STATUSES.has(t.status);
+    if (filterId === 'DUE_OR_OVERDUE') {
+      if (TERMINAL_STATUSES.has(t.status) || !t.dueDate) return false;
+      return new Date(t.dueDate).getTime() <= endOfTodayMs;
+    }
+    if (filterId === 'UNPAID') {
+      if (t.status === 'CANCELLED' || t.status === 'DECLINED') return false;
+      const bal = t.totals ? t.totals.balanceCents : t.laborCents;
+      return bal > 0;
+    }
+    if (filterId === 'CHECKED_IN') return t.status === 'CHECKED_IN' || t.status === 'PENDING';
+    if (filterId === 'DIAGNOSING') return t.status === 'DIAGNOSING' || t.status === 'IN_PROGRESS';
+    return t.status === filterId;
   };
 
   const [sortKey, setSortKey] = useState<'urgency' | 'due' | 'total' | 'number'>('urgency');
 
-  const statusFiltered = tickets.filter((t) => statusMatches(t.status, activeFilter));
+  const statusFiltered = tickets.filter((t) => ticketMatchesFilter(t, activeFilter));
 
   const dueMs = (t: Ticket) => (t.dueDate ? new Date(t.dueDate).getTime() : Number.MAX_SAFE_INTEGER);
   const filteredTickets = [...statusFiltered].sort((a, b) => {
@@ -354,6 +370,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
 
   const filterPills = [
     { id: 'ALL', label: 'All', dotClass: 'bg-indigo-500', count: stats?.totalTickets },
+    { id: 'ACTIVE_ONLY', label: 'Active Only', dotClass: 'bg-sky-500', count: stats?.totalActive ?? stats?.open },
     { id: 'CHECKED_IN', label: 'Checked In', dotClass: 'bg-slate-400', count: stats ? (stats.checkedIn ?? stats.pending) : undefined },
     { id: 'DIAGNOSING', label: 'Diagnosing', dotClass: 'bg-blue-500', count: stats ? (stats.diagnosing ?? stats.inProgress) : undefined },
     { id: 'WAITING_ON_APPROVAL', label: 'Waiting Approval', dotClass: 'bg-purple-500', count: stats ? (stats.waitingOnApproval ?? 0) : undefined },
@@ -378,7 +395,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
             const pillCount =
               item.count !== undefined
                 ? item.count
-                : tickets.filter((t) => statusMatches(t.status, item.id)).length;
+                : tickets.filter((t) => ticketMatchesFilter(t, item.id)).length;
             return (
               <button
                 key={item.id}

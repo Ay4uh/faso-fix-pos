@@ -267,6 +267,8 @@ export interface DashboardData {
   avgTicketValueCents?: number;
   awaitingPickupCount: number;
   awaitingPickupCents: number;
+  unpaidBalanceCents?: number;
+  unpaidTicketsCount?: number;
   collectedTodayCents: number;
   collectedMonthCents: number;
   customerCount: number;

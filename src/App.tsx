@@ -606,7 +606,12 @@ export function App() {
     try {
       if (!silent) setIsLoading(true);
       const params = new URLSearchParams();
-      if (activeFilter === 'ALL') {
+      if (
+        activeFilter === 'ALL' ||
+        activeFilter === 'ACTIVE_ONLY' ||
+        activeFilter === 'DUE_OR_OVERDUE' ||
+        activeFilter === 'UNPAID'
+      ) {
         params.set('view', 'ALL');
       } else {
         params.set('status', activeFilter);
@@ -1154,6 +1159,7 @@ export function App() {
               <MetricCards
                 stats={stats}
                 tickets={tickets}
+                activeFilter={activeFilter}
                 onSelectFilter={(f) => {
                   setTicketsPage(1);
                   setActiveFilter(f);
