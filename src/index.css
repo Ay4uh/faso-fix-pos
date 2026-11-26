@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --ease-spring: cubic-bezier(0.16, 1, 0.3, 1);
-  --ease-bounce: cubic-bezier(0.25, 1.25, 0.5, 1);
+  --ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-bounce: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 html {
@@ -32,7 +32,7 @@ a {
 @keyframes ui-modal-in {
   from {
     opacity: 0;
-    transform: translateY(14px) scale(0.96);
+    transform: translateY(8px) scale(0.985);
   }
   to {
     opacity: 1;
@@ -43,7 +43,7 @@ a {
 @keyframes ui-panel-in {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.992);
+    transform: translateY(6px) scale(0.996);
   }
   to {
     opacity: 1;
@@ -54,7 +54,7 @@ a {
 @keyframes ui-pop-in {
   from {
     opacity: 0;
-    transform: translateY(-6px) scale(0.94);
+    transform: translateY(-4px) scale(0.975);
   }
   to {
     opacity: 1;
@@ -74,7 +74,7 @@ a {
 @keyframes ui-slide-top-1 {
   from {
     opacity: 0;
-    transform: translateY(-6px);
+    transform: translateY(-4px);
   }
   to {
     opacity: 1;
@@ -85,7 +85,7 @@ a {
 @keyframes ui-toast-in {
   from {
     opacity: 0;
-    transform: translateY(18px) scale(0.94);
+    transform: translateY(10px) scale(0.98);
   }
   to {
     opacity: 1;
@@ -106,7 +106,7 @@ a {
 @keyframes ui-row-in {
   from {
     opacity: 0;
-    transform: translateY(8px);
+    transform: translateY(5px);
   }
   to {
     opacity: 1;
@@ -167,28 +167,28 @@ a {
 
 /* Fill-mode backwards clears final transform so z-50 popovers/menus never clip */
 .ui-backdrop {
-  animation: ui-backdrop-in 280ms var(--ease-spring) backwards;
+  animation: ui-backdrop-in 420ms var(--ease-spring) backwards;
 }
 
 .ui-modal {
-  animation: ui-modal-in 380ms var(--ease-spring) backwards;
+  animation: ui-modal-in 520ms var(--ease-spring) backwards;
 }
 
 .ui-view-enter {
-  animation: ui-panel-in 360ms var(--ease-spring) backwards;
+  animation: ui-panel-in 520ms var(--ease-spring) backwards;
 }
 
 .ui-pop {
   transform-origin: top right;
-  animation: ui-pop-in 280ms var(--ease-spring) backwards;
+  animation: ui-pop-in 380ms var(--ease-spring) backwards;
 }
 
 .ui-drawer-left {
-  animation: ui-drawer-in-left 360ms var(--ease-spring) backwards;
+  animation: ui-drawer-in-left 480ms var(--ease-spring) backwards;
 }
 
 .ui-toast {
-  animation: ui-toast-in 420ms var(--ease-spring) backwards;
+  animation: ui-toast-in 520ms var(--ease-spring) backwards;
 }
 
 .ui-toast-bar {
@@ -197,12 +197,12 @@ a {
 }
 
 .ui-progress-indeterminate {
-  animation: ui-indeterminate 1.4s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  animation: ui-indeterminate 1.6s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
 .ui-card-lift {
   transition-property: transform, box-shadow, border-color;
-  transition-duration: 320ms;
+  transition-duration: 460ms;
   transition-timing-function: var(--ease-spring);
 }
 
@@ -212,27 +212,27 @@ a {
 
 .ui-press {
   transition-property: transform, background-color, border-color, color, box-shadow;
-  transition-duration: 220ms;
+  transition-duration: 300ms;
   transition-timing-function: var(--ease-spring);
 }
 
 .ui-press:active:not(:disabled) {
-  transform: scale(0.975);
+  transform: scale(0.985);
 }
 
 .ui-icon-spring {
   transition-property: transform;
-  transition-duration: 340ms;
+  transition-duration: 460ms;
   transition-timing-function: var(--ease-spring);
 }
 
 .group:hover .ui-icon-spring {
-  transform: scale(1.08) rotate(-3deg);
+  transform: scale(1.06);
 }
 
 .ui-btn-glow {
   transition-property: transform, box-shadow, background-color;
-  transition-duration: 260ms;
+  transition-duration: 340ms;
   transition-timing-function: var(--ease-spring);
 }
 
@@ -241,33 +241,33 @@ a {
 }
 
 .ui-btn-glow:active:not(:disabled) {
-  transform: translateY(0) scale(0.975);
+  transform: translateY(0) scale(0.985);
 }
 
 .ui-stagger > * {
-  animation: ui-panel-in 380ms var(--ease-spring) backwards;
+  animation: ui-panel-in 520ms var(--ease-spring) backwards;
 }
 .ui-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.ui-stagger > *:nth-child(2) { animation-delay: 45ms; }
-.ui-stagger > *:nth-child(3) { animation-delay: 90ms; }
-.ui-stagger > *:nth-child(4) { animation-delay: 135ms; }
-.ui-stagger > *:nth-child(5) { animation-delay: 180ms; }
-.ui-stagger > *:nth-child(6) { animation-delay: 225ms; }
+.ui-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.ui-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.ui-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.ui-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.ui-stagger > *:nth-child(6) { animation-delay: 300ms; }
 
 .ui-row-stagger > * {
-  animation: ui-row-in 340ms var(--ease-spring) backwards;
+  animation: ui-row-in 480ms var(--ease-spring) backwards;
 }
 .ui-row-stagger > *:nth-child(1) { animation-delay: 0ms; }
-.ui-row-stagger > *:nth-child(2) { animation-delay: 28ms; }
-.ui-row-stagger > *:nth-child(3) { animation-delay: 56ms; }
-.ui-row-stagger > *:nth-child(4) { animation-delay: 84ms; }
-.ui-row-stagger > *:nth-child(5) { animation-delay: 112ms; }
-.ui-row-stagger > *:nth-child(6) { animation-delay: 140ms; }
-.ui-row-stagger > *:nth-child(7) { animation-delay: 168ms; }
-.ui-row-stagger > *:nth-child(8) { animation-delay: 196ms; }
-.ui-row-stagger > *:nth-child(9) { animation-delay: 224ms; }
-.ui-row-stagger > *:nth-child(10) { animation-delay: 252ms; }
-.ui-row-stagger > *:nth-child(n+11) { animation-delay: 280ms; }
+.ui-row-stagger > *:nth-child(2) { animation-delay: 38ms; }
+.ui-row-stagger > *:nth-child(3) { animation-delay: 76ms; }
+.ui-row-stagger > *:nth-child(4) { animation-delay: 114ms; }
+.ui-row-stagger > *:nth-child(5) { animation-delay: 152ms; }
+.ui-row-stagger > *:nth-child(6) { animation-delay: 190ms; }
+.ui-row-stagger > *:nth-child(7) { animation-delay: 228ms; }
+.ui-row-stagger > *:nth-child(8) { animation-delay: 266ms; }
+.ui-row-stagger > *:nth-child(9) { animation-delay: 304ms; }
+.ui-row-stagger > *:nth-child(10) { animation-delay: 342ms; }
+.ui-row-stagger > *:nth-child(n+11) { animation-delay: 380ms; }
 
 .ui-pulse-ring {
   position: relative;

@@ -383,7 +383,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
               <button
                 key={item.id}
                 onClick={() => setActiveFilter(item.id)}
-                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold ui-press cursor-pointer whitespace-nowrap tabular-nums transition-[background-color,color,border-color,box-shadow,transform] duration-150 ${
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold ui-press cursor-pointer whitespace-nowrap tabular-nums transition-[background-color,color,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${
                   isActive
                     ? 'bg-gradient-to-r from-indigo-600 to-violet-600 text-white shadow-[0_2px_8px_rgba(79,70,229,0.28)] font-bold border border-transparent'
                     : 'bg-slate-50 text-slate-700 hover:bg-slate-100 border border-slate-200/70'
@@ -484,12 +484,12 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                     <tr
                       key={ticket.id}
                       onClick={() => onSelectTicket(ticket)}
-                      className="hover:bg-indigo-50/40 transition-[background-color] duration-150 group cursor-pointer"
+                      className="hover:bg-indigo-50/40 transition-[background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] group cursor-pointer"
                     >
                       {/* Ticket ID */}
                       <td className={`py-3 px-3 xl:px-4 whitespace-nowrap ${getStatusAccentBorder(ticket.status, dueMeta.isOverdue)}`}>
                         <div className="flex items-center space-x-1.5">
-                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-indigo-50/90 text-indigo-700 font-mono font-extrabold text-xs tabular-nums border border-indigo-200/60 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600 transition-[background-color,color,border-color] duration-150">
+                          <span className="inline-flex items-center px-2.5 py-1 rounded-lg bg-indigo-50/90 text-indigo-700 font-mono font-extrabold text-xs tabular-nums border border-indigo-200/60 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600 transition-[background-color,color,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]">
                             #{ticket.ticketNumber}
                           </span>
                           {ticket.priority === 'URGENT' && (
@@ -530,7 +530,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                             {getCustomerInitials(ticket.customer.fullName)}
                           </div>
                           <div className="min-w-0">
-                            <div className="text-[13px] font-bold text-slate-900 group-hover:text-indigo-700 transition-[color] duration-150 leading-tight truncate max-w-[160px]">
+                            <div className="text-[13px] font-bold text-slate-900 group-hover:text-indigo-700 transition-[color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] leading-tight truncate max-w-[160px]">
                               {ticket.customer.fullName}
                             </div>
                             <div className="text-[11px] text-slate-500 font-mono tabular-nums font-medium flex items-center gap-1 mt-0.5">
@@ -545,7 +545,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                       <td className="py-3 px-3 xl:px-4">
                         <div className="flex items-center gap-2.5">
                           <div
-                            className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 shadow-2xs transition-[background-color,border-color] duration-150 ${getDeviceBadgeStyle(
+                            className={`w-8 h-8 rounded-xl border flex items-center justify-center shrink-0 shadow-2xs transition-[background-color,border-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ${getDeviceBadgeStyle(
                               deviceName
                             )}`}
                           >
@@ -591,7 +591,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                       {/* Fault */}
                       <td className="py-3 px-3 xl:px-4">
                         <div className="flex items-start gap-1.5 max-w-[210px] xl:max-w-[240px]">
-                          <Wrench className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-500 mt-0.5 shrink-0 transition-[color] duration-150" />
+                          <Wrench className="w-3.5 h-3.5 text-slate-400 group-hover:text-indigo-500 mt-0.5 shrink-0 transition-[color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]" />
                           <p
                             className="text-slate-700 font-medium text-xs leading-relaxed line-clamp-2 text-pretty"
                             title={ticket.faultDescription}
@@ -617,7 +617,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                         ) : (
                           <div className="inline-flex flex-col">
                             <div className="flex items-center space-x-1.5 text-xs font-semibold text-slate-700 tabular-nums">
-                              <Calendar className="w-3.5 h-3.5 shrink-0 text-slate-400 group-hover:text-indigo-500 transition-[color] duration-150" />
+                              <Calendar className="w-3.5 h-3.5 shrink-0 text-slate-400 group-hover:text-indigo-500 transition-[color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]" />
                               <span>{dueMeta.formattedDate}</span>
                             </div>
                             {dueMeta.relativeLabel && (
@@ -683,7 +683,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                           {/* 1. Message Customer Quick Action */}
                           <button
                             onClick={() => onOpenSmsModal(ticket)}
-                            className="h-8 w-8 inline-flex items-center justify-center text-slate-500 hover:text-blue-700 rounded-xl bg-slate-50/70 group-hover:bg-white hover:bg-blue-50 border border-transparent group-hover:border-slate-200/80 hover:border-blue-200 shadow-none group-hover:shadow-2xs ui-press cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-150"
+                            className="h-8 w-8 inline-flex items-center justify-center text-slate-500 hover:text-blue-700 rounded-xl bg-slate-50/70 group-hover:bg-white hover:bg-blue-50 border border-transparent group-hover:border-slate-200/80 hover:border-blue-200 shadow-none group-hover:shadow-2xs ui-press cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
                             title="Message Customer (SMS)"
                           >
                             <MessageSquare className="w-3.5 h-3.5" />
@@ -692,7 +692,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                           {/* 2. Print Work Order Quick Action */}
                           <button
                             onClick={() => onPrintTicket(ticket)}
-                            className="h-8 w-8 inline-flex items-center justify-center text-slate-500 hover:text-indigo-700 rounded-xl bg-slate-50/70 group-hover:bg-white hover:bg-indigo-50 border border-transparent group-hover:border-slate-200/80 hover:border-indigo-200 shadow-none group-hover:shadow-2xs ui-press cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-150"
+                            className="h-8 w-8 inline-flex items-center justify-center text-slate-500 hover:text-indigo-700 rounded-xl bg-slate-50/70 group-hover:bg-white hover:bg-indigo-50 border border-transparent group-hover:border-slate-200/80 hover:border-indigo-200 shadow-none group-hover:shadow-2xs ui-press cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
                             title="Print Work Order"
                           >
                             <Printer className="w-3.5 h-3.5" />
@@ -705,7 +705,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                 e.stopPropagation();
                                 setOpenMenuTicketId(openMenuTicketId === ticket.id ? null : ticket.id);
                               }}
-                              className="h-8 w-8 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-xl bg-slate-50/70 group-hover:bg-white hover:bg-slate-100 border border-transparent group-hover:border-slate-200/80 shadow-none group-hover:shadow-2xs ui-press cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-150"
+                              className="h-8 w-8 inline-flex items-center justify-center text-slate-400 hover:text-slate-700 rounded-xl bg-slate-50/70 group-hover:bg-white hover:bg-slate-100 border border-transparent group-hover:border-slate-200/80 shadow-none group-hover:shadow-2xs ui-press cursor-pointer transition-[background-color,color,border-color,box-shadow,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
                               title="Change status or delete"
                             >
                               <MoreVertical className="w-3.5 h-3.5" />
@@ -721,7 +721,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                     onUpdateStatus(ticket.id, 'CHECKED_IN');
                                     setOpenMenuTicketId(null);
                                   }}
-                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
+                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-0.5"
                                 >
                                   <span className="w-2 h-2 rounded-full bg-slate-400"></span>
                                   1. Checked In
@@ -731,7 +731,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                     onUpdateStatus(ticket.id, 'DIAGNOSING');
                                     setOpenMenuTicketId(null);
                                   }}
-                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
+                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-0.5"
                                 >
                                   <span className="w-2 h-2 rounded-full bg-blue-500"></span>
                                   2. Diagnosing
@@ -741,7 +741,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                     onUpdateStatus(ticket.id, 'WAITING_ON_APPROVAL');
                                     setOpenMenuTicketId(null);
                                   }}
-                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
+                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-0.5"
                                 >
                                   <span className="w-2 h-2 rounded-full bg-purple-500"></span>
                                   3. Waiting on Approval
@@ -751,7 +751,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                     onUpdateStatus(ticket.id, 'WAITING_ON_PARTS');
                                     setOpenMenuTicketId(null);
                                   }}
-                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
+                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-0.5"
                                 >
                                   <span className="w-2 h-2 rounded-full bg-amber-500"></span>
                                   4. Waiting on Part
@@ -761,7 +761,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                     onUpdateStatus(ticket.id, 'READY_FOR_PICKUP');
                                     setOpenMenuTicketId(null);
                                   }}
-                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
+                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-0.5"
                                 >
                                   <span className="w-2 h-2 rounded-full bg-teal-500"></span>
                                   5. Ready for Pickup
@@ -771,7 +771,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                     onUpdateStatus(ticket.id, 'COMPLETED');
                                     setOpenMenuTicketId(null);
                                   }}
-                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-150 hover:translate-x-0.5"
+                                  className="w-full text-left px-3 py-1.5 text-xs text-slate-700 hover:bg-slate-50 flex items-center gap-2 cursor-pointer font-medium transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-0.5"
                                 >
                                   <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
                                   6. Completed / Paid
@@ -787,7 +787,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                                         setDeletingTicket(ticket);
                                         setOpenMenuTicketId(null);
                                       }}
-                                      className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center justify-between cursor-pointer font-semibold transition-[background-color,transform] duration-150 hover:translate-x-0.5"
+                                      className="w-full text-left px-3 py-1.5 text-xs text-red-600 hover:bg-red-50 flex items-center justify-between cursor-pointer font-semibold transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] hover:translate-x-0.5"
                                     >
                                       <span className="flex items-center gap-2">
                                         <Trash2 className="w-3.5 h-3.5" />
@@ -843,7 +843,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                 <div
                   key={ticket.id}
                   onClick={() => onSelectTicket(ticket)}
-                  className={`p-4 hover:bg-indigo-50/40 active:bg-slate-100 transition-[background-color] duration-150 cursor-pointer space-y-3 ${getStatusAccentBorder(
+                  className={`p-4 hover:bg-indigo-50/40 active:bg-slate-100 transition-[background-color] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] cursor-pointer space-y-3 ${getStatusAccentBorder(
                     ticket.status,
                     dueMeta.isOverdue
                   )}`}
@@ -960,7 +960,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                         <button
                           type="button"
                           onClick={() => setDeletingTicket(ticket)}
-                          className="px-2.5 py-1 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-semibold flex items-center gap-1 cursor-pointer min-h-[34px] transition-[background-color,transform] duration-150 ui-press"
+                          className="px-2.5 py-1 rounded-xl border border-red-200 bg-red-50 text-red-600 hover:bg-red-100 text-xs font-semibold flex items-center gap-1 cursor-pointer min-h-[34px] transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ui-press"
                           title="Delete Ticket (Admin)"
                         >
                           <Trash2 className="w-3 h-3 text-red-600" />
@@ -972,7 +972,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                       <button
                         type="button"
                         onClick={() => onOpenSmsModal(ticket)}
-                        className="px-2.5 py-1 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 text-xs font-semibold flex items-center gap-1 cursor-pointer min-h-[34px] shadow-2xs transition-[background-color,transform] duration-150 ui-press"
+                        className="px-2.5 py-1 rounded-xl border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 text-xs font-semibold flex items-center gap-1 cursor-pointer min-h-[34px] shadow-2xs transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ui-press"
                       >
                         <MessageSquare className="w-3 h-3 text-blue-600" />
                         <span>SMS</span>
@@ -981,7 +981,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                         <button
                           type="button"
                           onClick={() => onQuickComplete(ticket.id)}
-                          className="px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold flex items-center gap-1 cursor-pointer min-h-[34px] shadow-2xs transition-[background-color,transform] duration-150 ui-press"
+                          className="px-2.5 py-1 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 hover:bg-emerald-100 text-xs font-semibold flex items-center gap-1 cursor-pointer min-h-[34px] shadow-2xs transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ui-press"
                         >
                           <Check className="w-3 h-3 text-emerald-600" />
                           <span>Complete</span>
@@ -990,7 +990,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
                       <button
                         type="button"
                         onClick={() => onSelectTicket(ticket)}
-                        className="px-3 py-1 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 cursor-pointer min-h-[34px] shadow-xs transition-[background-color,transform] duration-150 ui-press"
+                        className="px-3 py-1 rounded-xl bg-indigo-600 text-white text-xs font-bold hover:bg-indigo-700 cursor-pointer min-h-[34px] shadow-xs transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] ui-press"
                       >
                         Open &rarr;
                       </button>
@@ -1015,7 +1015,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
               type="button"
               disabled={pagination.page <= 1}
               onClick={() => onPageChange(pagination.page - 1)}
-              className="flex-1 sm:flex-initial justify-center min-h-[38px] inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold ui-press cursor-pointer transition-[background-color,transform] duration-150"
+              className="flex-1 sm:flex-initial justify-center min-h-[38px] inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold ui-press cursor-pointer transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
               <span>Previous</span>
@@ -1024,7 +1024,7 @@ export const TicketTable: React.FC<TicketTableProps> = ({
               type="button"
               disabled={!pagination.hasMore}
               onClick={() => onPageChange(pagination.page + 1)}
-              className="flex-1 sm:flex-initial justify-center min-h-[38px] inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold ui-press cursor-pointer transition-[background-color,transform] duration-150"
+              className="flex-1 sm:flex-initial justify-center min-h-[38px] inline-flex items-center gap-1 px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100 disabled:opacity-40 disabled:cursor-not-allowed text-slate-700 font-bold ui-press cursor-pointer transition-[background-color,transform] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
             >
               <span>Next</span>
               <ChevronRight className="w-3.5 h-3.5" />

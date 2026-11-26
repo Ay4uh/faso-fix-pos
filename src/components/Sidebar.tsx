@@ -169,13 +169,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   const modalTheme = PROFILE_THEMES.find((t) => t.id === themeId) || PROFILE_THEMES[0];
 
+  const navLabelCls =
+    'flex-1 flex items-center justify-between ml-3 opacity-0 -translate-x-1 group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[opacity,transform] duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)] pointer-events-none';
+
   return (
     <>
-      <aside className="group/sidebar w-[68px] hover:w-64 shrink-0 bg-slate-50/95 backdrop-blur-xs border-r border-slate-200/90 flex flex-col justify-between select-none z-30 shadow-[1px_0_3px_rgba(0,0,0,0.02)] hover:shadow-xl hover:shadow-slate-900/5 h-[calc(100vh-64px)] sticky top-16 overflow-hidden transition-[width,box-shadow] duration-[380ms] ease-[cubic-bezier(0.16,1,0.3,1)]">
+      <aside className="group/sidebar fixed top-16 left-0 h-[calc(100vh-64px)] w-[68px] hover:w-64 bg-slate-50/95 backdrop-blur-md border-r border-slate-200/90 flex flex-col justify-between select-none z-30 shadow-[1px_0_3px_rgba(0,0,0,0.02)] hover:shadow-2xl hover:shadow-slate-900/10 overflow-hidden transition-[width,box-shadow] duration-[520ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-[width]">
         {/* Top Navigation */}
         <div className="overflow-y-auto overflow-x-hidden flex-1">
-          <nav className="p-3 space-y-1.5">
-            <div className="px-2.5 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap overflow-hidden opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
+          <nav className="p-3 space-y-1.5 w-64">
+            <div className="px-2.5 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)]">
               Workspace
             </div>
 
@@ -183,75 +186,69 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={() => setCurrentTab('repairs')}
               title="Dashboard"
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
+              className={`w-full flex items-center px-3 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
                 currentTab === 'repairs'
                   ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/90'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
-              <div className="flex items-center min-w-0">
-                <LayoutDashboard
-                  className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 ${
-                    currentTab === 'repairs' ? 'text-indigo-600' : 'text-slate-500'
+              <LayoutDashboard
+                className={`w-4 h-4 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 ${
+                  currentTab === 'repairs' ? 'text-indigo-600' : 'text-slate-500'
+                }`}
+              />
+              <div className={navLabelCls}>
+                <span className="whitespace-nowrap">Dashboard</span>
+                <span
+                  className={`text-[11px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 ${
+                    currentTab === 'repairs' ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200/80 text-slate-700'
                   }`}
-                />
-                <span className="ml-3 max-w-0 opacity-0 -translate-x-1 overflow-hidden whitespace-nowrap group-hover/sidebar:max-w-[140px] group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[max-width,opacity,transform] duration-[340ms] ease-[cubic-bezier(0.16,1,0.3,1)]">
-                  Dashboard
+                >
+                  {stats?.totalActive ?? 0}
                 </span>
               </div>
-              <span
-                className={`text-[11px] px-2 py-0.5 rounded-full font-bold tabular-nums shrink-0 opacity-0 scale-90 max-w-0 overflow-hidden group-hover/sidebar:opacity-100 group-hover/sidebar:scale-100 group-hover/sidebar:max-w-[60px] transition-[opacity,transform,max-width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] ${
-                  currentTab === 'repairs' ? 'bg-indigo-100 text-indigo-800' : 'bg-slate-200/80 text-slate-700'
-                }`}
-              >
-                {stats?.totalActive ?? 0}
-              </span>
             </button>
 
             {/* 2. Customers */}
             <button
               onClick={() => setCurrentTab('customers')}
               title="Customers"
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
+              className={`w-full flex items-center px-3 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
                 currentTab === 'customers'
                   ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/90'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
-              <div className="flex items-center min-w-0">
-                <Users
-                  className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 ${
-                    currentTab === 'customers' ? 'text-indigo-600' : 'text-slate-500'
-                  }`}
-                />
-                <span className="ml-3 max-w-0 opacity-0 -translate-x-1 overflow-hidden whitespace-nowrap group-hover/sidebar:max-w-[140px] group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[max-width,opacity,transform] duration-[340ms] ease-[cubic-bezier(0.16,1,0.3,1)]">
-                  Customers
+              <Users
+                className={`w-4 h-4 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 ${
+                  currentTab === 'customers' ? 'text-indigo-600' : 'text-slate-500'
+                }`}
+              />
+              <div className={navLabelCls}>
+                <span className="whitespace-nowrap">Customers</span>
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 font-semibold tabular-nums shrink-0">
+                  {stats?.customerCount ?? 0}
                 </span>
               </div>
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 font-semibold tabular-nums shrink-0 opacity-0 scale-90 max-w-0 overflow-hidden group-hover/sidebar:opacity-100 group-hover/sidebar:scale-100 group-hover/sidebar:max-w-[60px] transition-[opacity,transform,max-width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
-                {stats?.customerCount ?? 0}
-              </span>
             </button>
 
             {/* 3. Analytics */}
             <button
               onClick={() => setCurrentTab('analytics')}
               title="Analytics"
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
+              className={`w-full flex items-center px-3 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
                 currentTab === 'analytics'
                   ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/90'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
-              <div className="flex items-center min-w-0">
-                <BarChart3
-                  className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 ${
-                    currentTab === 'analytics' ? 'text-indigo-600' : 'text-slate-500'
-                  }`}
-                />
-                <span className="ml-3 max-w-0 opacity-0 -translate-x-1 overflow-hidden whitespace-nowrap group-hover/sidebar:max-w-[140px] group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[max-width,opacity,transform] duration-[340ms] ease-[cubic-bezier(0.16,1,0.3,1)]">
-                  Analytics
-                </span>
+              <BarChart3
+                className={`w-4 h-4 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 ${
+                  currentTab === 'analytics' ? 'text-indigo-600' : 'text-slate-500'
+                }`}
+              />
+              <div className={navLabelCls}>
+                <span className="whitespace-nowrap">Analytics</span>
               </div>
             </button>
 
@@ -259,21 +256,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={() => setCurrentTab('settings')}
               title="Settings"
-              className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
+              className={`w-full flex items-center px-3 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
                 currentTab === 'settings'
                   ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/90'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
-              <div className="flex items-center min-w-0">
-                <Settings
-                  className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 ${
-                    currentTab === 'settings' ? 'text-indigo-600' : 'text-slate-500'
-                  }`}
-                />
-                <span className="ml-3 max-w-0 opacity-0 -translate-x-1 overflow-hidden whitespace-nowrap group-hover/sidebar:max-w-[140px] group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[max-width,opacity,transform] duration-[340ms] ease-[cubic-bezier(0.16,1,0.3,1)]">
-                  Settings
-                </span>
+              <Settings
+                className={`w-4 h-4 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 ${
+                  currentTab === 'settings' ? 'text-indigo-600' : 'text-slate-500'
+                }`}
+              />
+              <div className={navLabelCls}>
+                <span className="whitespace-nowrap">Settings</span>
               </div>
             </button>
 
@@ -282,32 +277,30 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={() => setCurrentTab('admin')}
                 title="Admin Console"
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
+                className={`w-full flex items-center px-3 py-2.5 rounded-2xl text-xs font-bold ui-press group cursor-pointer ${
                   currentTab === 'admin'
                     ? 'bg-purple-600 text-white shadow-xs'
                     : 'text-purple-700 hover:bg-purple-50'
                 }`}
               >
-                <div className="flex items-center min-w-0">
-                  <ShieldAlert
-                    className={`w-4 h-4 shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:scale-105 ${
-                      currentTab === 'admin' ? 'text-purple-200' : 'text-purple-600'
-                    }`}
-                  />
-                  <span className="ml-3 max-w-0 opacity-0 -translate-x-1 overflow-hidden whitespace-nowrap group-hover/sidebar:max-w-[140px] group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[max-width,opacity,transform] duration-[340ms] ease-[cubic-bezier(0.16,1,0.3,1)]">
-                    Admin Console
+                <ShieldAlert
+                  className={`w-4 h-4 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.3,1)] group-hover:scale-105 ${
+                    currentTab === 'admin' ? 'text-purple-200' : 'text-purple-600'
+                  }`}
+                />
+                <div className={navLabelCls}>
+                  <span className="whitespace-nowrap">Admin Console</span>
+                  <span className="text-[9px] px-2 py-0.5 rounded-full bg-purple-600 text-white font-bold uppercase shrink-0">
+                    Admin
                   </span>
                 </div>
-                <span className="text-[9px] px-2 py-0.5 rounded-full bg-purple-600 text-white font-bold uppercase shrink-0 opacity-0 scale-90 max-w-0 overflow-hidden group-hover/sidebar:opacity-100 group-hover/sidebar:scale-100 group-hover/sidebar:max-w-[60px] transition-[opacity,transform,max-width] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]">
-                  Admin
-                </span>
               </button>
             )}
           </nav>
         </div>
 
         {/* Bottom Auth & Click-to-Edit Social Profile Section */}
-        <div className="p-3 border-t border-slate-200 bg-white space-y-2">
+        <div className="p-3 border-t border-slate-200 bg-white space-y-2 w-64">
           {currentUser ? (
             <div className="space-y-2">
               {/* Clickable Profile Card (Instagram / WhatsApp style) */}
@@ -315,34 +308,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 type="button"
                 onClick={() => setIsProfileModalOpen(true)}
                 title="Click to edit your profile, photo & bio"
-                className={`w-full text-left p-1.5 rounded-2xl border transition-[background-color,border-color,box-shadow] duration-300 group/profile cursor-pointer ui-press ${
+                className={`w-full text-left p-1.5 rounded-2xl border transition-[background-color,border-color,box-shadow] duration-[420ms] group/profile cursor-pointer ui-press ${
                   isAdmin
                     ? 'bg-purple-50/70 hover:bg-purple-100/70 text-purple-950 border-purple-200/90 shadow-xs'
                     : 'bg-slate-50 hover:bg-slate-100 text-slate-900 border-slate-200'
                 }`}
               >
-                <div className="flex items-center justify-between min-w-0">
-                  <div className="flex items-center min-w-0">
-                    <div className="relative shrink-0">
-                      <div className={`w-8 h-8 rounded-full p-[1.5px] bg-gradient-to-tr ${activeTheme.ring} shadow-xs`}>
-                        {savedAvatarUrl ? (
-                          <img
-                            src={savedAvatarUrl}
-                            alt={currentUser.name}
-                            className="w-full h-full rounded-full object-cover bg-white"
-                          />
-                        ) : (
-                          <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-xs font-extrabold text-slate-800">
-                            {currentUser.name.charAt(0).toUpperCase()}
-                          </div>
-                        )}
-                      </div>
-                      <span
-                        className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white absolute -bottom-0.5 -right-0.5"
-                        title="Online • Click to edit profile"
-                      />
+                <div className="flex items-center min-w-0">
+                  <div className="relative shrink-0">
+                    <div className={`w-8 h-8 rounded-full p-[1.5px] bg-gradient-to-tr ${activeTheme.ring} shadow-xs`}>
+                      {savedAvatarUrl ? (
+                        <img
+                          src={savedAvatarUrl}
+                          alt={currentUser.name}
+                          className="w-full h-full rounded-full object-cover bg-white"
+                        />
+                      ) : (
+                        <div className="w-full h-full rounded-full bg-white flex items-center justify-center text-xs font-extrabold text-slate-800">
+                          {currentUser.name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
                     </div>
-                    <div className="ml-2.5 max-w-0 opacity-0 -translate-x-1 overflow-hidden whitespace-nowrap group-hover/sidebar:max-w-[130px] group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[max-width,opacity,transform] duration-[340ms] ease-[cubic-bezier(0.16,1,0.3,1)]">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full bg-emerald-500 ring-2 ring-white absolute -bottom-0.5 -right-0.5"
+                      title="Online • Click to edit profile"
+                    />
+                  </div>
+                  <div className="flex-1 flex items-center justify-between min-w-0 ml-2.5 opacity-0 -translate-x-1 group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[opacity,transform] duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)]">
+                    <div className="min-w-0 pr-2">
                       <p className="text-xs font-bold truncate text-slate-900">{currentUser.name}</p>
                       <p
                         className={`text-[10px] truncate ${
@@ -352,10 +345,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         {currentUser.bio || (isAdmin ? 'Administrator' : currentUser.bench || 'Technician')}
                       </p>
                     </div>
+                    <span className="pr-1 text-slate-400 group-hover/profile:text-indigo-600 shrink-0">
+                      <Pencil className="w-3.5 h-3.5" />
+                    </span>
                   </div>
-                  <span className="opacity-0 max-w-0 overflow-hidden group-hover/sidebar:opacity-100 group-hover/sidebar:max-w-[28px] transition-[opacity,max-width] duration-300 pr-1 text-slate-400 group-hover/profile:text-indigo-600 shrink-0">
-                    <Pencil className="w-3.5 h-3.5" />
-                  </span>
                 </div>
               </button>
 
@@ -370,8 +363,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title="Sign out of current account"
                 className="w-full py-2.5 px-3 bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 rounded-xl text-xs font-bold ui-press flex items-center cursor-pointer shadow-2xs group"
               >
-                <LogOut className="w-4 h-4 text-rose-600 shrink-0 transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] group-hover:-translate-x-0.5" />
-                <span className="ml-3 max-w-0 opacity-0 -translate-x-1 overflow-hidden whitespace-nowrap group-hover/sidebar:max-w-[100px] group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[max-width,opacity,transform] duration-[340ms] ease-[cubic-bezier(0.16,1,0.3,1)]">
+                <LogOut className="w-4 h-4 text-rose-600 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:-translate-x-0.5" />
+                <span className="ml-3 whitespace-nowrap opacity-0 -translate-x-1 group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[opacity,transform] duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)]">
                   Log Out
                 </span>
               </button>
@@ -385,7 +378,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 className="w-full py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-xl text-xs font-bold ui-press flex items-center cursor-pointer"
               >
                 <LogOut className="w-3.5 h-3.5 text-slate-500 shrink-0" />
-                <span className="ml-3 max-w-0 opacity-0 -translate-x-1 overflow-hidden whitespace-nowrap group-hover/sidebar:max-w-[100px] group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[max-width,opacity,transform] duration-[340ms] ease-[cubic-bezier(0.16,1,0.3,1)]">
+                <span className="ml-3 whitespace-nowrap opacity-0 -translate-x-1 group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[opacity,transform] duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)]">
                   Exit to Login
                 </span>
               </button>
@@ -399,7 +392,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <div className="w-7 h-7 rounded-xl bg-purple-100 border border-purple-200 text-purple-700 flex items-center justify-center shrink-0">
                   <Lock className="w-3.5 h-3.5" />
                 </div>
-                <div className="ml-2.5 max-w-0 opacity-0 -translate-x-1 overflow-hidden whitespace-nowrap group-hover/sidebar:max-w-[130px] group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[max-width,opacity,transform] duration-[340ms] ease-[cubic-bezier(0.16,1,0.3,1)] text-left">
+                <div className="ml-2.5 whitespace-nowrap opacity-0 -translate-x-1 group-hover/sidebar:opacity-100 group-hover/sidebar:translate-x-0 transition-[opacity,transform] duration-[460ms] ease-[cubic-bezier(0.22,1,0.36,1)] text-left">
                   <div className="text-xs font-extrabold text-purple-900 flex items-center gap-1">
                     <span>Admin Login</span>
                     <Shield className="w-3 h-3 text-purple-700" />
