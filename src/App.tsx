@@ -1134,10 +1134,12 @@ export function App() {
             currentUser={currentUser}
             onOpenAdminLogin={() => setIsAdminLoginModalOpen(true)}
             onLogout={handleLogout}
-            openCreateModal={() => setIsCreateModalOpen(true)}
-            onOpenTimeClock={() => {
-              setTimeClockInitialTab('clock');
-              setIsTimeClockModalOpen(true);
+            onUserUpdated={(u) => {
+              setCurrentUser(u);
+              try {
+                localStorage.setItem('apexfix_cached_user', JSON.stringify(u));
+              } catch {}
+              showToast('✨ Profile updated');
             }}
           />
         </div>
