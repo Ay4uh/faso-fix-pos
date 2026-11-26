@@ -307,6 +307,32 @@ a {
 .ui-row-stagger > *:nth-child(10) { animation-delay: 342ms; }
 .ui-row-stagger > *:nth-child(n+11) { animation-delay: 380ms; }
 
+.ui-sidebar-rail {
+  width: 68px;
+  transition:
+    width 460ms cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 460ms cubic-bezier(0.22, 1, 0.36, 1);
+  will-change: width;
+}
+
+.ui-sidebar-rail:hover {
+  width: 256px;
+}
+
+.ui-sidebar-label {
+  opacity: 0;
+  transform: translate3d(-6px, 0, 0);
+  transition:
+    opacity 320ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 420ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ui-sidebar-rail:hover .ui-sidebar-label {
+  opacity: 1;
+  transform: translate3d(0, 0, 0);
+  transition-delay: 50ms;
+}
+
 .ui-pulse-ring {
   position: relative;
 }
