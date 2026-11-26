@@ -452,15 +452,15 @@ export const Header: React.FC<HeaderProps> = ({
             <Search className="w-4 h-4" />
           </button>
 
-          {/* New Ticket Button */}
+          {/* New Ticket Button with 5-Second Periodic Round Highlight Beacon */}
           <button
             type="button"
             onClick={openCreateModal}
             aria-label="New Ticket"
             title="Create New Ticket (Hotkey: N)"
-            className="h-9 inline-flex items-center justify-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 text-white px-3 lg:px-4 rounded-xl text-xs font-bold shadow-sm shadow-indigo-600/30 ui-press ui-btn-glow group cursor-pointer shrink-0"
+            className="h-9 inline-flex items-center justify-center gap-1.5 bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-700 hover:to-violet-700 active:from-indigo-800 active:to-violet-800 text-white px-3 lg:px-4 rounded-xl text-xs font-bold ui-press ui-btn-glow ui-new-ticket-beacon group cursor-pointer shrink-0"
           >
-            <Plus className="w-4 h-4 transition-transform duration-200 group-hover:rotate-90" />
+            <Plus className="w-4 h-4 ui-new-ticket-plus transition-transform duration-300 group-hover:rotate-90" />
             <span className="hidden lg:inline">New Ticket</span>
           </button>
 
