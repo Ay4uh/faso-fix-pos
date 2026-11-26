@@ -1149,7 +1149,14 @@ export function App() {
           {currentTab === 'repairs' && (
             <div className="space-y-5">
               {/* Quick KPI Overview */}
-              <MetricCards stats={stats} />
+              <MetricCards
+                stats={stats}
+                tickets={tickets}
+                onSelectFilter={(f) => {
+                  setTicketsPage(1);
+                  setActiveFilter(f);
+                }}
+              />
 
               {/* Main Ticket Queue Table */}
               <TicketTable

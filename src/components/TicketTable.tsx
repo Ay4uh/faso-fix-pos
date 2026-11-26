@@ -25,6 +25,8 @@ import {
   Lock,
   Sparkles,
   Layers,
+  Search,
+  ArrowUpDown,
 } from 'lucide-react';
 import { deriveTicketQuoteState, isTicketPaidInFull } from '../utils/repairPricing';
 import { ConfirmDialog } from './ConfirmDialog';
@@ -337,7 +339,37 @@ export const TicketTable: React.FC<TicketTableProps> = ({
     return tStatus === filterId;
   };
 
-  const filteredTickets = tickets.filter((t) => statusMatches(t.status, activeFilter));
+  const [tableSearch, setTableSearch] = useState('');
+  const [sortKey, setSortKey] = useState<'urgency' | 'due' | 'total' | 'number'>('urgency');
+
+  const statusFiltered = tickets.filter((t) => statusMatches(t.status, activeFilter));
+  const q = tableSearch.trim().toLowerCase();
+  const searched = q
+    ? statusFiltered.filter((t) =>
+        [
+          String(t.ticketNumber),
+          t.customer?.fullName,
+          t.customer?.phone,
+          t.device?.name,
+          t.device?.serialNumber,
+          t.faultDescription,
+        ]
+          .filter(Boolean)
+          .some((v) => String(v).toLowerCase().includes(q))
+      )
+    : statusFiltered;
+
+  const dueMs = (t: Ticket) => (t.dueDate ? new Date(t.dueDate).getTime() : Number.MAX_SAFE_INTEGER);
+  const filteredTickets = [...searched].sort((a, b) => {
+    if (sortKey === 'number') return b.ticketNumber - a.ticketNumber;
+    if (sortKey === 'total') return (b.totals?.totalCents ?? b.laborCents) - (a.totals?.totalCents ?? a.laborCents);
+    if (sortKey === 'due') return dueMs(a) - dueMs(b);
+    // urgency: active first, then soonest due, terminal last
+    const aT = TERMINAL_STATUSES.has(a.status) ? 1 : 0;
+    const bT = TERMINAL_STATUSES.has(b.status) ? 1 : 0;
+    if (aT !== bT) return aT - bT;
+    return dueMs(a) - dueMs(b);
+  });
 
   const filterPills = [
     { id: 'ALL', label: 'All', dotClass: 'bg-indigo-500', count: stats?.totalTickets },
@@ -394,8 +426,32 @@ export const TicketTable: React.FC<TicketTableProps> = ({
           })}
         </div>
 
-        <div className="flex items-center space-x-2 text-xs text-slate-600 font-medium whitespace-nowrap shrink-0">
-          <span className="px-2.5 py-1 rounded-xl bg-slate-50 text-slate-600 font-medium border border-slate-200/70 tabular-nums">
+        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-600 font-medium shrink-0">
+          <div className="relative">
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={tableSearch}
+              onChange={(e) => setTableSearch(e.target.value)}
+              placeholder="Filter name, phone, device…"
+              className="pl-8 pr-3 py-1.5 w-48 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-800 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:bg-white transition-[background-color,box-shadow] duration-150"
+            />
+          </div>
+          <div className="relative">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value as typeof sortKey)}
+              className="pl-8 pr-3 py-1.5 rounded-xl bg-slate-50 border border-slate-200/80 text-xs font-semibold text-slate-700 cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-300"
+              aria-label="Sort tickets"
+            >
+              <option value="urgency">Most urgent</option>
+              <option value="due">Due date</option>
+              <option value="total">Highest total</option>
+              <option value="number">Newest ticket</option>
+            </select>
+          </div>
+          <span className="px-2.5 py-1 rounded-xl bg-slate-50 text-slate-600 font-medium border border-slate-200/70 tabular-nums whitespace-nowrap">
             Showing <strong className="text-indigo-600 font-black">{filteredTickets.length}</strong> of {totalTicketsCount} tickets
           </span>
         </div>
