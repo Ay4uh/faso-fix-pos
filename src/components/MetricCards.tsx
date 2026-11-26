@@ -37,13 +37,13 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ stats, tickets = [], o
   ).length;
 
   const cardBase =
-    'text-left w-full bg-white p-3.5 sm:p-5 rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-lg ui-card-lift group flex items-center justify-between gap-2 min-w-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400';
-  const labelCls = 'font-semibold text-slate-500 uppercase tracking-wider text-[10px] sm:text-[11px] leading-tight';
+    'text-left w-full bg-white px-3 py-2.5 sm:px-4 sm:py-3 rounded-2xl border border-slate-200/90 shadow-xs hover:shadow-lg ui-card-lift group flex items-center justify-between gap-2 min-w-0 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400';
+  const labelCls = 'font-semibold text-slate-500 uppercase tracking-wider text-[10px] leading-tight';
   const iconBox =
-    'w-9 h-9 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl border flex items-center justify-center shadow-xs shrink-0 ui-icon-spring';
+    'w-8 h-8 sm:w-9 sm:h-9 rounded-xl border flex items-center justify-center shadow-xs shrink-0 ui-icon-spring';
 
   return (
-    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4 ui-stagger">
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 sm:gap-3 ui-stagger">
       {/* 1. Active Work Orders */}
       <button
         type="button"
@@ -52,13 +52,13 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ stats, tickets = [], o
       >
         <div className="min-w-0">
           <p className={labelCls}>Active Work Orders</p>
-          <h3 className="text-2xl sm:text-3xl font-extrabold text-indigo-600 mt-1 font-mono tabular-nums tracking-tight">
+          <h3 className="text-lg sm:text-xl font-extrabold text-indigo-600 mt-0.5 font-mono tabular-nums tracking-tight">
             <AnimatedNumber value={activeCount} />
           </h3>
           <p className="text-[10px] sm:text-[11px] text-slate-600 font-medium mt-0.5 truncate">On the bench right now</p>
         </div>
         <div className={`${iconBox} bg-indigo-50 border-indigo-100 text-indigo-600`}>
-          <Cpu className="w-4 h-4 sm:w-5 sm:h-5" />
+          <Cpu className="w-4 h-4" />
         </div>
       </button>
 
@@ -74,7 +74,7 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ stats, tickets = [], o
       >
         <div className="min-w-0">
           <p className={labelCls}>Due Today</p>
-          <h3 className="text-2xl sm:text-3xl font-extrabold text-amber-600 mt-1 font-mono tabular-nums tracking-tight">
+          <h3 className="text-lg sm:text-xl font-extrabold text-amber-600 mt-0.5 font-mono tabular-nums tracking-tight">
             <AnimatedNumber value={dueToday} />
           </h3>
           <p
@@ -90,7 +90,7 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ stats, tickets = [], o
             overdue > 0 ? 'bg-rose-50 border-rose-100 text-rose-600' : 'bg-amber-50 border-amber-100 text-amber-600'
           }`}
         >
-          <AlarmClock className="w-4 h-4 sm:w-5 sm:h-5" />
+          <AlarmClock className="w-4 h-4" />
         </div>
       </button>
 
@@ -102,7 +102,7 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ stats, tickets = [], o
       >
         <div className="min-w-0">
           <p className={labelCls}>Unpaid Balances</p>
-          <h3 className="text-2xl sm:text-3xl font-extrabold text-violet-600 mt-1 font-mono tabular-nums tracking-tight truncate">
+          <h3 className="text-lg sm:text-xl font-extrabold text-violet-600 mt-0.5 font-mono tabular-nums tracking-tight truncate">
             ${(unpaidCents / 100).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
           </h3>
           <p className="text-[10px] sm:text-[11px] text-slate-600 font-medium mt-0.5 truncate">
@@ -110,7 +110,7 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ stats, tickets = [], o
           </p>
         </div>
         <div className={`${iconBox} bg-violet-50 border-violet-100 text-violet-600`}>
-          <Wallet className="w-4 h-4 sm:w-5 sm:h-5" />
+          <Wallet className="w-4 h-4" />
         </div>
       </button>
 
@@ -122,13 +122,13 @@ export const MetricCards: React.FC<MetricCardsProps> = ({ stats, tickets = [], o
       >
         <div className="min-w-0">
           <p className={labelCls}>Ready for Pickup</p>
-          <h3 className="text-2xl sm:text-3xl font-extrabold text-teal-600 mt-1 font-mono tabular-nums tracking-tight">
+          <h3 className="text-lg sm:text-xl font-extrabold text-teal-600 mt-0.5 font-mono tabular-nums tracking-tight">
             <AnimatedNumber value={readyPickup} />
           </h3>
           <p className="text-[10px] sm:text-[11px] text-teal-700 font-medium mt-0.5 truncate">Tap to view &amp; notify</p>
         </div>
         <div className={`${iconBox} bg-teal-50 border-teal-100 text-teal-600`}>
-          <CheckCircle2 className="w-4 h-4 sm:w-5 sm:h-5" />
+          <CheckCircle2 className="w-4 h-4" />
         </div>
       </button>
     </div>
