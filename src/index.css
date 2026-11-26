@@ -125,42 +125,41 @@ a {
   }
 }
 
-@keyframes ui-ticket-beacon-ring {
-  0% {
-    transform: scale(0.98, 0.98);
-    opacity: 0;
-  }
-  4% {
-    opacity: 0.9;
-  }
-  24% {
-    transform: scale(1.22, 1.55);
-    opacity: 0;
-  }
-  100% {
-    transform: scale(1.22, 1.55);
-    opacity: 0;
-  }
+@property --story-angle {
+  syntax: '<angle>';
+  initial-value: 0deg;
+  inherits: false;
 }
 
-@keyframes ui-ticket-beacon-glow {
-  0%, 28%, 100% {
-    box-shadow: 0 2px 8px -1px rgba(79, 70, 229, 0.32), 0 0 0 0 rgba(99, 102, 241, 0);
+@keyframes ui-story-ring-spin {
+  0% {
+    --story-angle: 0deg;
+    opacity: 0.95;
+    filter: hue-rotate(0deg);
   }
-  10% {
-    box-shadow: 0 6px 20px -2px rgba(79, 70, 229, 0.58), 0 0 0 5px rgba(99, 102, 241, 0.24);
+  45% {
+    --story-angle: 360deg;
+    opacity: 1;
+    filter: hue-rotate(45deg);
+  }
+  55%, 92% {
+    --story-angle: 360deg;
+    opacity: 0.85;
+    filter: hue-rotate(0deg);
+  }
+  100% {
+    --story-angle: 360deg;
+    opacity: 0.95;
+    filter: hue-rotate(0deg);
   }
 }
 
 @keyframes ui-ticket-plus-spin {
   0% {
-    transform: rotate(0deg) scale(1);
+    transform: rotate(0deg);
   }
-  12% {
-    transform: rotate(90deg) scale(1.16);
-  }
-  24%, 100% {
-    transform: rotate(90deg) scale(1);
+  30%, 100% {
+    transform: rotate(90deg);
   }
 }
 
@@ -324,17 +323,30 @@ a {
 
 .ui-new-ticket-beacon {
   position: relative;
-  animation: ui-ticket-beacon-glow 5s var(--ease-spring) infinite;
 }
 
 .ui-new-ticket-beacon::after {
   content: '';
   position: absolute;
-  inset: -2px;
-  border-radius: inherit;
-  border: 2px solid rgba(99, 102, 241, 0.78);
+  inset: -4px;
+  border-radius: 15px;
+  padding: 2.5px;
+  background: conic-gradient(
+    from var(--story-angle, 0deg),
+    #feda75,
+    #fa7e1e,
+    #d62976,
+    #962fbf,
+    #4f5bd5,
+    #06b6d4,
+    #d62976,
+    #feda75
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
   pointer-events: none;
-  animation: ui-ticket-beacon-ring 5s var(--ease-spring) infinite;
+  animation: ui-story-ring-spin 5s cubic-bezier(0.22, 1, 0.36, 1) infinite;
 }
 
 .ui-new-ticket-plus {
