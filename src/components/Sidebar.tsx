@@ -170,11 +170,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const modalTheme = PROFILE_THEMES.find((t) => t.id === themeId) || PROFILE_THEMES[0];
 
   const navLabelCls =
-    'ui-sidebar-label flex-1 flex items-center justify-between ml-3 min-w-0 pointer-events-none';
+    'ui-sidebar-label w-[176px] shrink-0 flex items-center justify-between ml-3 pointer-events-none';
+  const navBtnBase =
+    'w-full h-11 flex items-center px-[13px] rounded-2xl text-xs font-bold cursor-pointer overflow-hidden transition-colors duration-200';
 
   return (
     <>
-      <aside className="group/sidebar ui-sidebar-rail sticky top-16 h-[calc(100vh-64px)] shrink-0 bg-slate-50/95 backdrop-blur-md border-r border-slate-200/90 flex flex-col justify-between select-none z-20 shadow-[1px_0_3px_rgba(0,0,0,0.02)] overflow-hidden">
+      <aside className="group/sidebar ui-sidebar-rail sticky top-16 h-[calc(100vh-64px)] shrink-0 bg-slate-50 border-r border-slate-200/90 flex flex-col justify-between select-none z-20 overflow-hidden">
         {/* Top Navigation */}
         <div className="overflow-y-auto overflow-x-hidden flex-1">
           <nav className="p-3 space-y-1.5">
@@ -186,14 +188,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={() => setCurrentTab('repairs')}
               title="Dashboard"
-              className={`w-full h-11 flex items-center px-[13px] rounded-2xl text-xs font-bold ui-press group cursor-pointer overflow-hidden ${
+              className={`${navBtnBase} ${
                 currentTab === 'repairs'
                   ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/90'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
               <LayoutDashboard
-                className={`w-4 h-4 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 ${
+                className={`w-4 h-4 shrink-0 ${
                   currentTab === 'repairs' ? 'text-indigo-600' : 'text-slate-500'
                 }`}
               />
@@ -213,14 +215,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={() => setCurrentTab('customers')}
               title="Customers"
-              className={`w-full h-11 flex items-center px-[13px] rounded-2xl text-xs font-bold ui-press group cursor-pointer overflow-hidden ${
+              className={`${navBtnBase} ${
                 currentTab === 'customers'
                   ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/90'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
               <Users
-                className={`w-4 h-4 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 ${
+                className={`w-4 h-4 shrink-0 ${
                   currentTab === 'customers' ? 'text-indigo-600' : 'text-slate-500'
                 }`}
               />
@@ -236,14 +238,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={() => setCurrentTab('analytics')}
               title="Analytics"
-              className={`w-full h-11 flex items-center px-[13px] rounded-2xl text-xs font-bold ui-press group cursor-pointer overflow-hidden ${
+              className={`${navBtnBase} ${
                 currentTab === 'analytics'
                   ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/90'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
               <BarChart3
-                className={`w-4 h-4 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 ${
+                className={`w-4 h-4 shrink-0 ${
                   currentTab === 'analytics' ? 'text-indigo-600' : 'text-slate-500'
                 }`}
               />
@@ -256,14 +258,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <button
               onClick={() => setCurrentTab('settings')}
               title="Settings"
-              className={`w-full h-11 flex items-center px-[13px] rounded-2xl text-xs font-bold ui-press group cursor-pointer overflow-hidden ${
+              className={`${navBtnBase} ${
                 currentTab === 'settings'
                   ? 'bg-white text-indigo-700 shadow-xs border border-slate-200/90'
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
               <Settings
-                className={`w-4 h-4 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:scale-105 ${
+                className={`w-4 h-4 shrink-0 ${
                   currentTab === 'settings' ? 'text-indigo-600' : 'text-slate-500'
                 }`}
               />
@@ -277,14 +279,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <button
                 onClick={() => setCurrentTab('admin')}
                 title="Admin Console"
-                className={`w-full h-11 flex items-center px-[13px] rounded-2xl text-xs font-bold ui-press group cursor-pointer overflow-hidden border ${
+                className={`${navBtnBase} border ${
                   currentTab === 'admin'
                     ? 'bg-purple-600 text-white shadow-xs border-purple-600'
                     : 'text-purple-700 hover:bg-purple-50 border-transparent'
                 }`}
               >
                 <ShieldAlert
-                  className={`w-4 h-4 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.3,1)] group-hover:scale-105 ${
+                  className={`w-4 h-4 shrink-0 ${
                     currentTab === 'admin' ? 'text-purple-200' : 'text-purple-600'
                   }`}
                 />
@@ -308,7 +310,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 type="button"
                 onClick={() => setIsProfileModalOpen(true)}
                 title="Click to edit your profile, photo & bio"
-                className={`w-full h-11 text-left p-[5px] rounded-2xl border flex items-center overflow-hidden transition-[background-color,border-color,box-shadow] duration-[420ms] group/profile cursor-pointer ui-press ${
+                className={`w-full h-11 text-left p-[5px] rounded-2xl border flex items-center overflow-hidden transition-colors duration-200 group/profile cursor-pointer ${
                   isAdmin
                     ? 'bg-purple-50/70 hover:bg-purple-100/70 text-purple-950 border-purple-200/90 shadow-xs'
                     : 'bg-slate-50 hover:bg-slate-100 text-slate-900 border-slate-200'
@@ -333,7 +335,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     title="Online • Click to edit profile"
                   />
                 </div>
-                <div className="ui-sidebar-label flex-1 flex items-center justify-between min-w-0 ml-2.5 pr-1.5">
+                <div className="ui-sidebar-label w-[172px] shrink-0 flex items-center justify-between ml-2.5 pr-1">
                   <div className="min-w-0 pr-2">
                     <p className="text-xs font-bold truncate text-slate-900">{currentUser.name}</p>
                     <p
@@ -359,10 +361,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onLogout();
                 }}
                 title="Sign out of current account"
-                className="w-full h-11 px-[13px] bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 rounded-2xl text-xs font-bold ui-press flex items-center overflow-hidden cursor-pointer shadow-2xs group"
+                className="w-full h-11 px-[13px] bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 rounded-2xl text-xs font-bold flex items-center overflow-hidden cursor-pointer shadow-2xs transition-colors duration-200"
               >
-                <LogOut className="w-4 h-4 text-rose-600 shrink-0 transition-transform duration-[420ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover:-translate-x-0.5" />
-                <span className="ui-sidebar-label ml-3 whitespace-nowrap">
+                <LogOut className="w-4 h-4 text-rose-600 shrink-0" />
+                <span className="ui-sidebar-label w-[176px] shrink-0 ml-3 whitespace-nowrap text-left">
                   Log Out
                 </span>
               </button>
