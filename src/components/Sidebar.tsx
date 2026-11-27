@@ -17,6 +17,8 @@ import {
   Phone,
   Mail,
   Wrench,
+  PanelLeftClose,
+  PanelLeft,
 } from 'lucide-react';
 import { DashboardStats, User as UserType } from '../types';
 import { fetchWithAuth } from '../utils/auth';
@@ -84,6 +86,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isSaving, setIsSaving] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Flexible Sidebar State (Pinned vs Collapsed Rail)
+  const [isPinned, setIsPinned] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('apexfix_sidebar_pinned');
+      return saved !== null ? saved === 'true' : true;
+    } catch {
+      return true;
+    }
+  });
+  const [isHovered, setIsHovered] = useState(false);
+
+  const togglePinned = () => {
+    setIsPinned((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('apexfix_sidebar_pinned', String(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const isExpanded = isPinned || isHovered;
 
   useEffect(() => {
     if (currentUser) {
@@ -176,12 +201,37 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      <aside className="group/sidebar ui-sidebar-rail sticky top-16 h-[calc(100vh-64px)] shrink-0 bg-slate-50 border-r border-slate-200/90 flex flex-col justify-between select-none z-20 overflow-hidden">
+      <aside
+        data-expanded={isExpanded}
+        data-pinned={isPinned}
+        onMouseEnter={() => {
+          if (!isPinned) setIsHovered(true);
+        }}
+        onMouseLeave={() => {
+          if (!isPinned) setIsHovered(false);
+        }}
+        className="group/sidebar ui-sidebar-rail sticky top-16 h-[calc(100vh-64px)] shrink-0 bg-slate-50 border-r border-slate-200/90 flex flex-col justify-between select-none z-20 overflow-hidden"
+      >
         {/* Top Navigation */}
         <div className="overflow-y-auto overflow-x-hidden flex-1">
           <nav className="p-3 space-y-1.5">
-            <div className="ui-sidebar-label px-2.5 pb-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap overflow-hidden">
-              Workspace
+            {/* Header & Pin/Collapse Toggle */}
+            <div className="flex items-center justify-between px-1 pb-1.5 h-7">
+              <span className="ui-sidebar-label px-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider whitespace-nowrap overflow-hidden">
+                Workspace
+              </span>
+              <button
+                type="button"
+                onClick={togglePinned}
+                title={isPinned ? 'Collapse sidebar (Compact rail)' : 'Pin sidebar open (Expanded)'}
+                className="w-7 h-7 rounded-lg text-slate-400 hover:text-indigo-600 hover:bg-slate-200/70 active:bg-slate-300 flex items-center justify-center transition-colors cursor-pointer shrink-0 ml-auto"
+              >
+                {isPinned ? (
+                  <PanelLeftClose className="w-4 h-4 transition-transform duration-200" />
+                ) : (
+                  <PanelLeft className="w-4 h-4 text-indigo-600 transition-transform duration-200" />
+                )}
+              </button>
             </div>
 
             {/* 1. Dashboard */}
@@ -194,11 +244,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
-              <LayoutDashboard
-                className={`w-4 h-4 shrink-0 ${
-                  currentTab === 'repairs' ? 'text-indigo-600' : 'text-slate-500'
-                }`}
-              />
+              <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                <LayoutDashboard
+                  className={`w-4 h-4 shrink-0 ${
+                    currentTab === 'repairs' ? 'text-indigo-600' : 'text-slate-500'
+                  }`}
+                />
+              </div>
               <div className={navLabelCls}>
                 <span className="whitespace-nowrap">Dashboard</span>
                 <span
@@ -221,11 +273,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
-              <Users
-                className={`w-4 h-4 shrink-0 ${
-                  currentTab === 'customers' ? 'text-indigo-600' : 'text-slate-500'
-                }`}
-              />
+              <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                <Users
+                  className={`w-4 h-4 shrink-0 ${
+                    currentTab === 'customers' ? 'text-indigo-600' : 'text-slate-500'
+                  }`}
+                />
+              </div>
               <div className={navLabelCls}>
                 <span className="whitespace-nowrap">Customers</span>
                 <span className="text-[11px] px-2 py-0.5 rounded-full bg-slate-200/80 text-slate-700 font-semibold tabular-nums shrink-0">
@@ -244,11 +298,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
-              <BarChart3
-                className={`w-4 h-4 shrink-0 ${
-                  currentTab === 'analytics' ? 'text-indigo-600' : 'text-slate-500'
-                }`}
-              />
+              <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                <BarChart3
+                  className={`w-4 h-4 shrink-0 ${
+                    currentTab === 'analytics' ? 'text-indigo-600' : 'text-slate-500'
+                  }`}
+                />
+              </div>
               <div className={navLabelCls}>
                 <span className="whitespace-nowrap">Analytics</span>
               </div>
@@ -264,11 +320,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900 border border-transparent'
               }`}
             >
-              <Settings
-                className={`w-4 h-4 shrink-0 ${
-                  currentTab === 'settings' ? 'text-indigo-600' : 'text-slate-500'
-                }`}
-              />
+              <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                <Settings
+                  className={`w-4 h-4 shrink-0 ${
+                    currentTab === 'settings' ? 'text-indigo-600' : 'text-slate-500'
+                  }`}
+                />
+              </div>
               <div className={navLabelCls}>
                 <span className="whitespace-nowrap">Settings</span>
               </div>
@@ -285,11 +343,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     : 'text-purple-700 hover:bg-purple-50 border-transparent'
                 }`}
               >
-                <ShieldAlert
-                  className={`w-4 h-4 shrink-0 ${
-                    currentTab === 'admin' ? 'text-purple-200' : 'text-purple-600'
-                  }`}
-                />
+                <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                  <ShieldAlert
+                    className={`w-4 h-4 shrink-0 ${
+                      currentTab === 'admin' ? 'text-purple-200' : 'text-purple-600'
+                    }`}
+                  />
+                </div>
                 <div className={navLabelCls}>
                   <span className="whitespace-nowrap">Admin Console</span>
                   <span className="text-[9px] px-2 py-0.5 rounded-full bg-purple-600 text-white font-bold uppercase shrink-0">
@@ -363,7 +423,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title="Sign out of current account"
                 className="w-full h-11 px-[13px] bg-rose-50 hover:bg-rose-100 active:bg-rose-200 border border-rose-200 text-rose-700 rounded-2xl text-xs font-bold flex items-center overflow-hidden cursor-pointer shadow-2xs transition-colors duration-200"
               >
-                <LogOut className="w-4 h-4 text-rose-600 shrink-0" />
+                <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                  <LogOut className="w-4 h-4 text-rose-600 shrink-0" />
+                </div>
                 <span className="ui-sidebar-label w-[176px] shrink-0 ml-3 whitespace-nowrap text-left">
                   Log Out
                 </span>
@@ -377,7 +439,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 title="Exit to Login"
                 className="w-full h-11 px-[13px] bg-slate-100 hover:bg-slate-200 text-slate-700 border border-slate-200 rounded-2xl text-xs font-bold ui-press flex items-center overflow-hidden cursor-pointer"
               >
-                <LogOut className="w-4 h-4 text-slate-500 shrink-0" />
+                <div className="w-5 h-5 shrink-0 flex items-center justify-center">
+                  <LogOut className="w-4 h-4 text-slate-500 shrink-0" />
+                </div>
                 <span className="ui-sidebar-label ml-3 whitespace-nowrap">
                   Exit to Login
                 </span>
